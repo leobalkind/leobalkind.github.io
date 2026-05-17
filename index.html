@@ -501,6 +501,7 @@
 
       <footer class="hub__footer">
         <span>Built with PixiJS + Vite</span>
+        <span id="daily-seed" class="hub__chip" title="Today's daily-challenge seed" style="margin-left:8px;font-size:0.45rem;"></span>
         <button id="settings-btn" type="button" class="hub__icon-btn" title="Settings" aria-label="Settings">⚙</button>
         <button id="changelog-btn" type="button" class="hub__icon-btn" title="What's new" aria-label="What's new">★</button>
         <a id="kofi-btn" href="https://ko-fi.com/" target="_blank" rel="noopener" class="hub__icon-btn" title="Tip the dev" aria-label="Tip the dev">☕</a>
@@ -640,6 +641,16 @@
       ['settings-modal','changelog-modal','onboard-modal'].forEach((id) => {
         $(id)?.addEventListener('click', (e) => { if (e.target.id === id) closeModal(id); });
       });
+
+      // Daily seed badge — same seed for everyone on the same UTC day
+      const seedEl = $('daily-seed');
+      if (seedEl) {
+        const d = new Date();
+        const y = d.getUTCFullYear();
+        const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+        const day = String(d.getUTCDate()).padStart(2, '0');
+        seedEl.textContent = `DAILY ${y}-${m}-${day}`;
+      }
     </script>
   </body>
 </html>

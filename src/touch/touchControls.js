@@ -185,6 +185,8 @@ export function createTouchControls(opts = {}) {
       state.abilityDown = true;
       abilityBtn.classList.add('is-active');
       if (onAbility) onAbility(true);
+      // Haptic — gentle tick on press
+      if (navigator.vibrate) navigator.vibrate(20);
       e.preventDefault();
     };
     const release = (e) => {
