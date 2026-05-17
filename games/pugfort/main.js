@@ -96,6 +96,18 @@ window.addEventListener('keydown', (e) => {
     setPaused(!paused);
   }
 });
+// Difficulty buttons
+const savedDiff = localStorage.getItem('pugfort:difficulty') || 'normal';
+document.querySelectorAll('.diff-btn').forEach((btn) => {
+  if (btn.dataset.diff === savedDiff) btn.classList.add('diff-btn--active');
+  else btn.classList.remove('diff-btn--active');
+  btn.addEventListener('click', () => {
+    const d = btn.dataset.diff;
+    localStorage.setItem('pugfort:difficulty', d);
+    document.querySelectorAll('.diff-btn').forEach((b) => b.classList.toggle('diff-btn--active', b === btn));
+  });
+});
+
 // Restore accessibility preferences from hub-wide settings
 if (localStorage.getItem('wg:large-text') === '1') document.body.classList.add('large-text');
 if (localStorage.getItem('wg:reduced-motion') === '1') document.body.classList.add('reduced-motion');
