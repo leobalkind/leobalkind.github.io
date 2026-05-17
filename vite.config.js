@@ -21,6 +21,7 @@ export default defineConfig(({ command }) => ({
         pugfort: resolve(__dirname, 'games/pugfort/index.html'),
         pugSnake: resolve(__dirname, 'games/pug-snake/index.html'),
         boopSnoot: resolve(__dirname, 'games/boop-snoot/index.html'),
+        pugWhisperer: resolve(__dirname, 'games/pug-whisperer/index.html'),
       },
     },
   },
