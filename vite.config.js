@@ -19,6 +19,7 @@ export default defineConfig(({ command }) => ({
         hub: resolve(__dirname, 'index.html'),
         borkBattle: resolve(__dirname, 'games/bork-battle/index.html'),
         pugfort: resolve(__dirname, 'games/pugfort/index.html'),
+        pugSnake: resolve(__dirname, 'games/pug-snake/index.html'),
       },
     },
   },
