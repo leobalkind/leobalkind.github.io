@@ -59,7 +59,7 @@ export class Game {
       resolution: 1,
     });
     rootEl.appendChild(this.app.canvas);
-    this.input = new Input(this.app.canvas);
+    this.input = new Input(this.app.canvas, this.touchControls || null);
     this.hud = new Hud();
   }
 
@@ -203,11 +203,16 @@ export class Game {
     const p = this.player;
     if (!p.alive) return;
 
-    const screen = this.input.mouse;
-    const cam = this.app.stage;
-    const wx = (screen.screenX - cam.x) / cam.scale.x;
-    const wy = (screen.screenY - cam.y) / cam.scale.y;
-    p.setAimToward(wx, wy);
+    const tAim = this.input.touchAim ? this.input.touchAim() : null;
+    if (tAim) {
+      p.aim = Math.atan2(tAim.y, tAim.x);
+    } else {
+      const screen = this.input.mouse;
+      const cam = this.app.stage;
+      const wx = (screen.screenX - cam.x) / cam.scale.x;
+      const wy = (screen.screenY - cam.y) / cam.scale.y;
+      p.setAimToward(wx, wy);
+    }
 
     const mv = this.input.moveVector();
     let sprintMult = 1;
@@ -256,7 +261,7 @@ export class Game {
 
     // Fire
     this.fireCooldown -= dt;
-    if (!this.build.selected && this.input.mouseDown && this.fireCooldown <= 0) {
+    if (!this.build.selected && this.input.isFiring() && this.fireCooldown <= 0) {
       this.fireCooldown = PISTOL_COOLDOWN;
       const angle = p.aim;
       const offX = Math.cos(angle) * (p.radius + 8);

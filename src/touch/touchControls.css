@@ -1,0 +1,137 @@
+/* =============================================================================
+   Touch controls — virtual dual-stick + ability button.
+   Shown only when JS detects a touch device; CSS-hidden on coarse-pointer
+   for fast-path.
+   ========================================================================= */
+
+.touch-controls {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 150;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+}
+
+.touch-stick {
+  position: fixed;
+  bottom: 30px;
+  width: 140px;
+  height: 140px;
+  pointer-events: auto;
+  touch-action: none;
+}
+
+.touch-stick--left  { left: 24px; }
+.touch-stick--right { right: 24px; }
+
+.touch-stick__base {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 50%, rgba(76, 201, 240, 0.18), rgba(0, 0, 0, 0.55) 70%);
+  border: 2px solid rgba(76, 201, 240, 0.45);
+  box-shadow:
+    0 0 24px rgba(76, 201, 240, 0.25),
+    inset 0 0 14px rgba(0, 0, 0, 0.5);
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.touch-stick--right .touch-stick__base {
+  background: radial-gradient(circle at 50% 50%, rgba(255, 58, 161, 0.18), rgba(0, 0, 0, 0.55) 70%);
+  border-color: rgba(255, 58, 161, 0.45);
+  box-shadow:
+    0 0 24px rgba(255, 58, 161, 0.25),
+    inset 0 0 14px rgba(0, 0, 0, 0.5);
+}
+
+.touch-stick.is-active .touch-stick__base {
+  border-color: rgba(76, 201, 240, 0.9);
+  box-shadow:
+    0 0 30px rgba(76, 201, 240, 0.55),
+    inset 0 0 14px rgba(0, 0, 0, 0.5);
+}
+.touch-stick--right.is-active .touch-stick__base {
+  border-color: rgba(255, 58, 161, 0.9);
+  box-shadow:
+    0 0 30px rgba(255, 58, 161, 0.55),
+    inset 0 0 14px rgba(0, 0, 0, 0.5);
+}
+
+.touch-stick__thumb {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 64px;
+  height: 64px;
+  margin-left: -32px;
+  margin-top: -32px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, rgba(255, 255, 255, 0.6), rgba(76, 201, 240, 0.7) 50%, rgba(20, 60, 100, 0.95));
+  box-shadow:
+    0 4px 12px rgba(0, 0, 0, 0.5),
+    inset 0 -2px 6px rgba(0, 0, 0, 0.4),
+    inset 0 2px 4px rgba(255, 255, 255, 0.3);
+  pointer-events: none;
+  transition: background 0.1s;
+}
+
+.touch-stick--right .touch-stick__thumb {
+  background: radial-gradient(circle at 35% 30%, rgba(255, 255, 255, 0.6), rgba(255, 58, 161, 0.7) 50%, rgba(120, 18, 80, 0.95));
+}
+
+.touch-ability {
+  position: fixed;
+  right: 24px;
+  bottom: 200px;
+  width: 84px;
+  height: 84px;
+  border-radius: 50%;
+  background: linear-gradient(180deg, #ffd23f, #c89c20);
+  color: #1a0d05;
+  border: 3px solid #fff0a0;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 0.7rem;
+  font-weight: bold;
+  letter-spacing: 0.05em;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.3);
+  box-shadow:
+    0 6px 0 rgba(120, 80, 0, 0.8),
+    0 0 24px rgba(255, 210, 63, 0.5);
+  pointer-events: auto;
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: pointer;
+}
+
+.touch-ability:active,
+.touch-ability.is-active {
+  transform: translateY(4px);
+  box-shadow:
+    0 2px 0 rgba(120, 80, 0, 0.8),
+    0 0 30px rgba(255, 210, 63, 0.8);
+}
+
+/* On non-touch devices, hide everything (JS won't insert nodes anyway, but
+   this is a defense-in-depth so the controls don't bleed onto desktop). */
+@media (hover: hover) and (pointer: fine) {
+  .touch-controls { display: none; }
+}
+
+/* On narrow viewports shrink the controls a bit so they fit phones */
+@media (max-height: 540px) {
+  .touch-stick { width: 110px; height: 110px; bottom: 14px; }
+  .touch-stick--left  { left: 14px; }
+  .touch-stick--right { right: 14px; }
+  .touch-stick__thumb { width: 52px; height: 52px; margin-left: -26px; margin-top: -26px; }
+  .touch-ability { bottom: 144px; width: 68px; height: 68px; font-size: 0.6rem; }
+}
+
+/* Block long-press menus inside controls */
+.touch-controls,
+.touch-controls * {
+  -webkit-touch-callout: none;
+}

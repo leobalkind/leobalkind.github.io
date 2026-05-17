@@ -1,7 +1,10 @@
 // Centralized input for PUGFORT — WASD + mouse + build hotkeys.
+// Optional touchControls overlays virtual joysticks for mobile.
 export class Input {
-  constructor(canvas) {
+  constructor(canvas, touchControls = null) {
     this.canvas = canvas;
+    this.touch = touchControls;
+    this._touchPrevFiring = false;
     this.codes = new Set();
     this.mouse = { x: 0, y: 0, screenX: 0, screenY: 0 };
     this.mouseDown = false;
@@ -62,15 +65,40 @@ export class Input {
     if (this.codes.has('KeyS') || this.codes.has('ArrowDown'))  y += 1;
     if (this.codes.has('KeyA') || this.codes.has('ArrowLeft'))  x -= 1;
     if (this.codes.has('KeyD') || this.codes.has('ArrowRight')) x += 1;
-    if (x === 0 && y === 0) return { x: 0, y: 0 };
-    const len = Math.hypot(x, y);
-    return { x: x / len, y: y / len };
+    if (x !== 0 || y !== 0) {
+      const len = Math.hypot(x, y);
+      return { x: x / len, y: y / len };
+    }
+    if (this.touch?.enabled) return this.touch.getMove();
+    return { x: 0, y: 0 };
+  }
+
+  // Touch-only aim vector (unit) or null
+  touchAim() { return this.touch?.enabled ? this.touch.getAim() : null; }
+  isFiring() {
+    if (this.mouseDown) return true;
+    return this.touch?.enabled && this.touch.isFiring();
   }
 
   sprintDown() { return this.codes.has('ShiftLeft') || this.codes.has('ShiftRight'); }
 
-  takeClick() { const c = this._justClicked; this._justClicked = false; return c; }
-  takeBPress() { const v = this._bJustPressed; this._bJustPressed = false; return v; }
+  takeClick() {
+    if (this._justClicked) { this._justClicked = false; return true; }
+    // Touch fire is a held state; convert rising edge to a "click"
+    if (this.touch?.enabled) {
+      const firing = this.touch.isFiring();
+      if (firing && !this._touchPrevFiring) {
+        this._touchPrevFiring = true;
+        return true;
+      }
+      if (!firing) this._touchPrevFiring = false;
+    }
+    return false;
+  }
+  takeBPress() {
+    if (this._bJustPressed) { this._bJustPressed = false; return true; }
+    return this.touch?.enabled && this.touch.consumeAbilityPressed();
+  }
   takeOnePress() { const v = this._oneJustPressed; this._oneJustPressed = false; return v; }
   takeTwoPress() { const v = this._twoJustPressed; this._twoJustPressed = false; return v; }
   takeThreePress() { const v = this._threeJustPressed; this._threeJustPressed = false; return v; }

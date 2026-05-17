@@ -3,6 +3,12 @@ import { FORMS } from './src/pugForms.js';
 import { WEAPONS, SKINS } from './src/weapons.js';
 import { DIFFICULTIES } from './src/difficulty.js';
 import { Sfx } from './src/Sfx.js';
+import { createTouchControls } from '../../src/touch/touchControls.js';
+import '../../src/touch/touchControls.css';
+
+// Detect touch device + create overlay controls (no-op on desktop)
+const touch = createTouchControls({ enableAbility: true, abilityLabel: 'BORK' });
+if (touch.enabled) document.body.classList.add('is-touch');
 
 const root = document.getElementById('game-root');
 const startOverlay = document.getElementById('overlay');
@@ -36,6 +42,7 @@ window.addEventListener('keydown', (e) => {
 });
 
 const game = new Game();
+game.touchControls = touch;
 // Boot is async; wrapped in IIFE so production build doesn't need top-level await.
 // Once init resolves the Pixi app exists, so re-render the starter cards with real
 // per-character previews (replacing the emoji fallback shown during boot).
@@ -146,9 +153,95 @@ async function play() {
   await game.start(chosenStarter, chosenWeapon, chosenSkin, chosenDifficulty);
 }
 
-restartBtn.addEventListener('click', () => {
+// REMATCH — replay same loadout instantly
+restartBtn.addEventListener('click', () => { play(); });
+// START SCREEN — go back to character/loadout picker
+document.getElementById('end-back')?.addEventListener('click', () => {
   hide(endOverlay);
   show(startOverlay);
+});
+
+// ============ Pause menu ============
+const pauseOverlay = document.getElementById('pause-overlay');
+const pauseBtn = document.getElementById('pause-btn');
+const pauseResume = document.getElementById('pause-resume');
+const pauseMute = document.getElementById('pause-mute');
+const pauseLarge = document.getElementById('pause-large-text');
+const pauseQuit = document.getElementById('pause-quit');
+let paused = false;
+
+function setPaused(p) {
+  paused = p;
+  if (!pauseOverlay) return;
+  pauseOverlay.hidden = !p;
+  if (game && game.app && game.app.ticker) {
+    if (p) game.app.ticker.stop(); else game.app.ticker.start();
+  }
+  // Refresh button states
+  if (pauseMute) pauseMute.textContent = Sfx.isMuted() ? 'SOUND: OFF' : 'SOUND: ON';
+  if (pauseLarge) pauseLarge.textContent = document.body.classList.contains('large-text') ? 'LARGE TEXT: ON' : 'LARGE TEXT: OFF';
+}
+pauseBtn?.addEventListener('click', () => setPaused(!paused));
+pauseResume?.addEventListener('click', () => setPaused(false));
+pauseMute?.addEventListener('click', () => {
+  const m = Sfx.toggleMute();
+  localStorage.setItem('bork:muted', m ? '1' : '0');
+  applyMuteUI(m);
+  pauseMute.textContent = m ? 'SOUND: OFF' : 'SOUND: ON';
+});
+pauseLarge?.addEventListener('click', () => {
+  document.body.classList.toggle('large-text');
+  const on = document.body.classList.contains('large-text');
+  localStorage.setItem('wg:large-text', on ? '1' : '0');
+  pauseLarge.textContent = on ? 'LARGE TEXT: ON' : 'LARGE TEXT: OFF';
+});
+pauseQuit?.addEventListener('click', () => { window.location.href = '../../index.html'; });
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !startOverlay || (e.key === 'Escape' && startOverlay.classList.contains('is-hidden'))) {
+    // Only pause if game is actually running (start overlay is hidden)
+    if (!startOverlay.classList.contains('is-hidden')) return;
+    e.preventDefault();
+    setPaused(!paused);
+  }
+  if (e.key === 'p' || e.key === 'P') {
+    if (!startOverlay.classList.contains('is-hidden')) setPaused(!paused);
+  }
+});
+
+// Restore large-text preference
+if (localStorage.getItem('wg:large-text') === '1') document.body.classList.add('large-text');
+
+// ============ Konami code: ↑↑↓↓←→←→BA — unlocks GOD MODE ============
+const KONAMI = ['ArrowUp','ArrowUp','ArrowDown','ArrowDown','ArrowLeft','ArrowRight','ArrowLeft','ArrowRight','b','a'];
+let konamiBuffer = [];
+window.addEventListener('keydown', (e) => {
+  konamiBuffer.push(e.key.length === 1 ? e.key.toLowerCase() : e.key);
+  if (konamiBuffer.length > KONAMI.length) konamiBuffer.shift();
+  if (konamiBuffer.length === KONAMI.length && konamiBuffer.every((k, i) => k === KONAMI[i])) {
+    konamiBuffer = [];
+    document.body.classList.add('konami-active');
+    if (game && game.player) {
+      game.player.maxHp = 9999;
+      game.player.hp = 9999;
+      if (game.hud && game.hud.toastMessage) game.hud.toastMessage('🌈 KONAMI! GOD MODE: HP ×100', 'kill');
+    } else {
+      alert('🌈 KONAMI! GOD MODE will activate when you start a match.');
+    }
+  }
+});
+
+// Show personal best on start screen
+import('../../src/persistence/highScores.js').then(({ loadBest }) => {
+  const best = loadBest('bork-battle');
+  if (!best) return;
+  const sub = document.querySelector('#overlay .overlay__sub');
+  if (sub && !document.getElementById('best-line')) {
+    const div = document.createElement('div');
+    div.id = 'best-line';
+    div.style.cssText = 'margin:10px 0 0;color:var(--neon-yellow);font-size:0.6rem;letter-spacing:0.05em;';
+    div.innerHTML = `★ Personal best: <b>${best.kills}</b> kills as <b>${best.form}</b>`;
+    sub.appendChild(div);
+  }
 });
 
 window.addEventListener('keydown', (e) => {

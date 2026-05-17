@@ -1,7 +1,10 @@
 // Centralized input. Tracks WASD, space, E, mouse position, mouse buttons.
+// Optional touchControls (from src/touch/touchControls.js) supplies move/aim/fire
+// state on mobile devices; desktop keyboard+mouse takes precedence when active.
 export class Input {
-  constructor(canvas) {
+  constructor(canvas, touchControls = null) {
     this.canvas = canvas;
+    this.touch = touchControls;
     this.keys = new Set();
     this.mouse = { x: 0, y: 0, screenX: 0, screenY: 0 };
     this.mouseDown = false;
@@ -41,16 +44,34 @@ export class Input {
     window.addEventListener('contextmenu', (e) => e.preventDefault());
   }
 
-  // Movement direction from WASD as normalized vector
+  // Movement direction — keyboard wins if any WASD pressed; else touch joystick.
   moveVector() {
     let x = 0, y = 0;
     if (this.keys.has('w')) y -= 1;
     if (this.keys.has('s')) y += 1;
     if (this.keys.has('a')) x -= 1;
     if (this.keys.has('d')) x += 1;
-    if (x === 0 && y === 0) return { x: 0, y: 0 };
-    const len = Math.hypot(x, y);
-    return { x: x / len, y: y / len };
+    if (x !== 0 || y !== 0) {
+      const len = Math.hypot(x, y);
+      return { x: x / len, y: y / len };
+    }
+    if (this.touch?.enabled) {
+      const m = this.touch.getMove();
+      return m;
+    }
+    return { x: 0, y: 0 };
+  }
+
+  // Aim vector from touch right stick (mobile), or null on desktop.
+  // Desktop uses mouse position via input.mouse.screenX/Y (existing code).
+  touchAim() {
+    return this.touch?.enabled ? this.touch.getAim() : null;
+  }
+
+  // Is the player firing? (desktop mouseDown OR touch right-stick deflected)
+  isFiring() {
+    if (this.mouseDown) return true;
+    return this.touch?.enabled && this.touch.isFiring();
   }
 
   // Call once per frame after reading
@@ -60,8 +81,17 @@ export class Input {
     this._eJustPressed = false;
   }
 
-  spaceDown() { return this._spaceDown; }
-  spaceJustReleased() { return this._spaceJustReleased; }
-  spaceJustPressed() { return this._spaceJustPressed; }
+  spaceDown() {
+    if (this._spaceDown) return true;
+    return this.touch?.enabled && this.touch.abilityDown;
+  }
+  spaceJustReleased() {
+    if (this._spaceJustReleased) return true;
+    return this.touch?.enabled && this.touch.consumeAbilityReleased();
+  }
+  spaceJustPressed() {
+    if (this._spaceJustPressed) return true;
+    return this.touch?.enabled && this.touch.consumeAbilityPressed();
+  }
   eJustPressed() { return this._eJustPressed; }
 }

@@ -18,6 +18,7 @@ import {
 } from './funnyText.js';
 import { randomSeed, mulberry32 } from './rng.js';
 import { Sfx } from './Sfx.js';
+import { submitRun, loadBest } from '../../../src/persistence/highScores.js';
 
 const MAX_BOTS = 11;
 const BORK_MAX_DAMAGE = 60;
@@ -75,7 +76,7 @@ export class Game {
     // Pixel-perfect rendering style
     this.app.canvas.style.imageRendering = 'pixelated';
 
-    this.input = new Input(this.app.canvas);
+    this.input = new Input(this.app.canvas, this.touchControls || null);
     this.hud = new Hud();
   }
 
@@ -245,6 +246,7 @@ export class Game {
       dt = rawDt * 0.4;
     }
     this.matchTime += dt;
+    this._tickCombo();
 
     // World + items
     this.world.update(dt, this.matchTime);
@@ -439,12 +441,17 @@ export class Game {
     const p = this.player;
     if (!p.alive) return;
 
-    // Aim toward mouse (in world coords)
-    const screen = this.input.mouse;
-    const cam = this.app.stage;
-    const wx = (screen.screenX - cam.x) / cam.scale.x;
-    const wy = (screen.screenY - cam.y) / cam.scale.y;
-    p.setAimToward(wx, wy);
+    // Aim — touch right stick takes priority on mobile, mouse on desktop.
+    const tAim = this.input.touchAim ? this.input.touchAim() : null;
+    if (tAim) {
+      p.aim = Math.atan2(tAim.y, tAim.x);
+    } else {
+      const screen = this.input.mouse;
+      const cam = this.app.stage;
+      const wx = (screen.screenX - cam.x) / cam.scale.x;
+      const wy = (screen.screenY - cam.y) / cam.scale.y;
+      p.setAimToward(wx, wy);
+    }
 
     // Move (with speed bonus from upgrades + power-up buffs)
     const mv = this.input.moveVector();
@@ -478,7 +485,7 @@ export class Game {
 
     // Fire
     p.cooldownFire -= dt;
-    if (this.input.mouseDown && p.cooldownFire <= 0 && !p.reloading) {
+    if (this.input.isFiring() && p.cooldownFire <= 0 && !p.reloading) {
       this._fireProjectile(p, p.aim);
       const fireMult =
         (p.bonus ? p.bonus.fireMult : 1) *
@@ -1551,6 +1558,19 @@ export class Game {
     this._spawnRandomDeathEffect(victim.x, victim.y);
     // Audio — kill sound, louder when player kills or is killed
     if (killer === this.player || victim === this.player) Sfx.kill();
+    // Combo system: if player chained kill within 3s, grow combo
+    if (killer === this.player) {
+      const now = this.matchTime;
+      const COMBO_WINDOW = 3.0;
+      if (this._comboLast && (now - this._comboLast) < COMBO_WINDOW) {
+        this._combo = (this._combo || 1) + 1;
+      } else {
+        this._combo = 1;
+      }
+      this._comboLast = now;
+      this._comboExpiresAt = now + COMBO_WINDOW;
+      this._updateComboUI();
+    }
     // Drop energy (treats → money for player)
     this.energy.spawnBurst(victim.x, victim.y, 6 + victim.form.tier * 3, 6);
     // ~32% chance to drop a power-up (handled inside PowerupManager)
@@ -1827,6 +1847,39 @@ export class Game {
     }
   }
 
+  _updateComboUI() {
+    const bubble = document.getElementById('combo-bubble');
+    const text = document.getElementById('combo-text');
+    const fill = document.getElementById('combo-bar-fill');
+    if (!bubble || !text || !fill) return;
+    if (!this._combo || this._combo < 2) {
+      bubble.classList.remove('is-show');
+      return;
+    }
+    const labels = ['', '', 'DOUBLE', 'TRIPLE', 'QUAD', 'PENTA', 'HEXA', 'RAMPAGE'];
+    const label = labels[this._combo] || 'MEGA';
+    text.textContent = `${label} ×${this._combo}`;
+    bubble.classList.add('is-show');
+    // Tint hotter as combo grows
+    bubble.style.borderColor = this._combo >= 4 ? 'var(--neon-pink)' : 'var(--neon-yellow)';
+    bubble.style.color = this._combo >= 4 ? 'var(--neon-pink)' : 'var(--neon-yellow)';
+    // Reset fill animation
+    fill.style.transition = 'none';
+    fill.style.transform = 'scaleX(1)';
+    requestAnimationFrame(() => {
+      fill.style.transition = 'transform 3s linear';
+      fill.style.transform = 'scaleX(0)';
+    });
+  }
+
+  _tickCombo() {
+    if (this._comboExpiresAt && this.matchTime >= this._comboExpiresAt) {
+      this._combo = 0;
+      this._comboExpiresAt = 0;
+      this._updateComboUI();
+    }
+  }
+
   _endMatch(won) {
     if (!this.running) return; // guard against double-call
     this.running = false;
@@ -1841,6 +1894,20 @@ export class Game {
     const s = Math.floor(this.matchTime % 60);
     document.getElementById('end-time').textContent =
       `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+    // Submit run to local best-tracker
+    const run = {
+      score: this.player.kills,
+      kills: this.player.kills,
+      time: this.matchTime,
+      form: this.player.form.name,
+      won,
+    };
+    const { isNewBest, current } = submitRun('bork-battle', run);
+    const bestRow = document.getElementById('end-best');
+    if (bestRow) {
+      const best = current || run;
+      bestRow.innerHTML = `Best kills: <b>${best.kills}</b>${isNewBest ? ' <span style="color:var(--neon-yellow)">★ NEW</span>' : ''}`;
+    }
     overlay.hidden = false;
     overlay.classList.remove('is-hidden');
     this.hud.hide();
