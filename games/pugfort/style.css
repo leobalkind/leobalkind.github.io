@@ -332,6 +332,16 @@ canvas { display: block; image-rendering: pixelated; image-rendering: crisp-edge
   box-shadow: 0 4px 0 #1a5a30, 0 0 24px rgba(94, 243, 140, 0.4);
 }
 .overlay__btn:hover { transform: translateY(-2px); }
+.overlay__btn--ghost {
+  background: transparent;
+  color: var(--text-soft);
+  border-color: var(--border);
+  font-size: 0.65rem;
+  padding: 10px 18px;
+  margin-left: 12px;
+  box-shadow: none;
+}
+.overlay__btn--ghost:hover { border-color: var(--neon-cyan); color: var(--neon-cyan); }
 .overlay__back {
   display: inline-block; margin-top: 16px; margin-left: 12px;
   color: var(--muted); text-decoration: none; font-size: 0.6rem;

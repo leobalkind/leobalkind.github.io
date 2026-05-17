@@ -90,6 +90,25 @@ document.getElementById('pause-photo')?.addEventListener('click', () => {
   a.href = canvas.toDataURL('image/png');
   a.click();
 });
+document.getElementById('end-share')?.addEventListener('click', async () => {
+  const nights = document.getElementById('end-nights')?.textContent || '0';
+  const kills = document.getElementById('end-kills')?.textContent || '0';
+  const walls = document.getElementById('end-walls')?.textContent || '0';
+  const text = `🐶 PUGFORT.EXE — I survived ${nights} nights, killed ${kills} zombies, built ${walls} walls! Beat me at https://leobalkind.github.io/web-games/`;
+  const btn = document.getElementById('end-share');
+  try {
+    if (navigator.share) {
+      await navigator.share({ title: 'PUGFORT.EXE', text, url: 'https://leobalkind.github.io/web-games/' });
+    } else {
+      await navigator.clipboard.writeText(text);
+      btn.textContent = '✓ COPIED!';
+      setTimeout(() => { btn.textContent = '📋 SHARE'; }, 2000);
+    }
+  } catch (err) {
+    btn.textContent = '⚠ FAILED';
+    setTimeout(() => { btn.textContent = '📋 SHARE'; }, 2000);
+  }
+});
 window.addEventListener('keydown', (e) => {
   if ((e.key === 'Escape' || e.key === 'p' || e.key === 'P') && startOverlay.classList.contains('is-hidden') && endOverlay.classList.contains('is-hidden')) {
     e.preventDefault();

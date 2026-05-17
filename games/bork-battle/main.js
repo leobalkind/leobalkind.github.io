@@ -168,6 +168,27 @@ document.getElementById('end-back')?.addEventListener('click', () => {
   hide(endOverlay);
   show(startOverlay);
 });
+// Share — copy stats text + URL to clipboard
+document.getElementById('end-share')?.addEventListener('click', async () => {
+  const form = document.getElementById('end-form')?.textContent || '?';
+  const kills = document.getElementById('end-kills')?.textContent || '0';
+  const time = document.getElementById('end-time')?.textContent || '0:00';
+  const text = `🐶 BORK BATTLE — I got ${kills} kills as ${form} in ${time}! Beat me at https://leobalkind.github.io/web-games/`;
+  const btn = document.getElementById('end-share');
+  try {
+    if (navigator.share) {
+      await navigator.share({ title: 'BORK BATTLE', text, url: 'https://leobalkind.github.io/web-games/' });
+    } else {
+      await navigator.clipboard.writeText(text);
+      btn.textContent = '✓ COPIED!';
+      setTimeout(() => { btn.textContent = '📋 SHARE'; }, 2000);
+    }
+  } catch (err) {
+    console.warn('Share failed', err);
+    btn.textContent = '⚠ FAILED';
+    setTimeout(() => { btn.textContent = '📋 SHARE'; }, 2000);
+  }
+});
 
 // ============ Pause menu ============
 const pauseOverlay = document.getElementById('pause-overlay');

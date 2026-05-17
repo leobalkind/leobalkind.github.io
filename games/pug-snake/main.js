@@ -363,6 +363,16 @@ restartBtn.addEventListener('click', start);
 pauseBtn?.addEventListener('click', togglePause);
 pauseResume?.addEventListener('click', () => { togglePause(); });
 pauseQuit?.addEventListener('click', () => { window.location.href = '../../index.html'; });
+document.getElementById('end-share')?.addEventListener('click', async () => {
+  const s = document.getElementById('end-score')?.textContent || '0';
+  const l = document.getElementById('end-length')?.textContent || '0';
+  const text = `🐍 PUG SNAKE — Score ${s}, length ${l}! Beat me at https://leobalkind.github.io/web-games/`;
+  const btn = document.getElementById('end-share');
+  try {
+    if (navigator.share) await navigator.share({ title: 'PUG SNAKE', text, url: 'https://leobalkind.github.io/web-games/' });
+    else { await navigator.clipboard.writeText(text); btn.textContent = '✓ COPIED!'; setTimeout(() => btn.textContent = '📋 SHARE', 2000); }
+  } catch { btn.textContent = '⚠ FAILED'; setTimeout(() => btn.textContent = '📋 SHARE', 2000); }
+});
 
 function start() {
   reset();
