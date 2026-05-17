@@ -45,6 +45,7 @@ async function play() {
   hide(startOverlay);
   hide(endOverlay);
   await game.start();
+  if (localStorage.getItem('wg:music') !== '0') Sfx.startMusic?.();
 }
 
 // ============ Pause menu ============
@@ -84,8 +85,10 @@ window.addEventListener('keydown', (e) => {
     setPaused(!paused);
   }
 });
-// Restore large-text preference
+// Restore accessibility preferences from hub-wide settings
 if (localStorage.getItem('wg:large-text') === '1') document.body.classList.add('large-text');
+if (localStorage.getItem('wg:reduced-motion') === '1') document.body.classList.add('reduced-motion');
+if (localStorage.getItem('wg:colorblind') === '1') document.body.classList.add('colorblind');
 
 // ============ High score on end screen ============
 import('../../src/persistence/highScores.js').then(({ submitRun, loadBest }) => {
@@ -131,4 +134,7 @@ import('../../src/persistence/highScores.js').then(({ submitRun, loadBest }) => 
       play();
     }
   });
+  // Hide loading screen
+  const ls = document.getElementById('loading-screen');
+  if (ls) ls.hidden = true;
 })();

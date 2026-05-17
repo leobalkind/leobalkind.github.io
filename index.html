@@ -437,7 +437,121 @@
 
       <footer class="hub__footer">
         <span>Built with PixiJS + Vite</span>
+        <button id="settings-btn" type="button" class="hub__icon-btn" title="Settings" aria-label="Settings">⚙</button>
+        <button id="changelog-btn" type="button" class="hub__icon-btn" title="What's new" aria-label="What's new">★</button>
       </footer>
     </main>
+
+    <!-- Settings modal -->
+    <div id="settings-modal" class="hub-modal" hidden>
+      <div class="hub-modal__panel">
+        <h2>SETTINGS</h2>
+        <label class="hub-toggle">
+          <input id="opt-music" type="checkbox" checked />
+          <span>Background music</span>
+        </label>
+        <label class="hub-toggle">
+          <input id="opt-sfx" type="checkbox" checked />
+          <span>Sound effects</span>
+        </label>
+        <label class="hub-toggle">
+          <input id="opt-large-text" type="checkbox" />
+          <span>Large text</span>
+        </label>
+        <label class="hub-toggle">
+          <input id="opt-reduced-motion" type="checkbox" />
+          <span>Reduced motion</span>
+        </label>
+        <label class="hub-toggle">
+          <input id="opt-colorblind" type="checkbox" />
+          <span>Color-blind friendly palette</span>
+        </label>
+        <button id="settings-close" type="button" class="hub-modal__close">DONE</button>
+      </div>
+    </div>
+
+    <!-- What's New / changelog modal -->
+    <div id="changelog-modal" class="hub-modal" hidden>
+      <div class="hub-modal__panel">
+        <h2>WHAT'S NEW</h2>
+        <ul class="hub-changelog">
+          <li><b>v0.3</b> · Mobile/touch dual-stick controls, pause menu, high scores, combo system, background music, PWA install, settings panel, Konami code</li>
+          <li><b>v0.2</b> · 12 new BORK BATTLE characters (46 total), full audio system, mute button, SVG game thumbnails, polished overlays</li>
+          <li><b>v0.1</b> · Hub site launch with BORK BATTLE + PUGFORT.EXE</li>
+        </ul>
+        <button id="changelog-close" type="button" class="hub-modal__close">DONE</button>
+      </div>
+    </div>
+
+    <!-- First-visit onboarding -->
+    <div id="onboard-modal" class="hub-modal" hidden>
+      <div class="hub-modal__panel hub-modal__panel--wide">
+        <h2>WELCOME 🐶</h2>
+        <p class="onboard-body">
+          Two pixel-art browser games. Pick a card to play. No accounts, no installs.
+        </p>
+        <ul class="onboard-tips">
+          <li><b>Desktop:</b> WASD + mouse. M = mute. Esc / P = pause.</li>
+          <li><b>Mobile:</b> Left stick moves, right stick aims + fires. Yellow button = ability.</li>
+          <li><b>Tip:</b> Add this site to your home screen for an offline app icon.</li>
+        </ul>
+        <button id="onboard-close" type="button" class="hub-modal__close">LET'S GO</button>
+      </div>
+    </div>
+
+    <script type="module">
+      // Register service worker (offline cache) — only in production
+      if ('serviceWorker' in navigator && location.hostname !== 'localhost') {
+        navigator.serviceWorker.register('sw.js').catch(() => {});
+      }
+
+      // Toggle handlers
+      const $ = (id) => document.getElementById(id);
+      const STORE = (k, v) => localStorage.setItem(`wg:${k}`, v ? '1' : '0');
+      const LOAD = (k) => localStorage.getItem(`wg:${k}`) === '1';
+
+      const opts = {
+        music: { el: $('opt-music'), key: 'music', default: true, apply: () => {} },
+        sfx: { el: $('opt-sfx'), key: 'sfx', default: true, apply: () => {} },
+        'large-text': { el: $('opt-large-text'), key: 'large-text', apply: (on) => document.body.classList.toggle('large-text', on) },
+        'reduced-motion': { el: $('opt-reduced-motion'), key: 'reduced-motion', apply: (on) => document.body.classList.toggle('reduced-motion', on) },
+        colorblind: { el: $('opt-colorblind'), key: 'colorblind', apply: (on) => document.body.classList.toggle('colorblind', on) },
+      };
+      // Initial state — music/sfx default to ON (so check unless explicitly 0)
+      function initOpts() {
+        for (const [k, o] of Object.entries(opts)) {
+          if (!o.el) continue;
+          const stored = localStorage.getItem(`wg:${o.key}`);
+          const on = stored === null ? !!o.default : stored === '1';
+          o.el.checked = on;
+          if (o.apply) o.apply(on);
+          o.el.addEventListener('change', () => {
+            STORE(o.key, o.el.checked);
+            if (o.apply) o.apply(o.el.checked);
+          });
+        }
+      }
+      initOpts();
+
+      // Modals
+      function openModal(id) { $(id).hidden = false; }
+      function closeModal(id) { $(id).hidden = true; }
+      $('settings-btn')?.addEventListener('click', () => openModal('settings-modal'));
+      $('settings-close')?.addEventListener('click', () => closeModal('settings-modal'));
+      $('changelog-btn')?.addEventListener('click', () => openModal('changelog-modal'));
+      $('changelog-close')?.addEventListener('click', () => closeModal('changelog-modal'));
+      $('onboard-close')?.addEventListener('click', () => {
+        closeModal('onboard-modal');
+        localStorage.setItem('wg:onboarded', '1');
+      });
+      // First visit → show onboarding
+      if (!localStorage.getItem('wg:onboarded')) {
+        setTimeout(() => openModal('onboard-modal'), 400);
+      }
+      // Click backdrop closes
+      ['settings-modal','changelog-modal','onboard-modal'].forEach((id) => {
+        $(id)?.addEventListener('click', (e) => { if (e.target.id === id) closeModal(id); });
+      });
+    </script>
   </body>
 </html>

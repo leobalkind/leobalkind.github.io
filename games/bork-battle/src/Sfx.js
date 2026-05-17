@@ -284,6 +284,75 @@ export const Sfx = {
     play(osc, 1.3);
   },
 
+  // === Background music — looping chiptune procedural ===
+  startMusic() {
+    const c = ensureCtx(); if (!c) return;
+    if (this._music) return; // already playing
+    const musicGain = c.createGain();
+    musicGain.gain.value = 0.12;
+    musicGain.connect(masterGain);
+    // Drive beat — a 4-bar loop at ~140 BPM
+    // C minor pentatonic-ish bassline
+    const bpm = 140;
+    const beat = 60 / bpm;
+    const bass = [130.81, 130.81, 196.00, 130.81, 174.61, 174.61, 196.00, 130.81]; // C3 G3 F3
+    const lead = [523.25, 0, 622.25, 0, 587.33, 0, 698.46, 783.99];                 // C5 etc.
+    let step = 0;
+    let nextNoteTime = c.currentTime + 0.1;
+    const lookAhead = 0.25;
+    const interval = 50; // ms
+    const scheduleNote = (freq, type, when, dur, peak = 0.25) => {
+      if (!freq) return;
+      const osc = c.createOscillator();
+      osc.type = type;
+      osc.frequency.setValueAtTime(freq, when);
+      const g = c.createGain();
+      g.gain.setValueAtTime(0, when);
+      g.gain.linearRampToValueAtTime(peak, when + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, when + dur);
+      osc.connect(g).connect(musicGain);
+      osc.start(when);
+      osc.stop(when + dur + 0.02);
+    };
+    const tick = () => {
+      while (nextNoteTime < c.currentTime + lookAhead) {
+        const half = beat / 2;
+        const i = step % 8;
+        // Bass
+        scheduleNote(bass[i], 'square', nextNoteTime, half * 0.95, 0.18);
+        // Lead — slightly delayed
+        scheduleNote(lead[i], 'triangle', nextNoteTime + 0.02, half * 0.4, 0.12);
+        // Hi-hat (noise) every quarter
+        if (i % 2 === 0) {
+          const nb = noiseBuffer(0.04);
+          const src = c.createBufferSource();
+          src.buffer = nb;
+          const ng = c.createGain();
+          ng.gain.setValueAtTime(0, nextNoteTime);
+          ng.gain.linearRampToValueAtTime(0.08, nextNoteTime + 0.001);
+          ng.gain.exponentialRampToValueAtTime(0.0001, nextNoteTime + 0.04);
+          const f = c.createBiquadFilter();
+          f.type = 'highpass'; f.frequency.value = 5000;
+          src.connect(f).connect(ng).connect(musicGain);
+          src.start(nextNoteTime);
+          src.stop(nextNoteTime + 0.05);
+        }
+        nextNoteTime += half;
+        step++;
+      }
+    };
+    this._music = { gain: musicGain, timer: setInterval(tick, interval) };
+  },
+  stopMusic() {
+    if (!this._music) return;
+    clearInterval(this._music.timer);
+    try { this._music.gain.disconnect(); } catch {}
+    this._music = null;
+  },
+  setMusicVolume(v) {
+    if (this._music) this._music.gain.gain.value = Math.max(0, Math.min(1, v));
+  },
+
   // === Master controls ===
   setVolume(v) {
     ensureCtx();

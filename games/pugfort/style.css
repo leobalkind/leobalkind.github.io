@@ -114,6 +114,53 @@ body.large-text .hud-row {
   font-size: 1.1em !important;
 }
 body.large-text .overlay__title { font-size: 2.6rem !important; }
+
+body.reduced-motion *,
+body.reduced-motion *::before,
+body.reduced-motion *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+}
+
+body.colorblind {
+  --neon-pink: #ff8e3c;
+  --magenta: #ff8e3c;
+}
+
+.loading-screen {
+  position: fixed; inset: 0;
+  background: var(--bg);
+  z-index: 1000;
+  display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 20px;
+}
+.loading-screen[hidden] { display: none; }
+.loading-pug {
+  width: 64px; height: 64px; position: relative;
+  animation: pugBounce 0.8s ease-in-out infinite;
+}
+.loading-pug::before {
+  content: ''; position: absolute;
+  width: 56px; height: 48px;
+  background: #c8854a;
+  top: 10px; left: 4px;
+  box-shadow: -2px 4px 0 0 #1a0d05, 18px 4px 0 0 #1a0d05;
+  border-radius: 4px;
+}
+.loading-pug::after {
+  content: ''; position: absolute;
+  width: 48px; height: 16px;
+  background: #1a0d05;
+  top: 22px; left: 8px;
+  border-radius: 2px;
+  box-shadow: 6px 10px 0 -3px #fff, 16px 10px 0 -3px #fff, 9px 12px 0 -5px #000, 19px 12px 0 -5px #000;
+}
+@keyframes pugBounce { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-12px); } }
+.loading-label {
+  font-family: var(--font-display); color: var(--neon-green); font-size: 0.7rem; letter-spacing: 0.2em;
+  animation: loadingBlink 1.2s ease-in-out infinite;
+}
+@keyframes loadingBlink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
 canvas { display: block; image-rendering: pixelated; image-rendering: crisp-edges; }
 
 /* ----- Overlays ----- */

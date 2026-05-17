@@ -270,6 +270,54 @@ export const Sfx = {
     play(osc, 1.5);
   },
 
+  // === Background music — moodier loop for pugfort (slower, minor) ===
+  startMusic() {
+    const c = ensureCtx(); if (!c) return;
+    if (this._music) return;
+    const musicGain = c.createGain();
+    musicGain.gain.value = 0.1;
+    musicGain.connect(masterGain);
+    const bpm = 96;
+    const beat = 60 / bpm;
+    // A minor — eerie pad-style bass
+    const bass = [110.00, 110.00, 146.83, 110.00, 130.81, 130.81, 164.81, 130.81];
+    const lead = [0, 440.00, 0, 523.25, 0, 493.88, 0, 440.00];
+    let step = 0;
+    let nextNoteTime = c.currentTime + 0.1;
+    const lookAhead = 0.3;
+    const interval = 60;
+    const scheduleNote = (freq, type, when, dur, peak = 0.18) => {
+      if (!freq) return;
+      const osc = c.createOscillator();
+      osc.type = type;
+      osc.frequency.setValueAtTime(freq, when);
+      const g = c.createGain();
+      g.gain.setValueAtTime(0, when);
+      g.gain.linearRampToValueAtTime(peak, when + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, when + dur);
+      osc.connect(g).connect(musicGain);
+      osc.start(when);
+      osc.stop(when + dur + 0.02);
+    };
+    const tick = () => {
+      while (nextNoteTime < c.currentTime + lookAhead) {
+        const half = beat / 2;
+        const i = step % 8;
+        scheduleNote(bass[i], 'sawtooth', nextNoteTime, half * 1.1, 0.15);
+        scheduleNote(lead[i], 'sine', nextNoteTime + 0.04, half * 0.9, 0.12);
+        nextNoteTime += half;
+        step++;
+      }
+    };
+    this._music = { gain: musicGain, timer: setInterval(tick, interval) };
+  },
+  stopMusic() {
+    if (!this._music) return;
+    clearInterval(this._music.timer);
+    try { this._music.gain.disconnect(); } catch {}
+    this._music = null;
+  },
+
   setVolume(v) {
     ensureCtx();
     baseVolume = Math.max(0, Math.min(1, v));

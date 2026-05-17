@@ -49,6 +49,9 @@ game.touchControls = touch;
 (async () => {
   await game.init(root);
   renderStarters();
+  // Hide loading screen once Pixi is up
+  const ls = document.getElementById('loading-screen');
+  if (ls) ls.hidden = true;
 })();
 
 // Available starter forms — the puppy + 3 Tier 1 quick-picks
@@ -151,6 +154,8 @@ async function play() {
   hide(startOverlay);
   hide(endOverlay);
   await game.start(chosenStarter, chosenWeapon, chosenSkin, chosenDifficulty);
+  // Background music starts when match starts
+  if (localStorage.getItem('wg:music') !== '0') Sfx.startMusic?.();
 }
 
 // REMATCH — replay same loadout instantly
@@ -208,8 +213,10 @@ window.addEventListener('keydown', (e) => {
   }
 });
 
-// Restore large-text preference
+// Restore accessibility preferences from hub-wide settings
 if (localStorage.getItem('wg:large-text') === '1') document.body.classList.add('large-text');
+if (localStorage.getItem('wg:reduced-motion') === '1') document.body.classList.add('reduced-motion');
+if (localStorage.getItem('wg:colorblind') === '1') document.body.classList.add('colorblind');
 
 // ============ Konami code: ↑↑↓↓←→←→BA — unlocks GOD MODE ============
 const KONAMI = ['ArrowUp','ArrowUp','ArrowDown','ArrowDown','ArrowLeft','ArrowRight','ArrowLeft','ArrowRight','b','a'];
