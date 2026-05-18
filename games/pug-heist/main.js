@@ -40,6 +40,8 @@ let lootStolen = 0;
 let totalLootValue = 0;
 let lootValueThisFloor = 0;
 let floorStartTime = 0;
+let achievementsSeen = new Set();
+let cats = [];
 
 function genFloor(level) {
   pug = { x: 60, y: H - 100, vx: 0, vy: 0, alive: true, fartT: 0, sound: 0 };
@@ -66,6 +68,17 @@ function genFloor(level) {
     for (let c = 0; c < cols; c++) {
       if (!gaps.includes(c)) {
         walls.push({ x: c * cw + 10, y: r * ch - 6, w: cw - 20, h: 12 });
+      }
+    }
+  }
+  // Cat ally: 30% chance per floor (helpful distraction NPC)
+  cats = [];
+  if (Math.random() < 0.3) {
+    for (let tries = 0; tries < 20; tries++) {
+      const x = 50 + Math.random() * (W - 100), y = 50 + Math.random() * (H - 100);
+      if (!isWallNear(x, y, 18) && Math.hypot(x - pug.x, y - pug.y) > 120) {
+        cats.push({ x, y, vx: 0, vy: 0, t: 0, distractT: 0 });
+        break;
       }
     }
   }
@@ -271,6 +284,24 @@ function tick(dt) {
   smokeCd = Math.max(0, smokeCd - dt);
   tongueCd = Math.max(0, tongueCd - dt);
   decoyCd = Math.max(0, decoyCd - dt);
+  // Cat ally — wanders, periodically distracts a random human
+  for (const c of cats) {
+    c.t += dt;
+    c.distractT -= dt;
+    if (Math.random() < dt * 0.5) {
+      const a = Math.random() * Math.PI * 2;
+      c.vx = Math.cos(a) * 30; c.vy = Math.sin(a) * 30;
+    }
+    move(c, c.vx * dt, c.vy * dt, 8);
+    // Every ~4s, distract one random human
+    if (c.distractT <= 0 && humans.length > 0) {
+      c.distractT = 4 + Math.random() * 3;
+      const h = humans[Math.floor(Math.random() * humans.length)];
+      h.distractTarget = { x: c.x, y: c.y };
+      h.state = 'distracted';
+      h.alertT = 2.0;
+    }
+  }
   // Smoke bombs
   for (let i = smokeBombs.length - 1; i >= 0; i--) {
     const s = smokeBombs[i];
@@ -447,6 +478,15 @@ function render() {
     ctx.fillStyle = p.color;
     ctx.fillRect(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size);
     ctx.globalAlpha = 1;
+  }
+  // Cat allies
+  for (const c of cats) {
+    ctx.fillStyle = '#5a5a5a'; ctx.beginPath(); ctx.arc(c.x, c.y, 8, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#222'; ctx.fillRect(c.x - 7, c.y - 12, 3, 5); ctx.fillRect(c.x + 4, c.y - 12, 3, 5);
+    ctx.fillStyle = '#5ef38c'; ctx.fillRect(c.x - 3, c.y - 2, 2, 2); ctx.fillRect(c.x + 1, c.y - 2, 2, 2);
+    // Indicator
+    ctx.fillStyle = '#5ef38c'; ctx.font = "8px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
+    ctx.fillText('ALLY', c.x, c.y - 16);
   }
   // Pug
   ctx.fillStyle = '#c8854a';

@@ -35,6 +35,9 @@ const VEHICLES = {
 let pug, vehicle, marker, obstacles, time, deliveries, fuel, running, cam;
 let powerups, skidMarks, nitroT, shieldT, magnetT;
 let combo = 0, comboT = 0, toxicPuddles = [], spikeStrips = [], achievementsSeen = new Set();
+let weather = 'clear'; // 'clear' | 'rain' | 'fog' | 'night'
+let weatherT = 0; // seconds remaining in current weather
+let raindrops = []; // for rain visual
 const ACHIEVEMENTS = {
   1: 'FIRST DELIVERY! 🎉',
   5: '5 DELIVERIES — getting good',
@@ -61,6 +64,7 @@ function reset() {
   nitroT = 0; shieldT = 0; magnetT = 0;
   combo = 0; comboT = 0;
   toxicPuddles = []; spikeStrips = []; toasts = [];
+  weather = 'clear'; weatherT = 0; raindrops = [];
   // Spawn raccoons (2), toxic puddles (5), spike strips (4)
   for (let i = 0; i < 2; i++) spawnRaccoon();
   for (let i = 0; i < 5; i++) toxicPuddles.push({ x: rand(80, WORLD_W - 80), y: rand(80, WORLD_H - 80), r: 36 });
@@ -124,6 +128,23 @@ function tick(dt) {
   if (!running) return;
   time -= dt;
   if (time <= 0) return end();
+  // Weather system — every ~25s pick a new condition for 15-25s
+  weatherT -= dt;
+  if (weatherT <= 0) {
+    const options = ['clear', 'clear', 'rain', 'fog', 'night'];
+    weather = options[Math.floor(Math.random() * options.length)];
+    weatherT = 18 + Math.random() * 10;
+    if (weather === 'rain') {
+      raindrops = [];
+      for (let i = 0; i < 120; i++) raindrops.push({ x: rand(0, W), y: rand(-H, H), vy: 600 + Math.random() * 200 });
+    }
+    if (weather !== 'clear') toasts.push({ text: weather === 'rain' ? '🌧 RAIN — slower vehicle' : (weather === 'fog' ? '🌫 FOG — short sight' : '🌙 NIGHT'), t: 0 });
+  }
+  if (weather === 'rain') {
+    for (const d of raindrops) { d.y += d.vy * dt; if (d.y > H) { d.y = -10; d.x = rand(0, W); } }
+  }
+  const weatherSpeedMul = weather === 'rain' ? 0.75 : 1;
+
   // Top-down WASD (consistent with all other games)
   let mx = 0, my = 0;
   if (keys.has('w') || keys.has('arrowup'))    my -= 1;
@@ -164,8 +185,8 @@ function tick(dt) {
   }
   if (mx || my) {
     const l = Math.hypot(mx, my);
-    pug.vx += (mx / l) * vehicle.speed * boost * dt * 4;
-    pug.vy += (my / l) * vehicle.speed * boost * dt * 4;
+    pug.vx += (mx / l) * vehicle.speed * boost * weatherSpeedMul * dt * 4;
+    pug.vy += (my / l) * vehicle.speed * boost * weatherSpeedMul * dt * 4;
     pug.ang = Math.atan2(my, mx); // visual facing
   }
   pug.vx *= Math.pow(0.5, dt * 3); pug.vy *= Math.pow(0.5, dt * 3);
@@ -431,6 +452,25 @@ function render() {
   for (let i = 0; i < pug.hp; i++) ctx.fillText('♥', pug.x - 12 + i * 8, pug.y - 24);
   ctx.restore();
 
+  // Weather overlay (full-screen, after world render)
+  if (weather === 'night') {
+    const grd = ctx.createRadialGradient(W / 2, H / 2, 80, W / 2, H / 2, 320);
+    grd.addColorStop(0, 'rgba(0,0,0,0)');
+    grd.addColorStop(1, 'rgba(0,0,0,0.85)');
+    ctx.fillStyle = grd; ctx.fillRect(0, 0, W, H);
+  } else if (weather === 'fog') {
+    const grd = ctx.createRadialGradient(W / 2, H / 2, 140, W / 2, H / 2, 460);
+    grd.addColorStop(0, 'rgba(180,180,200,0)');
+    grd.addColorStop(1, 'rgba(180,180,200,0.85)');
+    ctx.fillStyle = grd; ctx.fillRect(0, 0, W, H);
+  } else if (weather === 'rain') {
+    ctx.fillStyle = 'rgba(0,0,40,0.18)'; ctx.fillRect(0, 0, W, H);
+    ctx.strokeStyle = 'rgba(140,180,255,0.5)';
+    ctx.lineWidth = 1;
+    for (const d of raindrops) {
+      ctx.beginPath(); ctx.moveTo(d.x, d.y); ctx.lineTo(d.x - 4, d.y + 10); ctx.stroke();
+    }
+  }
   // Off-screen marker arrow
   const dx = marker.x - pug.x, dy = marker.y - pug.y;
   const d = Math.hypot(dx, dy);
