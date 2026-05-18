@@ -157,6 +157,10 @@ async function play() {
   hide(startOverlay);
   hide(endOverlay);
   await game.start(chosenStarter, chosenWeapon, chosenSkin, chosenDifficulty);
+  // Defensively unpause + restart ticker (in case any prior interaction stopped it)
+  if (typeof paused !== 'undefined' && paused) setPaused(false);
+  if (game?.app?.ticker && !game.app.ticker.started) game.app.ticker.start();
+  if (pauseOverlay) pauseOverlay.hidden = true;
   // Background music starts when match starts
   if (localStorage.getItem('wg:music') !== '0') Sfx.startMusic?.();
 }
@@ -234,14 +238,13 @@ document.getElementById('pause-photo')?.addEventListener('click', () => {
   a.click();
 });
 window.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && !startOverlay || (e.key === 'Escape' && startOverlay.classList.contains('is-hidden'))) {
-    // Only pause if game is actually running (start overlay is hidden)
-    if (!startOverlay.classList.contains('is-hidden')) return;
+  // Both ESC and P toggle pause, but ONLY during an active match
+  // (start overlay hidden = game running)
+  const gameRunning = startOverlay.classList.contains('is-hidden');
+  if (!gameRunning) return;
+  if (e.key === 'Escape' || e.key === 'p' || e.key === 'P') {
     e.preventDefault();
     setPaused(!paused);
-  }
-  if (e.key === 'p' || e.key === 'P') {
-    if (!startOverlay.classList.contains('is-hidden')) setPaused(!paused);
   }
 });
 

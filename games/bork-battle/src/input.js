@@ -13,8 +13,11 @@ export class Input {
     this._spaceDown = false;
     this._eJustPressed = false;
 
+    // Normalize arrow keys → wasd so moveVector() can stay simple
+    const norm = (k) => ({ arrowup: 'w', arrowdown: 's', arrowleft: 'a', arrowright: 'd' }[k] || k);
     window.addEventListener('keydown', (e) => {
-      const k = e.key.toLowerCase();
+      const raw = e.key.toLowerCase();
+      const k = norm(raw);
       const isSpace = e.code === 'Space' || k === ' ';
       if (['w','a','s','d','e','m','b'].includes(k) || isSpace) e.preventDefault();
       if (isSpace) {
@@ -27,7 +30,8 @@ export class Input {
       this.keys.add(k);
     });
     window.addEventListener('keyup', (e) => {
-      const k = e.key.toLowerCase();
+      const raw = e.key.toLowerCase();
+      const k = norm(raw);
       const isSpace = e.code === 'Space' || k === ' ';
       if (isSpace) {
         this._spaceJustReleased = true;
