@@ -1,0 +1,59 @@
+<!doctype html><html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0a0716"><title>PUG TOWER DEFENSE</title>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../../src/shared/gameBase.css">
+<style>
+#td-bar { position: fixed; bottom: 0; left: 0; right: 0; background: rgba(10,7,22,0.92); border-top: 2px solid var(--neon-cyan); padding: 8px; display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; z-index: 60; padding-bottom: calc(8px + env(safe-area-inset-bottom, 0)); }
+#td-bar[hidden] { display: none; }
+.tw-pick { background: rgba(0,0,0,0.5); border: 2px solid var(--border); border-radius: 6px; padding: 6px 8px; min-width: 86px; cursor: pointer; color: var(--text); font-family: var(--font-display); font-size: 0.45rem; text-align: center; -webkit-tap-highlight-color: transparent; }
+.tw-pick:hover { border-color: var(--neon-yellow); transform: translateY(-2px); }
+.tw-pick.selected { border-color: var(--neon-yellow); background: rgba(255,210,63,0.18); box-shadow: 0 0 12px rgba(255,210,63,0.45); }
+.tw-pick.disabled { opacity: 0.4; cursor: not-allowed; }
+.tw-pick__icon { font-size: 22px; line-height: 1; margin-bottom: 2px; }
+.tw-pick__cost { color: var(--neon-yellow); font-size: 0.42rem; }
+#td-wave-btn { background: linear-gradient(180deg, var(--neon-green), #3aa860); color: #0a1018; border: 3px solid #9ef0b0; padding: 8px 14px; font-family: var(--font-display); font-size: 0.55rem; cursor: pointer; border-radius: 6px; box-shadow: 0 4px 0 #1a5a30; align-self: center; }
+#td-wave-btn:hover { transform: translateY(-2px); }
+#tower-popup { position: fixed; top: 80px; left: 50%; transform: translateX(-50%); background: rgba(10,7,22,0.95); border: 2px solid var(--neon-yellow); border-radius: 8px; padding: 10px 12px; z-index: 70; display: none; min-width: 200px; }
+#tower-popup .row { display: flex; gap: 8px; justify-content: space-between; font-size: 0.5rem; color: var(--text-soft); padding: 2px 0; }
+#tower-popup .row b { color: var(--neon-yellow); }
+#tower-popup button { margin-top: 6px; width: 100%; padding: 6px; background: rgba(0,0,0,0.4); color: var(--text); border: 2px solid var(--border); border-radius: 4px; font-family: var(--font-display); font-size: 0.45rem; cursor: pointer; }
+#tower-popup button:hover { border-color: var(--neon-yellow); }
+#tower-popup button.sell:hover { border-color: var(--crimson); color: var(--crimson); }
+</style></head><body>
+<canvas id="game-canvas"></canvas>
+<button id="mute-btn" class="mute-btn">🔊</button>
+<div id="overlay" class="overlay"><div class="overlay__panel">
+  <div class="overlay__tag">TOWER DEFENSE · WAVES</div>
+  <h1 class="overlay__title">PUG TOWER DEFENSE</h1>
+  <p class="overlay__sub">Defend the biscuit vault. Place pug-towers along the path. 6 tower classes. 15 waves. Don't let 10 enemies through.</p>
+  <ul class="overlay__controls">
+    <li>Pick a tower from the bar → tap an empty green cell to place</li>
+    <li>Tap an existing tower to upgrade or sell</li>
+    <li>NEXT WAVE button: start the next wave (earn bonus $ if you call it early)</li>
+  </ul>
+  <button id="start-btn" class="overlay__btn">DEFEND</button>
+  <a class="overlay__back" href="../../index.html">← back to hub</a>
+</div></div>
+<div id="hud" hidden><div class="hud-card">
+  <div class="hud-row"><b>$</b> <span id="hud-money">100</span></div>
+  <div class="hud-row"><b>LIVES</b> <span id="hud-lives">10</span></div>
+  <div class="hud-row"><b>WAVE</b> <span id="hud-wave">0/15</span></div>
+  <div class="hud-row hud-row--small"><b>ENEMIES</b> <span id="hud-enemies">0</span></div>
+  <div class="hud-row hud-row--small"><b>BEST</b> <span id="hud-best">0</span></div>
+</div></div>
+<div id="td-bar" hidden></div>
+<div id="tower-popup"></div>
+<div id="end-overlay" class="overlay is-hidden" hidden><div class="overlay__panel">
+  <h2 class="overlay__title" id="end-title">VAULT EMPTY</h2>
+  <p class="overlay__sub" id="end-sub">The squirrels got all the biscuits.</p>
+  <ul class="end-stats">
+    <li>Waves survived: <b id="end-waves">0</b></li>
+    <li>Final score: <b id="end-score">0</b></li>
+    <li id="end-best">Best: <b>—</b></li>
+  </ul>
+  <button id="end-restart" class="overlay__btn">REDEFEND</button>
+  <a class="overlay__back" href="../../index.html">← back to hub</a>
+</div></div>
+<script type="module" src="./main.js"></script>
+</body></html>

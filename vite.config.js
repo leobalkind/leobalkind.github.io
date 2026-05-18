@@ -28,6 +28,7 @@ export default defineConfig(({ command }) => ({
         backroomsPug: resolve(__dirname, 'games/backrooms-pug/index.html'),
         floorLava: resolve(__dirname, 'games/floor-lava/index.html'),
         supermarketPug: resolve(__dirname, 'games/supermarket-pug/index.html'),
+        pugTd: resolve(__dirname, 'games/pug-td/index.html'),
       },
     },
   },
