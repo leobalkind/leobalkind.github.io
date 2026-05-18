@@ -19,11 +19,50 @@ function resize() {
 }
 const GRID_W = 18, GRID_H = 11;
 
-// Predefined snaking path through grid
-const PATH = [
-  [0,2],[1,2],[2,2],[3,2],[3,3],[3,4],[3,5],[4,5],[5,5],[6,5],[6,4],[6,3],[6,2],[7,2],[8,2],[9,2],[9,3],[9,4],[9,5],[9,6],[9,7],[9,8],[10,8],[11,8],[12,8],[12,7],[12,6],[12,5],[12,4],[12,3],[13,3],[14,3],[15,3],[16,3],[17,3],
-];
-function isPath(c, r) { return PATH.some((p) => p[0] === c && p[1] === r); }
+// 3 selectable maps, each with its own snaking path
+const MAPS = {
+  classic: {
+    name: 'CLASSIC',
+    desc: 'snaking S-curve',
+    path: [
+      [0,2],[1,2],[2,2],[3,2],[3,3],[3,4],[3,5],[4,5],[5,5],[6,5],[6,4],[6,3],[6,2],[7,2],[8,2],[9,2],[9,3],[9,4],[9,5],[9,6],[9,7],[9,8],[10,8],[11,8],[12,8],[12,7],[12,6],[12,5],[12,4],[12,3],[13,3],[14,3],[15,3],[16,3],[17,3],
+    ],
+  },
+  spiral: {
+    name: 'SPIRAL',
+    desc: 'inward spiral, choke at center',
+    path: [
+      [0,0],[1,0],[2,0],[3,0],[4,0],[5,0],[6,0],[7,0],[8,0],[9,0],[10,0],[11,0],[12,0],[13,0],[14,0],[15,0],[16,0],[17,0],
+      [17,1],[17,2],[17,3],[17,4],[17,5],[17,6],[17,7],[17,8],[17,9],[17,10],
+      [16,10],[15,10],[14,10],[13,10],[12,10],[11,10],[10,10],[9,10],[8,10],[7,10],[6,10],[5,10],[4,10],[3,10],[2,10],[1,10],[0,10],
+      [0,9],[0,8],[0,7],[0,6],[0,5],[0,4],[0,3],[0,2],
+      [1,2],[2,2],[3,2],[4,2],[5,2],[6,2],[7,2],[8,2],[9,2],
+      [9,3],[9,4],[9,5],[9,6],[9,7],[9,8],
+      [10,8],[11,8],[12,8],[13,8],[14,8],[15,8],
+      [15,7],[15,6],[15,5],
+      [14,5],[13,5],[12,5],[11,5],
+    ],
+  },
+  zigzag: {
+    name: 'ZIGZAG',
+    desc: 'tight back-and-forth',
+    path: [
+      [0,1],[1,1],[2,1],[3,1],[4,1],[5,1],
+      [5,2],[5,3],
+      [4,3],[3,3],[2,3],[1,3],[0,3],
+      [0,4],[0,5],
+      [1,5],[2,5],[3,5],[4,5],[5,5],[6,5],[7,5],
+      [7,6],[7,7],
+      [6,7],[5,7],[4,7],[3,7],[2,7],[1,7],[0,7],
+      [0,8],[0,9],
+      [1,9],[2,9],[3,9],[4,9],[5,9],[6,9],[7,9],[8,9],[9,9],[10,9],[11,9],[12,9],[13,9],[14,9],
+      [14,8],[14,7],[14,6],[14,5],[14,4],[14,3],
+      [15,3],[16,3],[17,3],
+    ],
+  },
+};
+let currentMap = MAPS.classic;
+function isPath(c, r) { return currentMap.path.some((p) => p[0] === c && p[1] === r); }
 
 const TOWERS = {
   basic:  { name: 'Bork', icon: '🐶', cost: 30, range: 3.0, dmg: 8,  cd: 0.5, color: '#4cc9f0', hitsAir: true, projColor: '#4cc9f0', desc: 'Cheap balanced shots' },
@@ -32,7 +71,13 @@ const TOWERS = {
   cannon: { name: 'Cannon', icon: '💥', cost: 120, range: 3.0, dmg: 25, cd: 1.2, color: '#ff3a3a', hitsAir: false, splash: 1.4, projColor: '#ff3a3a', desc: 'Splash dmg, ground only' },
   frost:  { name: 'Frost', icon: '🧊', cost: 75, range: 2.8, dmg: 3,  cd: 0.4, color: '#b0e8ff', hitsAir: true, slow: 0.4, slowDur: 1.5, projColor: '#b0e8ff', desc: 'Slows enemies' },
   buff:   { name: 'Buff', icon: '⭐', cost: 90, range: 2.5, dmg: 0,  cd: 0.5, color: '#b055ff', hitsAir: false, buff: 1.4, desc: 'Boosts nearby towers +40%' },
+  // NEW towers
+  bone:   { name: 'Bone', icon: '🦴', cost: 110, range: 3.5, dmg: 12, cd: 0.7, color: '#eae0c0', hitsAir: true, projColor: '#eae0c0', boomerang: true, desc: 'Boomerang hits twice' },
+  tar:    { name: 'Tar', icon: '🛢', cost: 95, range: 2.5, dmg: 6,  cd: 0.55, color: '#222228', hitsAir: false, projColor: '#222228', tarPool: true, slow: 0.5, slowDur: 2.2, desc: 'Drops slow-pools on ground' },
 };
+
+const TARGETING_MODES = ['FIRST', 'LAST', 'STRONG', 'CLOSE'];
+const TARGETING_LABEL = { FIRST: 'first on path', LAST: 'last on path', STRONG: 'highest HP', CLOSE: 'closest' };
 
 const ENEMIES = {
   squirrel: { name: 'squirrel', hp: 14, speed: 1.6, gold: 5,  color: '#a06030', size: 10, air: false },
@@ -103,10 +148,18 @@ function showTowerPopup(t) {
     <div class="row"><span>DMG</span><b>${(def.dmg * (1 + t.level * 0.5)).toFixed(0)}</b></div>
     <div class="row"><span>RANGE</span><b>${(def.range * (1 + t.level * 0.15)).toFixed(1)}</b></div>
     <div class="row"><span>RATE</span><b>${(1 / (def.cd / (1 + t.level * 0.2))).toFixed(1)}/s</b></div>
+    <div class="row"><span>TARGET</span><b id="targ-label">${t.targeting || 'FIRST'} · ${TARGETING_LABEL[t.targeting || 'FIRST']}</b></div>
+    <button id="targ-btn">↻ CHANGE TARGETING</button>
     <button id="up-btn">⬆ UPGRADE — $${upCost}</button>
     <button id="sell-btn" class="sell">SELL — $${Math.floor(t.totalCost * 0.6)}</button>
   `;
   el.style.display = 'block';
+  document.getElementById('targ-btn').addEventListener('click', () => {
+    const cur = TARGETING_MODES.indexOf(t.targeting || 'FIRST');
+    t.targeting = TARGETING_MODES[(cur + 1) % TARGETING_MODES.length];
+    sfx.tone(550, 'square', 0.06, 0.16);
+    showTowerPopup(t);
+  });
   document.getElementById('up-btn').addEventListener('click', () => {
     if (money < upCost || t.level >= 3) return;
     money -= upCost; t.level++; t.totalCost += upCost;
@@ -144,7 +197,7 @@ function handleClick(x, y) {
     const t = TOWERS[selectedTowerType];
     if (money < t.cost) return;
     money -= t.cost;
-    towers.push({ type: selectedTowerType, col: c, row: r, cd: 0, level: 0, totalCost: t.cost });
+    towers.push({ type: selectedTowerType, col: c, row: r, cd: 0, level: 0, totalCost: t.cost, targeting: 'FIRST', bob: Math.random() * Math.PI * 2 });
     sfx.tone(880, 'triangle', 0.08, 0.22);
     selectedTowerType = null;
     buildBar(); updateHud();
@@ -178,7 +231,7 @@ function spawnEnemy(typeId) {
     speed: def.speed,
     slowT: 0, slowMul: 1,
     pathIdx: 0,
-    x: PATH[0][0] + 0.5, y: PATH[0][1] + 0.5,
+    x: currentMap.path[0][0] + 0.5, y: currentMap.path[0][1] + 0.5,
     alive: true,
   });
 }
@@ -209,7 +262,7 @@ function tick(dt) {
   for (const e of enemies) {
     if (!e.alive) continue;
     if (e.slowT > 0) { e.slowT -= dt; if (e.slowT <= 0) e.slowMul = 1; }
-    const target = PATH[e.pathIdx + 1];
+    const target = currentMap.path[e.pathIdx + 1];
     if (!target) {
       // Reached end
       e.alive = false;
@@ -248,17 +301,21 @@ function tick(dt) {
       }
     }
     const range = def.range * (1 + tw.level * 0.15);
+    // Targeting selection — FIRST (most progress), LAST, STRONG (highest HP), CLOSE (smallest dist)
     let target = null;
-    let bestProg = -1;
+    const inRange = [];
     for (const e of enemies) {
       if (!e.alive) continue;
       if (e.def.air && !def.hitsAir) continue;
       const d = Math.hypot(e.x - (tw.col + 0.5), e.y - (tw.row + 0.5));
-      if (d <= range && e.pathIdx > bestProg) {
-        bestProg = e.pathIdx; target = e;
-      }
+      if (d <= range) inRange.push({ e, d });
     }
-    if (!target) continue;
+    if (inRange.length === 0) continue;
+    const mode = tw.targeting || 'FIRST';
+    if (mode === 'FIRST') target = inRange.reduce((a, b) => (a.e.pathIdx > b.e.pathIdx ? a : b)).e;
+    else if (mode === 'LAST') target = inRange.reduce((a, b) => (a.e.pathIdx < b.e.pathIdx ? a : b)).e;
+    else if (mode === 'STRONG') target = inRange.reduce((a, b) => (a.e.hp > b.e.hp ? a : b)).e;
+    else target = inRange.reduce((a, b) => (a.d < b.d ? a : b)).e;
     // Fire
     const dmg = def.dmg * (1 + tw.level * 0.5) * buffMult;
     tw.cd = def.cd / (1 + tw.level * 0.2);
@@ -268,7 +325,10 @@ function tick(dt) {
       target, dmg, color: def.projColor,
       splash: def.splash || 0,
       slow: def.slow || 0, slowDur: def.slowDur || 0,
+      boomerang: !!def.boomerang,
       speed: 800, dead: false,
+      origX: (tw.col + 0.5) * TILE + gridOffsetX(),
+      origY: (tw.row + 0.5) * TILE + gridOffsetY(),
     });
     sfx.tone(440 + Math.random() * 200, def.cannon ? 'sawtooth' : 'square', 0.04, 0.12);
   }
@@ -293,6 +353,21 @@ function tick(dt) {
         if (p.slow > 0) {
           p.target.slowMul = Math.min(p.target.slowMul, 1 - p.slow);
           p.target.slowT = p.slowDur;
+        }
+        // Boomerang: queue a second hit 0.4s later on whatever is closest to origin
+        if (p.boomerang) {
+          setTimeout(() => {
+            let best = null, bestD = Infinity;
+            for (const e of enemies) {
+              if (!e.alive) continue;
+              const d = Math.hypot(e.x * TILE + gridOffsetX() - p.origX, e.y * TILE + gridOffsetY() - p.origY);
+              if (d < bestD) { bestD = d; best = e; }
+            }
+            if (best && best.alive) {
+              best.hp -= p.dmg * 0.7;
+              particles.push({ x: best.x * TILE + gridOffsetX(), y: best.y * TILE + gridOffsetY(), t: 0, life: 0.3, ring: true, maxR: 14, color: p.color });
+            }
+          }, 400);
         }
       }
       p.dead = true;
@@ -346,9 +421,9 @@ function render() {
   }
   // Spawn marker (left edge)
   ctx.fillStyle = '#ff3aa1'; ctx.font = "12px sans-serif"; ctx.textAlign = 'center';
-  ctx.fillText('▶', ox - 14, oy + (PATH[0][1] + 0.5) * TILE + 4);
+  ctx.fillText('▶', ox - 14, oy + (currentMap.path[0][1] + 0.5) * TILE + 4);
   // Vault (end)
-  const last = PATH[PATH.length - 1];
+  const last = currentMap.path[currentMap.path.length - 1];
   const vx = ox + last[0] * TILE + TILE / 2;
   const vy = oy + last[1] * TILE + TILE / 2;
   ctx.fillStyle = '#ffd23f';
@@ -371,16 +446,17 @@ function render() {
       ctx.strokeStyle = 'rgba(255,210,63,0.5)';
       ctx.beginPath(); ctx.arc(x, y, def.range * (1 + tw.level * 0.15) * TILE, 0, Math.PI * 2); ctx.stroke();
     }
-    // Tower body
+    // Tower body — bob gently
+    const bobY = y + Math.sin(performance.now() / 400 + (tw.bob || 0)) * 2;
     ctx.fillStyle = def.color;
-    ctx.beginPath(); ctx.arc(x, y, TILE * 0.36, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(x, bobY, TILE * 0.36, 0, Math.PI * 2); ctx.fill();
     ctx.fillStyle = '#1a0d05';
-    ctx.beginPath(); ctx.ellipse(x, y + 3, TILE * 0.24, TILE * 0.17, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(x, bobY + 3, TILE * 0.24, TILE * 0.17, 0, 0, Math.PI * 2); ctx.fill();
     ctx.fillStyle = '#fff';
-    ctx.fillRect(x - 5, y - 3, 3, 3); ctx.fillRect(x + 2, y - 3, 3, 3);
+    ctx.fillRect(x - 5, bobY - 3, 3, 3); ctx.fillRect(x + 2, bobY - 3, 3, 3);
     // Icon
     ctx.font = "14px serif"; ctx.textAlign = 'center';
-    ctx.fillText(def.icon, x, y - TILE * 0.36);
+    ctx.fillText(def.icon, x, bobY - TILE * 0.36);
     // Level pips
     for (let i = 0; i < tw.level; i++) {
       ctx.fillStyle = '#ffd23f';
@@ -469,9 +545,27 @@ function end(won) {
   document.getElementById('end-overlay').classList.remove('is-hidden');
 }
 
+// Map picker
+let chosenMapId = 'classic';
+function renderMapPicker() {
+  const el = document.getElementById('map-picker');
+  if (!el) return;
+  el.innerHTML = '';
+  for (const [id, m] of Object.entries(MAPS)) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.style.cssText = `background:rgba(0,0,0,0.4);color:var(--text);border:2px solid ${chosenMapId === id ? 'var(--neon-yellow)' : 'var(--border)'};border-radius:4px;padding:8px 14px;font-family:var(--font-display);font-size:0.5rem;letter-spacing:0.06em;cursor:pointer;${chosenMapId === id ? 'background:rgba(255,210,63,0.18);color:var(--neon-yellow);box-shadow:0 0 12px rgba(255,210,63,0.45);' : ''}`;
+    btn.innerHTML = `${m.name}<br><span style="color:var(--text-soft);font-size:0.42rem;">${m.desc}</span>`;
+    btn.addEventListener('click', () => { chosenMapId = id; renderMapPicker(); });
+    el.appendChild(btn);
+  }
+}
+renderMapPicker();
+
 document.getElementById('start-btn').addEventListener('click', start);
 document.getElementById('end-restart').addEventListener('click', start);
 function start() {
+  currentMap = MAPS[chosenMapId] || MAPS.classic;
   reset(); running = true;
   document.getElementById('overlay').hidden = true; document.getElementById('overlay').classList.add('is-hidden');
   document.getElementById('end-overlay').hidden = true; document.getElementById('end-overlay').classList.add('is-hidden');

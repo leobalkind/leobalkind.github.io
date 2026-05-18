@@ -26,28 +26,57 @@ const FORMS = [
   { name: 'GIGA-BORK GOD',   r: 78, smash: 5, color: '#b055ff' },
 ];
 
-let pug, buildings, vehicles, helicopters, missiles, particles, score, smashed, eaten, hp, formIdx, borkCd, cam, running;
+let pug, buildings, vehicles, helicopters, missiles, particles, powerups, score, smashed, eaten, hp, formIdx, borkCd, cam, running;
+let combo = 0, comboT = 0, dmgBoostT = 0;
 let mouse = { x: 0, y: 0 };
+
+// Building types — each with different score/effect
+const BUILDING_TYPES = {
+  apt:   { color: '#5a5a72', val: 50,  hp: 2, label: '' },
+  apt2:  { color: '#6b3a1c', val: 60,  hp: 2, label: '' },
+  apt3:  { color: '#3a3a4a', val: 50,  hp: 3, label: '' },
+  apt4:  { color: '#4a4a52', val: 70,  hp: 3, label: '' },
+  bank:  { color: '#5ef38c', val: 200, hp: 4, label: '$', special: 'bank' },     // 3x money + treasure burst
+  gas:   { color: '#ff8e3c', val: 80,  hp: 1, label: '⛽', special: 'gas' },    // chain explosion
+};
 
 function reset() {
   formIdx = 0;
   pug = { x: WORLD_W / 2, y: WORLD_H / 2, vx: 0, vy: 0 };
   buildings = [];
-  for (let i = 0; i < 80; i++) {
-    buildings.push({
-      x: rand(40, WORLD_W - 60),
-      y: rand(40, WORLD_H - 60),
-      w: rand(40, 80),
-      h: rand(50, 130),
-      hp: 1 + Math.floor(Math.random() * 3),
-      color: ['#5a5a72', '#6b3a1c', '#3a3a4a', '#4a4a52'][Math.floor(Math.random() * 4)],
-    });
-  }
-  vehicles = []; helicopters = []; missiles = []; particles = [];
+  for (let i = 0; i < 80; i++) buildings.push(makeBuilding());
+  vehicles = []; helicopters = []; missiles = []; particles = []; powerups = [];
   for (let i = 0; i < 18; i++) spawnVehicle();
   for (let i = 0; i < 3; i++) spawnHelicopter();
   score = 0; smashed = 0; eaten = 0; hp = 100; borkCd = 0;
+  combo = 0; comboT = 0; dmgBoostT = 0;
   cam = { x: pug.x, y: pug.y };
+}
+function makeBuilding() {
+  // 8% bank, 12% gas station, rest apartments
+  const r = Math.random();
+  let typeId;
+  if (r < 0.08) typeId = 'bank';
+  else if (r < 0.20) typeId = 'gas';
+  else typeId = ['apt', 'apt2', 'apt3', 'apt4'][Math.floor(Math.random() * 4)];
+  const t = BUILDING_TYPES[typeId];
+  return {
+    x: rand(40, WORLD_W - 60),
+    y: rand(40, WORLD_H - 60),
+    w: rand(40, 80),
+    h: rand(50, 130),
+    hp: t.hp,
+    typeId,
+    color: t.color,
+    val: t.val,
+    label: t.label,
+    special: t.special,
+  };
+}
+function spawnPowerup(x, y) {
+  const types = ['heal', 'damage', 'rage'];
+  const t = types[Math.floor(Math.random() * types.length)];
+  powerups.push({ x, y, type: t, t: 0 });
 }
 function rand(a, b) { return a + Math.random() * (b - a); }
 function spawnVehicle() {
@@ -92,14 +121,10 @@ function smashAt(wx, wy) {
     const b = buildings[i];
     if (wx > b.x && wx < b.x + b.w && wy > b.y && wy < b.y + b.h) {
       if (Math.hypot(b.x + b.w / 2 - pug.x, b.y + b.h / 2 - pug.y) > form().r + 100) continue;
-      b.hp -= form().smash;
+      b.hp -= form().smash * (dmgBoostT > 0 ? 2.5 : 1);
       sfx.tone(120 + Math.random() * 60, 'sawtooth', 0.1, 0.22);
       if (b.hp <= 0) {
-        score += 50;
-        smashed++;
-        spawnDust(b.x + b.w / 2, b.y + b.h / 2, b.color);
-        buildings.splice(i, 1);
-        if (Math.random() < 0.2 && buildings.length < 100) spawnReplacementBuilding();
+        smashBuilding(b, i);
       }
       return;
     }
@@ -122,13 +147,7 @@ function smashAt(wx, wy) {
   }
 }
 function spawnReplacementBuilding() {
-  // off-screen
-  buildings.push({
-    x: rand(0, WORLD_W), y: rand(0, WORLD_H),
-    w: rand(40, 80), h: rand(50, 130),
-    hp: 1 + Math.floor(Math.random() * 3),
-    color: ['#5a5a72', '#6b3a1c', '#3a3a4a'][Math.floor(Math.random() * 3)],
-  });
+  buildings.push(makeBuilding());
 }
 
 function doBork() {
@@ -174,6 +193,59 @@ function doBork() {
   }
   particles.push({ ring: true, x: pug.x, y: pug.y, t: 0, maxR: reach });
 }
+function bumpCombo() {
+  if (comboT > 0) combo++;
+  else combo = 1;
+  comboT = 2.0;
+}
+function comboMult() { return Math.min(5, 1 + (combo - 1) * 0.25); }
+
+function smashBuilding(b, idx) {
+  bumpCombo();
+  const mult = comboMult();
+  score += Math.floor(b.val * mult);
+  smashed++;
+  spawnDust(b.x + b.w / 2, b.y + b.h / 2, b.color);
+  buildings.splice(idx, 1);
+  // Special effects
+  if (b.special === 'bank') {
+    // Coin burst — extra particles + score boost
+    for (let i = 0; i < 20; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const s = 80 + Math.random() * 160;
+      particles.push({ x: b.x + b.w / 2, y: b.y + b.h / 2, vx: Math.cos(a) * s, vy: Math.sin(a) * s, color: '#ffd23f', life: 1.2, t: 0, size: 5 });
+    }
+    sfx.arp([523, 659, 784, 1047, 1319], 'triangle', 0.07, 0.25, 0.25);
+    if (Math.random() < 0.5) spawnPowerup(b.x + b.w / 2, b.y + b.h / 2);
+  } else if (b.special === 'gas') {
+    // Chain explosion — radius 120
+    const cx = b.x + b.w / 2, cy = b.y + b.h / 2;
+    sfx.sweep(440, 110, 'sawtooth', 0.4, 0.3);
+    particles.push({ ring: true, x: cx, y: cy, t: 0, maxR: 140 });
+    for (let j = buildings.length - 1; j >= 0; j--) {
+      const o = buildings[j];
+      const ocx = o.x + o.w / 2, ocy = o.y + o.h / 2;
+      if (Math.hypot(ocx - cx, ocy - cy) < 140) {
+        o.hp -= 2;
+        if (o.hp <= 0) smashBuilding(o, j);
+      }
+    }
+    // also damages vehicles & helicopters
+    for (let j = helicopters.length - 1; j >= 0; j--) {
+      const h = helicopters[j];
+      if (Math.hypot(h.x - cx, h.y - cy) < 140) {
+        h.hp -= 3;
+        if (h.hp <= 0) { score += 200; helicopters.splice(j, 1); }
+      }
+    }
+    // 30% spawn powerup
+    if (Math.random() < 0.3) spawnPowerup(cx, cy);
+  } else {
+    if (Math.random() < 0.08) spawnPowerup(b.x + b.w / 2, b.y + b.h / 2);
+  }
+  if (Math.random() < 0.2 && buildings.length < 100) spawnReplacementBuilding();
+}
+
 function spawnDust(x, y, color) {
   for (let i = 0; i < 12; i++) {
     const a = Math.random() * Math.PI * 2;
@@ -185,6 +257,21 @@ function spawnDust(x, y, color) {
 function tick(dt) {
   if (!running) return;
   borkCd = Math.max(0, borkCd - dt);
+  comboT = Math.max(0, comboT - dt);
+  if (comboT <= 0) combo = 0;
+  dmgBoostT = Math.max(0, dmgBoostT - dt);
+  // Powerup pickup
+  for (let i = powerups.length - 1; i >= 0; i--) {
+    const p = powerups[i];
+    p.t += dt;
+    if (p.t > 12) { powerups.splice(i, 1); continue; }
+    if (Math.hypot(p.x - pug.x, p.y - pug.y) < form().r + 16) {
+      if (p.type === 'heal') { hp = Math.min(100 + formIdx * 50, hp + 40); sfx.tone(880, 'triangle', 0.12, 0.22); }
+      else if (p.type === 'damage') { dmgBoostT = 8; sfx.arp([523, 880, 1320], 'square', 0.06, 0.22, 0.18); }
+      else if (p.type === 'rage') { borkCd = 0; eaten = Math.min(4, eaten + 2); sfx.tone(440, 'sawtooth', 0.3, 0.25); }
+      powerups.splice(i, 1);
+    }
+  }
   // Move pug
   let mx = 0, my = 0;
   if (keys.has('w')) my -= 1;
@@ -288,6 +375,31 @@ function render() {
         if ((xx + yy + b.hp * 7) % 24 === 0) ctx.fillRect(b.x + xx, b.y + yy, 4, 6);
       }
     }
+    // Special label
+    if (b.label) {
+      ctx.font = "16px serif"; ctx.textAlign = 'center';
+      ctx.fillText(b.label, b.x + b.w / 2, b.y + 18);
+    }
+    if (b.special === 'bank') {
+      ctx.strokeStyle = '#5ef38c'; ctx.lineWidth = 2;
+      ctx.strokeRect(b.x, b.y, b.w, b.h);
+    } else if (b.special === 'gas') {
+      ctx.strokeStyle = '#ff8e3c'; ctx.lineWidth = 2;
+      ctx.strokeRect(b.x, b.y, b.w, b.h);
+    }
+  }
+  // Powerups
+  for (const p of powerups) {
+    const blink = p.t > 8 ? (Math.floor(p.t * 6) % 2 === 0) : true;
+    if (!blink) continue;
+    ctx.shadowColor = p.type === 'heal' ? '#5ef38c' : (p.type === 'damage' ? '#ff3a3a' : '#b055ff');
+    ctx.shadowBlur = 14;
+    ctx.fillStyle = p.type === 'heal' ? '#5ef38c' : (p.type === 'damage' ? '#ff3a3a' : '#b055ff');
+    ctx.fillRect(p.x - 14, p.y - 14, 28, 28);
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = '#fff';
+    ctx.font = "20px serif"; ctx.textAlign = 'center';
+    ctx.fillText(p.type === 'heal' ? '❤' : (p.type === 'damage' ? '⚡' : '😡'), p.x, p.y + 6);
   }
   // Vehicles
   for (const v of vehicles) {
@@ -327,6 +439,12 @@ function render() {
   }
   // PUGZILLA
   const r = form().r;
+  // Damage-boost aura
+  if (dmgBoostT > 0) {
+    ctx.strokeStyle = `rgba(255,58,58,${0.4 + Math.sin(performance.now() / 80) * 0.3})`;
+    ctx.lineWidth = 6;
+    ctx.beginPath(); ctx.arc(pug.x, pug.y, r + 12, 0, Math.PI * 2); ctx.stroke();
+  }
   ctx.fillStyle = form().color;
   ctx.beginPath(); ctx.arc(pug.x, pug.y, r, 0, Math.PI * 2); ctx.fill();
   ctx.fillStyle = '#8a5a2c';
@@ -347,6 +465,26 @@ function render() {
   ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(W / 2 - 100, 16, 200, 8);
   ctx.fillStyle = hp > 50 ? '#5ef38c' : (hp > 25 ? '#ffd23f' : '#ff3a3a');
   ctx.fillRect(W / 2 - 100, 16, 200 * Math.max(0, hp) / 100, 8);
+  // Combo banner
+  if (combo > 1 && running) {
+    ctx.fillStyle = '#ffd23f';
+    ctx.font = "bold 28px 'Press Start 2P', monospace";
+    ctx.textAlign = 'center';
+    ctx.shadowColor = '#ffd23f'; ctx.shadowBlur = 14;
+    ctx.fillText(`COMBO ×${combo}  (×${comboMult().toFixed(1)})`, W / 2, 60);
+    ctx.shadowBlur = 0;
+    // Combo timer
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    ctx.fillRect(W / 2 - 100, 72, 200, 4);
+    ctx.fillStyle = '#ffd23f';
+    ctx.fillRect(W / 2 - 100, 72, 200 * (comboT / 2.0), 4);
+  }
+  // Damage boost banner
+  if (dmgBoostT > 0) {
+    ctx.fillStyle = '#ff3a3a';
+    ctx.font = "16px 'Press Start 2P', monospace"; ctx.textAlign = 'right';
+    ctx.fillText(`⚡ 2.5× DMG ${dmgBoostT.toFixed(1)}s`, W - 16, H - 22);
+  }
   // Cursor reach indicator
   ctx.strokeStyle = 'rgba(255,210,63,0.2)';
   ctx.lineWidth = 2;
