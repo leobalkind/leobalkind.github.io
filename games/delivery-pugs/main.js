@@ -29,6 +29,7 @@ const VEHICLES = {
 };
 
 let pug, vehicle, marker, obstacles, time, deliveries, fuel, running, cam;
+let powerups, skidMarks, nitroT, shieldT, magnetT;
 const keys = new Set();
 let touchAim = null;
 
@@ -38,8 +39,28 @@ function reset() {
   marker = newMarker();
   obstacles = [];
   for (let i = 0; i < 40; i++) spawnObstacle();
+  // 6 drones initially
+  for (let i = 0; i < 4; i++) spawnDrone();
+  powerups = [];
+  for (let i = 0; i < 5; i++) spawnPowerup();
+  skidMarks = [];
+  nitroT = 0; shieldT = 0; magnetT = 0;
   time = 30; deliveries = 0; fuel = 100;
   cam = { x: pug.x, y: pug.y };
+}
+function spawnDrone() {
+  obstacles.push({
+    type: 'drone',
+    x: rand(0, WORLD_W), y: rand(0, WORLD_H),
+    vx: 0, vy: 0,
+    speed: 90,
+    cd: Math.random() * 1.5,
+  });
+}
+const POWERUP_TYPES = ['nitro', 'shield', 'magnet', 'repair'];
+function spawnPowerup() {
+  const t = POWERUP_TYPES[Math.floor(Math.random() * POWERUP_TYPES.length)];
+  powerups.push({ x: rand(80, WORLD_W - 80), y: rand(80, WORLD_H - 80), type: t });
 }
 function newMarker() {
   // Place at random spot 400-800 from pug
@@ -93,15 +114,48 @@ function tick(dt) {
     throttle = Math.min(1, Math.hypot(tx, ty) / 100);
   }
   pug.ang += steer * vehicle.turn * dt;
-  const boost = (keys.has('shift') && fuel > 0) ? 1.5 : 1;
-  if (boost > 1) fuel = Math.max(0, fuel - dt * 25);
+  // Boost: shift OR nitro powerup
+  const shiftBoost = keys.has('shift') && fuel > 0;
+  const boost = nitroT > 0 ? 2.2 : (shiftBoost ? 1.5 : 1);
+  if (shiftBoost && nitroT <= 0) fuel = Math.max(0, fuel - dt * 25);
   fuel = Math.min(100, fuel + dt * 5);
+  nitroT = Math.max(0, nitroT - dt);
+  shieldT = Math.max(0, shieldT - dt);
+  magnetT = Math.max(0, magnetT - dt);
   pug.vx += Math.cos(pug.ang) * vehicle.speed * boost * throttle * dt * 2;
   pug.vy += Math.sin(pug.ang) * vehicle.speed * boost * throttle * dt * 2;
   pug.vx *= Math.pow(0.5, dt * 3); pug.vy *= Math.pow(0.5, dt * 3);
   pug.x += pug.vx * dt; pug.y += pug.vy * dt;
   pug.x = Math.max(20, Math.min(WORLD_W - 20, pug.x));
   pug.y = Math.max(20, Math.min(WORLD_H - 20, pug.y));
+  // Skid marks when steering hard or boosting
+  const spd = Math.hypot(pug.vx, pug.vy);
+  if (spd > 100 && (Math.abs(steer) > 0.4 || nitroT > 0)) {
+    skidMarks.push({ x: pug.x, y: pug.y, ang: pug.ang, t: 0 });
+    if (skidMarks.length > 200) skidMarks.shift();
+  }
+  for (const s of skidMarks) s.t += dt;
+  skidMarks = skidMarks.filter((s) => s.t < 3);
+  // Powerup pickup
+  const grabR = magnetT > 0 ? 80 : 22;
+  for (let i = powerups.length - 1; i >= 0; i--) {
+    const p = powerups[i];
+    // Magnet pulls
+    if (magnetT > 0) {
+      const dx = pug.x - p.x, dy = pug.y - p.y;
+      const d = Math.hypot(dx, dy);
+      if (d < 240 && d > 0) { p.x += (dx / d) * 180 * dt; p.y += (dy / d) * 180 * dt; }
+    }
+    if (Math.hypot(p.x - pug.x, p.y - pug.y) < grabR) {
+      if (p.type === 'nitro') { nitroT = 3; }
+      else if (p.type === 'shield') { shieldT = 4; }
+      else if (p.type === 'magnet') { magnetT = 6; }
+      else if (p.type === 'repair') { pug.hp = vehicle.hp; }
+      sfx.tone(880, 'triangle', 0.1, 0.22);
+      powerups.splice(i, 1);
+      if (powerups.length < 4) spawnPowerup();
+    }
+  }
 
   // Cam follow
   cam.x += (pug.x - cam.x) * 5 * dt;
@@ -142,6 +196,22 @@ function tick(dt) {
       }
       o.x += o.vx * dt; o.y += o.vy * dt;
       o.vx *= 0.92; o.vy *= 0.92;
+    } else if (o.type === 'drone') {
+      // Drone slowly chases, dives every few seconds
+      const dx = pug.x - o.x, dy = pug.y - o.y;
+      const d = Math.hypot(dx, dy);
+      if (d < 500) {
+        o.vx = (dx / d) * o.speed;
+        o.vy = (dy / d) * o.speed;
+      } else { o.vx *= 0.95; o.vy *= 0.95; }
+      o.cd -= dt;
+      if (o.cd <= 0 && d < 200) {
+        // Dive!
+        o.vx = (dx / d) * 280;
+        o.vy = (dy / d) * 280;
+        o.cd = 2.0;
+      }
+      o.x += o.vx * dt; o.y += o.vy * dt;
     } else if (o.type === 'mailbox') {
       const d = Math.hypot(pug.x - o.x, pug.y - o.y);
       if (o.fuse < 0 && d < 60) { o.fuse = 1.2; sfx.tone(880, 'square', 0.06, 0.18); }
@@ -167,6 +237,7 @@ function tick(dt) {
 let invuln = 0;
 function damage() {
   if (invuln > 0) return;
+  if (shieldT > 0) { shieldT = 0; invuln = 0.4; sfx.tone(880, 'sine', 0.12, 0.2); return; }
   pug.hp--;
   invuln = 1.0;
   sfx.sweep(220, 110, 'sawtooth', 0.15, 0.22);
@@ -198,6 +269,15 @@ function render() {
     const y = (i * 211) % WORLD_H;
     ctx.fillRect(x, y, 18, 18);
   }
+  // Skid marks (under everything)
+  for (const s of skidMarks) {
+    const a = (1 - s.t / 3) * 0.6;
+    ctx.fillStyle = `rgba(0,0,0,${a})`;
+    ctx.save();
+    ctx.translate(s.x, s.y); ctx.rotate(s.ang);
+    ctx.fillRect(-12, -4, 4, 2); ctx.fillRect(-12, 2, 4, 2);
+    ctx.restore();
+  }
   // Marker
   ctx.shadowColor = '#5ef38c'; ctx.shadowBlur = 20;
   ctx.strokeStyle = '#5ef38c'; ctx.lineWidth = 4;
@@ -207,6 +287,18 @@ function render() {
   ctx.shadowBlur = 0;
   // Obstacles
   for (const o of obstacles) drawObstacle(o);
+  // Powerups
+  for (const p of powerups) {
+    const colors = { nitro: '#ff8e3c', shield: '#4cc9f0', magnet: '#b055ff', repair: '#5ef38c' };
+    const icons = { nitro: '🔥', shield: '🛡', magnet: '🧲', repair: '🔧' };
+    ctx.shadowColor = colors[p.type]; ctx.shadowBlur = 14;
+    ctx.fillStyle = colors[p.type];
+    ctx.fillRect(p.x - 12, p.y - 12, 24, 24);
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = '#fff';
+    ctx.font = "16px serif"; ctx.textAlign = 'center';
+    ctx.fillText(icons[p.type], p.x, p.y + 5);
+  }
   // Pug-vehicle
   ctx.save();
   ctx.translate(pug.x, pug.y);
@@ -223,6 +315,22 @@ function render() {
   if (invuln > 0) {
     ctx.fillStyle = `rgba(255,58,58,${invuln})`;
     ctx.fillRect(-20, -12, 40, 24);
+  }
+  // Nitro exhaust
+  if (nitroT > 0) {
+    ctx.fillStyle = '#ff8e3c'; ctx.fillRect(-26, -4, 8, 8);
+    ctx.fillStyle = '#ffd23f'; ctx.fillRect(-30, -2, 4, 4);
+  }
+  // Shield bubble
+  if (shieldT > 0) {
+    ctx.strokeStyle = `rgba(76,201,240,${0.5 + Math.sin(performance.now()/100) * 0.3})`;
+    ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(0, 0, 26, 0, Math.PI * 2); ctx.stroke();
+  }
+  // Magnet aura
+  if (magnetT > 0) {
+    ctx.strokeStyle = 'rgba(176,85,255,0.3)'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(0, 0, 240, 0, Math.PI * 2); ctx.stroke();
   }
   ctx.restore();
   // HP indicators (hearts above pug)
@@ -249,10 +357,62 @@ function render() {
   ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(W / 2 - 100, 16, 200, 8);
   ctx.fillStyle = time < 8 ? '#ff3a3a' : '#5ef38c';
   ctx.fillRect(W / 2 - 100, 16, 200 * (time / 60), 8);
+  // Speedometer (top-right)
+  const spd = Math.hypot(pug.vx, pug.vy);
+  const maxSpd = 600;
+  ctx.fillStyle = 'rgba(0,0,0,0.6)';
+  ctx.fillRect(W - 130, 36, 120, 16);
+  ctx.fillStyle = spd > maxSpd * 0.8 ? '#ff8e3c' : '#4cc9f0';
+  ctx.fillRect(W - 130, 36, 120 * Math.min(1, spd / maxSpd), 16);
+  ctx.fillStyle = '#fff'; ctx.font = "10px 'Press Start 2P', monospace"; ctx.textAlign = 'right';
+  ctx.fillText(Math.floor(spd) + ' MPH', W - 12, 48);
+  // Active powerup chips bottom-left
+  let py = H - 30;
+  const drawChip = (label, t, color) => {
+    if (t <= 0) return;
+    ctx.fillStyle = 'rgba(0,0,0,0.7)';
+    ctx.fillRect(12, py - 16, 110, 22);
+    ctx.fillStyle = color;
+    ctx.fillRect(12, py - 16, 110 * (t / 6), 4);
+    ctx.fillStyle = '#fff'; ctx.font = "10px 'Press Start 2P', monospace"; ctx.textAlign = 'left';
+    ctx.fillText(`${label} ${t.toFixed(1)}s`, 18, py);
+    py -= 26;
+  };
+  drawChip('NITRO', nitroT, '#ff8e3c');
+  drawChip('SHIELD', shieldT, '#4cc9f0');
+  drawChip('MAGNET', magnetT, '#b055ff');
+  // Minimap (top-right area)
+  const mmW = 130, mmH = 90, mmX = W - mmW - 12, mmY = 60;
+  ctx.fillStyle = 'rgba(0,0,0,0.6)';
+  ctx.fillRect(mmX, mmY, mmW, mmH);
+  ctx.strokeStyle = '#4cc9f0'; ctx.lineWidth = 1;
+  ctx.strokeRect(mmX + 0.5, mmY + 0.5, mmW - 1, mmH - 1);
+  const sx = mmW / WORLD_W, sy = mmH / WORLD_H;
+  // marker
+  ctx.fillStyle = '#5ef38c';
+  ctx.fillRect(mmX + marker.x * sx - 2, mmY + marker.y * sy - 2, 4, 4);
+  // pug
+  ctx.fillStyle = '#ffd23f';
+  ctx.fillRect(mmX + pug.x * sx - 2, mmY + pug.y * sy - 2, 4, 4);
+  // obstacles
+  for (const o of obstacles) {
+    ctx.fillStyle = o.type === 'drone' ? '#ff3a3a' : 'rgba(255,58,58,0.5)';
+    ctx.fillRect(mmX + o.x * sx, mmY + o.y * sy, 2, 2);
+  }
 }
 
 function drawObstacle(o) {
-  if (o.type === 'zombie') {
+  if (o.type === 'drone') {
+    // Glowing drone with shadow
+    ctx.fillStyle = 'rgba(0,0,0,0.4)';
+    ctx.beginPath(); ctx.ellipse(o.x, o.y + 18, 12, 4, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.shadowColor = '#ff3a3a'; ctx.shadowBlur = 12;
+    ctx.fillStyle = '#3a3a4a'; ctx.beginPath(); ctx.arc(o.x, o.y, 11, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#ff3a3a'; ctx.beginPath(); ctx.arc(o.x, o.y, 3, 0, Math.PI * 2); ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = '#222';
+    ctx.fillRect(o.x - 14, o.y - 1, 6, 2); ctx.fillRect(o.x + 8, o.y - 1, 6, 2);
+  } else if (o.type === 'zombie') {
     ctx.fillStyle = '#4a7a4a'; ctx.fillRect(o.x - 10, o.y - 12, 20, 18);
     ctx.fillStyle = '#2a4a2a'; ctx.fillRect(o.x - 8, o.y - 8, 16, 8);
     ctx.fillStyle = '#ff3a3a'; ctx.fillRect(o.x - 5, o.y - 6, 3, 3); ctx.fillRect(o.x + 2, o.y - 6, 3, 3);
