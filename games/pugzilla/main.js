@@ -4,6 +4,7 @@
 import { submitRun, loadBest } from '../../src/persistence/highScores.js';
 import { createSfx } from '../../src/shared/miniSfx.js';
 import { showTip } from '../../src/shared/tutorialTip.js';
+import { drawIcon } from '../../src/shared/icons.js';
 
 const canvas = document.getElementById('game-canvas');
 const ctx = canvas.getContext('2d');
@@ -31,6 +32,15 @@ const FORMS = [
 let pug, buildings, vehicles, helicopters, missiles, particles, powerups, score, smashed, eaten, hp, formIdx, borkCd, cam, running;
 let combo = 0, comboT = 0, dmgBoostT = 0;
 let mouse = { x: 0, y: 0 };
+// --- Juice ---
+let shakeT = 0, shakeMag = 0;
+let hitFlashT = 0;
+let popups = []; // {x, y, text, color, t}
+let smokeColumns = []; // ambient smoke pillars at smash sites: {x, y, t, life}
+let craters = []; // permanent floor scars from smashed buildings
+let distantChoppers = []; // far skyline helicopter silhouettes (decorative)
+function addShake(mag, dur) { shakeMag = Math.max(shakeMag, mag); shakeT = Math.max(shakeT, dur); }
+function addPopup(x, y, text, color) { popups.push({ x, y, text, color: color || '#ffd23f', t: 0 }); if (popups.length > 40) popups.shift(); }
 
 // Building types — each with different score/effect
 const BUILDING_TYPES = {
@@ -53,6 +63,18 @@ function reset() {
   score = 0; smashed = 0; eaten = 0; hp = 100; borkCd = 0;
   combo = 0; comboT = 0; dmgBoostT = 0;
   cam = { x: pug.x, y: pug.y };
+  shakeT = 0; shakeMag = 0; hitFlashT = 0;
+  popups = []; smokeColumns = []; craters = [];
+  // Distant skyline silhouette choppers (decorative — drift across horizon band)
+  distantChoppers = [];
+  for (let i = 0; i < 5; i++) {
+    distantChoppers.push({
+      x: Math.random() * WORLD_W,
+      y: 30 + Math.random() * 110,
+      vx: 30 + Math.random() * 40,
+      blade: Math.random() * Math.PI,
+    });
+  }
 }
 function makeBuilding() {
   // 8% bank, 12% gas station, rest apartments
@@ -138,10 +160,14 @@ function smashAt(wx, wy) {
       vehicles.splice(i, 1);
       eaten++; score += 30;
       sfx.tone(660, 'triangle', 0.1, 0.22);
+      addPopup(v.x, v.y - 8, '+30 🍴', '#ffd23f');
+      addShake(2, 0.1);
       if (eaten >= 5 && formIdx < FORMS.length - 1) {
         formIdx++; eaten = 0;
         hp = Math.min(100 + formIdx * 50, hp + 80);
         sfx.arp([523, 659, 784, 1047], 'triangle', 0.1, 0.25, 0.3);
+        addShake(10, 0.4);
+        addPopup(pug.x, pug.y - form().r - 12, 'EVOLVE! ' + form().name.toUpperCase(), '#b055ff');
       }
       spawnVehicle();
       return;
@@ -156,6 +182,7 @@ function doBork() {
   if (!running || borkCd > 0) return;
   borkCd = 4;
   sfx.sweep(220, 80, 'sawtooth', 0.5, 0.3);
+  addShake(8, 0.32);
   // Shockwave: push everything outward + damage helicopters
   const reach = form().r + 250;
   for (const v of vehicles) {
@@ -205,9 +232,17 @@ function comboMult() { return Math.min(5, 1 + (combo - 1) * 0.25); }
 function smashBuilding(b, idx) {
   bumpCombo();
   const mult = comboMult();
-  score += Math.floor(b.val * mult);
+  const gain = Math.floor(b.val * mult);
+  score += gain;
   smashed++;
-  spawnDust(b.x + b.w / 2, b.y + b.h / 2, b.color);
+  const cx = b.x + b.w / 2, cy = b.y + b.h / 2;
+  spawnDust(cx, cy, b.color);
+  addPopup(cx, cy - b.h / 2, '+' + gain, b.special === 'bank' ? '#5ef38c' : (b.special === 'gas' ? '#ff8e3c' : '#ffd23f'));
+  addShake(b.special ? 6 : 4, b.special ? 0.28 : 0.18);
+  smokeColumns.push({ x: cx, y: cy, t: 0, life: 4, mag: b.h });
+  if (smokeColumns.length > 30) smokeColumns.shift();
+  craters.push({ x: cx, y: cy, r: Math.max(b.w, b.h) * 0.45 });
+  if (craters.length > 120) craters.shift();
   buildings.splice(idx, 1);
   // Special effects
   if (b.special === 'bank') {
@@ -333,6 +368,9 @@ function tick(dt) {
       hp -= 12;
       missiles.splice(i, 1);
       sfx.tone(180, 'square', 0.1, 0.22);
+      addShake(5, 0.22);
+      hitFlashT = 0.18;
+      addPopup(pug.x, pug.y - form().r - 4, '-12 HP', '#ff5a5a');
       if (hp <= 0) return end();
     }
   }
@@ -347,22 +385,111 @@ function tick(dt) {
       if (p.t >= p.life) particles.splice(i, 1);
     }
   }
+  // Juice tick
+  if (shakeT > 0) { shakeT -= dt; if (shakeT <= 0) shakeMag = 0; }
+  if (hitFlashT > 0) hitFlashT = Math.max(0, hitFlashT - dt);
+  for (const p of popups) { p.t += dt; p.y -= 32 * dt; }
+  popups = popups.filter((p) => p.t < 1.2);
+  for (const s of smokeColumns) s.t += dt;
+  smokeColumns = smokeColumns.filter((s) => s.t < s.life);
+  // Distant choppers drift
+  for (const d of distantChoppers) {
+    d.x += d.vx * dt;
+    d.blade += dt * 18;
+    if (d.x > WORLD_W + 60) { d.x = -60; d.y = 30 + Math.random() * 110; }
+  }
   updateHud();
 }
 
 function render() {
-  ctx.fillStyle = '#22103f'; ctx.fillRect(0, 0, W, H);
+  // Sky gradient (screen space, painted first)
+  const skyGrd = ctx.createLinearGradient(0, 0, 0, H);
+  skyGrd.addColorStop(0, '#3a1a4a');
+  skyGrd.addColorStop(0.5, '#52223a');
+  skyGrd.addColorStop(1, '#22103f');
+  ctx.fillStyle = skyGrd; ctx.fillRect(0, 0, W, H);
+  // Distant low-parallax skyline band (screen space, before world)
+  const horizonY = H * 0.22;
+  ctx.fillStyle = 'rgba(20,8,30,0.7)';
+  // Pseudo-random skyline silhouettes (parallax: shift by cam.x * 0.1)
+  const px = (cam.x * 0.12) % 80;
+  for (let i = -2; i < Math.floor(W / 30) + 2; i++) {
+    const seed = ((i + 100) * 37) % 100;
+    const bh = 30 + (seed % 60);
+    const bw = 16 + (seed % 14);
+    ctx.fillRect(i * 30 - px, horizonY - bh, bw, bh + 4);
+    // tiny windows
+    ctx.fillStyle = 'rgba(255,210,63,0.4)';
+    for (let yy = 4; yy < bh - 4; yy += 8) {
+      if ((yy + seed) % 16 === 0) ctx.fillRect(i * 30 - px + 4, horizonY - bh + yy, 2, 3);
+    }
+    ctx.fillStyle = 'rgba(20,8,30,0.7)';
+  }
+  // Distant choppers (parallax silhouette)
+  ctx.fillStyle = 'rgba(0,0,0,0.55)';
+  for (const d of distantChoppers) {
+    const sx = ((d.x - cam.x * 0.3) % (WORLD_W + 120) + (WORLD_W + 120)) % (WORLD_W + 120) - 60;
+    const sy = d.y;
+    if (sx < -60 || sx > W + 60) continue;
+    ctx.fillRect(sx - 6, sy - 2, 12, 4);
+    // blade
+    const bx = Math.cos(d.blade) * 10;
+    ctx.fillRect(sx - bx, sy - 4, bx * 2 || 1, 1);
+  }
+  // Now world-space render with shake offset
+  let _sx = 0, _sy = 0;
+  if (shakeT > 0 && shakeMag > 0) {
+    const k = Math.min(1, shakeT / 0.3);
+    _sx = (Math.random() - 0.5) * shakeMag * 2 * k;
+    _sy = (Math.random() - 0.5) * shakeMag * 2 * k;
+  }
   ctx.save();
-  ctx.translate(W / 2 - cam.x, H / 2 - cam.y);
+  ctx.translate(W / 2 - cam.x + _sx, H / 2 - cam.y + _sy);
   // Ground / streets
   ctx.fillStyle = '#3a2a5a'; ctx.fillRect(0, 0, WORLD_W, WORLD_H);
+  // Wide road bands
+  ctx.fillStyle = '#221836';
+  for (let x = 80; x < WORLD_W; x += 220) ctx.fillRect(x - 22, 0, 44, WORLD_H);
+  for (let y = 80; y < WORLD_H; y += 220) ctx.fillRect(0, y - 22, WORLD_W, 44);
+  // Sidewalk edge highlights
+  ctx.fillStyle = '#4a3a6a';
+  for (let x = 80; x < WORLD_W; x += 220) {
+    ctx.fillRect(x - 24, 0, 2, WORLD_H);
+    ctx.fillRect(x + 22, 0, 2, WORLD_H);
+  }
+  for (let y = 80; y < WORLD_H; y += 220) {
+    ctx.fillRect(0, y - 24, WORLD_W, 2);
+    ctx.fillRect(0, y + 22, WORLD_W, 2);
+  }
+  // Center lane dashes (yellow)
+  ctx.fillStyle = 'rgba(255,210,63,0.55)';
+  for (let x = 80; x < WORLD_W; x += 220) {
+    for (let y = 10; y < WORLD_H; y += 38) ctx.fillRect(x - 1, y, 2, 18);
+  }
+  for (let y = 80; y < WORLD_H; y += 220) {
+    for (let x = 10; x < WORLD_W; x += 38) ctx.fillRect(x, y - 1, 18, 2);
+  }
+  // Strong street outlines (kept similar to original look)
   ctx.strokeStyle = '#1a0d05';
-  ctx.lineWidth = 4;
+  ctx.lineWidth = 2;
   for (let x = 80; x < WORLD_W; x += 220) {
     ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, WORLD_H); ctx.stroke();
   }
   for (let y = 80; y < WORLD_H; y += 220) {
     ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(WORLD_W, y); ctx.stroke();
+  }
+  // Craters from smashed buildings (drawn under everything)
+  for (const c of craters) {
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    ctx.beginPath(); ctx.arc(c.x, c.y, c.r, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = 'rgba(60,40,30,0.55)';
+    ctx.beginPath(); ctx.arc(c.x + 2, c.y + 2, c.r * 0.7, 0, Math.PI * 2); ctx.fill();
+    // rubble dots
+    for (let i = 0; i < 4; i++) {
+      const a = (i / 4) * Math.PI * 2;
+      ctx.fillStyle = 'rgba(80,60,50,0.6)';
+      ctx.fillRect(c.x + Math.cos(a) * c.r * 0.8 - 1, c.y + Math.sin(a) * c.r * 0.8 - 1, 3, 3);
+    }
   }
   // Buildings
   for (const b of buildings) {
@@ -390,7 +517,7 @@ function render() {
       ctx.strokeRect(b.x, b.y, b.w, b.h);
     }
   }
-  // Powerups
+  // Powerups — pixel-art icons (heal→heart, damage→lightning; rage has no library match → keep abstract glyph)
   for (const p of powerups) {
     const blink = p.t > 8 ? (Math.floor(p.t * 6) % 2 === 0) : true;
     if (!blink) continue;
@@ -399,9 +526,14 @@ function render() {
     ctx.fillStyle = p.type === 'heal' ? '#5ef38c' : (p.type === 'damage' ? '#ff3a3a' : '#b055ff');
     ctx.fillRect(p.x - 14, p.y - 14, 28, 28);
     ctx.shadowBlur = 0;
-    ctx.fillStyle = '#fff';
-    ctx.font = "20px serif"; ctx.textAlign = 'center';
-    ctx.fillText(p.type === 'heal' ? '❤' : (p.type === 'damage' ? '⚡' : '😡'), p.x, p.y + 6);
+    if (p.type === 'heal') drawIcon.heart(ctx, p.x, p.y, 22);
+    else if (p.type === 'damage') drawIcon.lightning(ctx, p.x, p.y, 22);
+    else {
+      // Rage / enrage — no library match, keep a fanged glyph (eyebrows + jagged mouth)
+      ctx.fillStyle = '#fff';
+      ctx.font = "20px serif"; ctx.textAlign = 'center';
+      ctx.fillText('!!', p.x, p.y + 6);
+    }
   }
   // Vehicles
   for (const v of vehicles) {
@@ -462,7 +594,45 @@ function render() {
   ctx.fillRect(pug.x + r * 0.28, pug.y - r * 0.14, r * 0.08, r * 0.08);
   ctx.fillStyle = '#ff5a82';
   ctx.beginPath(); ctx.arc(pug.x, pug.y + r * 0.45, r * 0.18, 0, Math.PI * 2); ctx.fill();
+  // Smoke columns (drawn in world, rise upward from smash sites)
+  for (const s of smokeColumns) {
+    const t = s.t / s.life;
+    const baseA = (1 - t) * 0.55;
+    const rise = t * 90;
+    for (let i = 0; i < 5; i++) {
+      const py = s.y - i * 22 - rise;
+      const rr = 14 + i * 5 + Math.sin(s.t * 2 + i) * 3;
+      const a = baseA * (1 - i * 0.15);
+      ctx.fillStyle = `rgba(60,55,72,${a})`;
+      ctx.beginPath(); ctx.arc(s.x + Math.sin(s.t + i) * 4, py, rr, 0, Math.PI * 2); ctx.fill();
+    }
+    // Ember
+    if (t < 0.4) {
+      ctx.fillStyle = `rgba(255,142,60,${(0.4 - t) * 1.4})`;
+      ctx.beginPath(); ctx.arc(s.x, s.y - rise * 0.3, 6, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+  // Score popups (world space)
+  ctx.font = "bold 12px 'Press Start 2P', monospace";
+  ctx.textAlign = 'center';
+  for (const p of popups) {
+    const a = p.t < 0.1 ? p.t / 0.1 : (p.t > 0.9 ? Math.max(0, (1.2 - p.t) / 0.3) : 1);
+    ctx.globalAlpha = a;
+    ctx.fillStyle = '#000'; ctx.fillText(p.text, p.x + 1, p.y + 1);
+    ctx.fillStyle = p.color; ctx.fillText(p.text, p.x, p.y);
+    ctx.globalAlpha = 1;
+  }
   ctx.restore();
+  // Hit flash overlay
+  if (hitFlashT > 0) {
+    ctx.fillStyle = `rgba(255,58,58,${Math.min(0.45, hitFlashT * 2.2)})`;
+    ctx.fillRect(0, 0, W, H);
+  }
+  // Vignette
+  const vg = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.4, W / 2, H / 2, Math.max(W, H) * 0.7);
+  vg.addColorStop(0, 'rgba(0,0,0,0)');
+  vg.addColorStop(1, 'rgba(0,0,0,0.55)');
+  ctx.fillStyle = vg; ctx.fillRect(0, 0, W, H);
   // HP bar
   ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(W / 2 - 100, 16, 200, 8);
   ctx.fillStyle = hp > 50 ? '#5ef38c' : (hp > 25 ? '#ffd23f' : '#ff3a3a');
@@ -485,7 +655,11 @@ function render() {
   if (dmgBoostT > 0) {
     ctx.fillStyle = '#ff3a3a';
     ctx.font = "16px 'Press Start 2P', monospace"; ctx.textAlign = 'right';
-    ctx.fillText(`⚡ 2.5× DMG ${dmgBoostT.toFixed(1)}s`, W - 16, H - 22);
+    const txt = `2.5× DMG ${dmgBoostT.toFixed(1)}s`;
+    ctx.fillText(txt, W - 16, H - 22);
+    // pixel lightning glyph just left of the text
+    const tw = ctx.measureText(txt).width;
+    drawIcon.lightning(ctx, W - 16 - tw - 14, H - 28, 16);
   }
   // Cursor reach indicator
   ctx.strokeStyle = 'rgba(255,210,63,0.2)';
@@ -496,7 +670,9 @@ function render() {
 function updateHud() {
   document.getElementById('hud-score').textContent = score;
   document.getElementById('hud-form').textContent = form().name;
-  document.getElementById('hud-hp').textContent = Math.max(0, Math.ceil(hp));
+  const hpEl = document.getElementById('hud-hp');
+  hpEl.textContent = Math.max(0, Math.ceil(hp));
+  hpEl.parentElement.classList.toggle('is-low', hp < 30);
   document.getElementById('hud-smashed').textContent = smashed;
   document.getElementById('hud-eaten').textContent = `${eaten}/5`;
   document.getElementById('hud-cd').textContent = borkCd > 0 ? borkCd.toFixed(1) + 's' : 'READY';

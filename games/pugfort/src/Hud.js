@@ -108,4 +108,34 @@ export class Hud {
     this.toast.appendChild(div);
     setTimeout(() => div.remove(), 4200);
   }
+
+  // Big centered wave-start banner that fades out
+  showWaveBanner(text) {
+    let el = document.getElementById('pf-wave-banner');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'pf-wave-banner';
+      el.className = 'pf-wave-banner';
+      document.body.appendChild(el);
+    }
+    el.textContent = text;
+    // restart the animation
+    el.classList.remove('pf-wave-banner--show');
+    void el.offsetWidth;
+    el.classList.add('pf-wave-banner--show');
+  }
+
+  // Critical-state border pulses
+  setPlayerCritical(on) {
+    const card = this.hp ? this.hp.closest('.hud-card') : null;
+    if (!card) return;
+    if (on) card.classList.add('hud-card--critical');
+    else card.classList.remove('hud-card--critical');
+  }
+  setGenCritical(on) {
+    const card = this.genHp ? this.genHp.closest('.hud-card') : null;
+    if (!card) return;
+    if (on) card.classList.add('hud-card--critical');
+    else card.classList.remove('hud-card--critical');
+  }
 }

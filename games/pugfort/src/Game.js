@@ -48,6 +48,15 @@ export class Game {
     this.wallsBuilt = 0;
     this.turretsBuilt = 0;
     this.fireCooldown = 0;
+    this.shakeT = 0;
+    this.shakeMag = 0;
+    this._lastPlayerHp = 100;
+    this._lastGenHp = null;
+  }
+
+  _screenShake(mag, dur) {
+    this.shakeMag = Math.max(this.shakeMag || 0, mag);
+    this.shakeT = Math.max(this.shakeT || 0, dur);
   }
 
   async init(rootEl) {
@@ -136,6 +145,7 @@ export class Game {
     this.matchTime += dt;
     this.phaseT += dt;
 
+    this._lastDt = dt;
     this._updatePhase();
     this._updatePlayer(dt);
     this._updateZombies(dt);
@@ -170,6 +180,8 @@ export class Game {
       this.nightSpawnTarget = waveLineup(this.nightIdx);
       this.nightSpawnTimer = 0;
       this._announceWave();
+      this.hud.showWaveBanner(`NIGHT ${this.nightIdx}`);
+      this._screenShake(5, 0.35);
       Sfx.phaseNight();
     } else if (this.phase === 'night') {
       this.nightsSurvived += 1;
@@ -480,6 +492,7 @@ export class Game {
 
   _bossStomp(x, y) {
     Sfx.explosion();
+    this._screenShake(8, 0.32);
     const radius = 220;
     const damage = 50;
     // visual ring
@@ -516,6 +529,7 @@ export class Game {
 
   _bossDeath(boss) {
     Sfx.win();
+    this._screenShake(8, 0.5);
     this.hud.toastMessage(`👑 KENNEL KING SLAIN`, 'good');
     // big explosion + many drops
     this._spawnRing(boss.x, boss.y, 300, COLORS.neonYellow);
@@ -556,6 +570,7 @@ export class Game {
   // ---------- Explosions ----------
   _explode(zombie) {
     Sfx.explosion();
+    this._screenShake(6, 0.28);
     const x = zombie.x, y = zombie.y;
     const r = zombie.def.explodeRadius;
     const dmg = zombie.def.explodeDamage;
@@ -846,6 +861,7 @@ export class Game {
 
   _mineExplode(mine) {
     Sfx.explosion();
+    this._screenShake(5, 0.22);
     const x = mine.cx, y = mine.cy;
     const r = mine.def.mineRadius;
     const dmg = mine.def.mineDamage;
@@ -901,6 +917,15 @@ export class Game {
     // clamp to world bounds (in screen-space, so multiply by scale)
     camX = Math.min(0, Math.max(-this.world.width * scale + screen.width, camX));
     camY = Math.min(0, Math.max(-this.world.height * scale + screen.height, camY));
+    // Screen shake — small camera offset (HUD is DOM, unaffected)
+    if (this.shakeT > 0) {
+      const dt = this._lastDt || 1 / 60;
+      this.shakeT -= dt;
+      if (this.shakeT <= 0) this.shakeMag = 0;
+      const k = Math.max(0, this.shakeT) * (this.shakeMag || 0);
+      camX += (Math.random() - 0.5) * k;
+      camY += (Math.random() - 0.5) * k;
+    }
     cam.x = camX;
     cam.y = camY;
   }
@@ -915,6 +940,25 @@ export class Game {
     if (this.boss) this.hud.updateBoss(this.boss);
     else this.hud.hideBoss();
     this.world.setPhaseTint(this.phase, this.phaseT / this.phaseTotal);
+    // Player damage shake — detect HP drop frame-over-frame
+    if (this.player && this.player.alive) {
+      const drop = this._lastPlayerHp - this.player.hp;
+      if (drop > 0.5) this._screenShake(Math.min(6, 3 + drop * 0.1), 0.2);
+      this._lastPlayerHp = this.player.hp;
+    }
+    // Generator hit shake — detect HP drop
+    if (this.generator && this.generator.alive) {
+      if (this._lastGenHp == null) this._lastGenHp = this.generator.hp;
+      const gDrop = this._lastGenHp - this.generator.hp;
+      if (gDrop > 0.5) this._screenShake(Math.min(7, 4 + gDrop * 0.05), 0.22);
+      this._lastGenHp = this.generator.hp;
+    }
+    // Critical HUD pulses — low player HP + low generator HP
+    const playerCrit = this.player && this.player.alive && (this.player.hp / this.player.maxHp) < 0.25;
+    this.hud.setPlayerCritical(playerCrit);
+    const genCrit = this.generator && this.generator.alive && (this.generator.hp / this.generator.maxHp) < 0.3;
+    this.hud.setGenCritical(genCrit);
+    // Wave banner ticker (DOM-driven, fade controlled by CSS animation)
   }
 
   _checkEndConditions() {

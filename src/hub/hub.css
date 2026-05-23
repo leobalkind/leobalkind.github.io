@@ -146,6 +146,37 @@ body::after {
   gap: 8px;
   justify-content: center;
   margin-top: 18px;
+  flex-wrap: wrap;
+}
+
+.hub__search {
+  display: block;
+  margin: 22px auto 0;
+  max-width: 360px;
+  width: calc(100% - 32px);
+  background: rgba(10, 7, 22, 0.7);
+  border: 2px solid var(--border);
+  color: var(--text);
+  font-family: var(--font-body);
+  font-size: 1rem;
+  letter-spacing: 0.02em;
+  padding: 10px 14px;
+  border-radius: 999px;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.hub__search::placeholder { color: var(--muted); }
+.hub__search:focus {
+  border-color: var(--neon-cyan);
+  box-shadow: 0 0 14px rgba(76, 201, 240, 0.35);
+}
+.hub__empty {
+  text-align: center;
+  color: var(--muted);
+  font-family: var(--font-display);
+  font-size: 0.65rem;
+  letter-spacing: 0.1em;
+  margin-top: 36px;
 }
 .hub__chip {
   font-family: var(--font-display);
@@ -226,18 +257,38 @@ body::after {
   border-top: none;
 }
 
-.card:hover {
+.card:hover,
+.card:focus-visible {
   transform: translateY(-6px) scale(1.02);
   border-color: var(--neon-pink);
   box-shadow:
     0 14px 40px rgba(255, 58, 161, 0.3),
     0 0 0 1px var(--neon-pink),
     inset 0 0 30px rgba(255, 58, 161, 0.06);
+  outline: none;
+}
+.card:focus-visible {
+  box-shadow:
+    0 14px 40px rgba(255, 58, 161, 0.3),
+    0 0 0 3px var(--neon-cyan),
+    inset 0 0 30px rgba(255, 58, 161, 0.06);
 }
 
 .card:hover::before,
-.card:hover::after {
+.card:hover::after,
+.card:focus-visible::before,
+.card:focus-visible::after {
   opacity: 1;
+}
+
+.hub__icon-btn:focus-visible,
+.hub-modal__close:focus-visible {
+  outline: 3px solid var(--neon-cyan);
+  outline-offset: 2px;
+}
+.hub-toggle:focus-within {
+  border-color: var(--neon-cyan);
+  background: rgba(76, 201, 240, 0.08);
 }
 
 .card--coming {
@@ -320,6 +371,30 @@ body::after {
 .card__art--soon {
   border-bottom: 2px solid rgba(138, 144, 177, 0.4);
   opacity: 0.7;
+}
+
+/* Per-card BEST badge — overlay top-right showing the player's high score */
+.card__best {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 3;
+  font-family: var(--font-display);
+  font-size: 0.45rem;
+  letter-spacing: 0.08em;
+  color: var(--neon-yellow);
+  background: rgba(10, 7, 22, 0.78);
+  border: 1px solid rgba(255, 210, 63, 0.6);
+  padding: 4px 7px;
+  border-radius: 3px;
+  text-shadow: 0 0 6px rgba(255, 210, 63, 0.45);
+  box-shadow: 0 0 12px rgba(255, 210, 63, 0.18);
+  pointer-events: none;
+  white-space: nowrap;
+}
+.card:hover .card__best {
+  border-color: var(--neon-yellow);
+  background: rgba(10, 7, 22, 0.92);
 }
 
 /* Hide legacy shape elements still in markup (no-op if removed) */
@@ -586,4 +661,139 @@ body.colorblind {
   --neon-cyan: #ffd23f;
   --neon-cyan-soft: #ffeb55;
   --magenta: #ff8e3c;
+}
+
+/* =========================================================================
+   ENTRANCE + MOTION POLISH
+   All animations cut by body.reduced-motion (rule above).
+   ========================================================================= */
+
+@keyframes hubHeaderRise {
+  from { opacity: 0; transform: translateY(-18px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes hubHeaderFloat {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-4px); }
+}
+@keyframes hubChipDrop {
+  from { opacity: 0; transform: translateY(-12px) scale(0.85); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes hubCardEnter {
+  from { opacity: 0; transform: translateY(28px) scale(0.96); filter: blur(4px); }
+  to   { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
+}
+@keyframes hubFooterEnter {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes cardHoverGlow {
+  0%, 100% { box-shadow:
+      0 14px 40px rgba(255, 58, 161, 0.28),
+      0 0 0 1px var(--neon-pink),
+      inset 0 0 30px rgba(255, 58, 161, 0.06); }
+  50%      { box-shadow:
+      0 18px 52px rgba(76, 201, 240, 0.30),
+      0 0 0 1px var(--neon-cyan),
+      inset 0 0 36px rgba(76, 201, 240, 0.10); }
+}
+@keyframes ctaArrowNudge {
+  0%, 100% { transform: translateX(0); }
+  50%      { transform: translateX(4px); }
+}
+@keyframes iconBtnPop {
+  0%, 100% { transform: scale(1) rotate(0); }
+  40%      { transform: scale(0.85) rotate(-8deg); }
+  70%      { transform: scale(1.12) rotate(6deg); }
+}
+@keyframes modalPanelEnter {
+  from { opacity: 0; transform: translateY(20px) scale(0.94); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes modalBackdropFade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* Header rises in, then a gentle float loop (chained via delay). */
+.hub__header h1 {
+  animation:
+    hubHeaderRise 0.7s ease-out both,
+    hubHeaderFloat 6s ease-in-out 0.8s infinite;
+}
+.hub__tagline {
+  opacity: 0;
+  animation: hubHeaderRise 0.7s ease-out 0.15s both;
+}
+.hub__chips .hub__chip {
+  opacity: 0;
+  animation: hubChipDrop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+.hub__chips .hub__chip:nth-child(1) { animation-delay: 0.35s; }
+.hub__chips .hub__chip:nth-child(2) { animation-delay: 0.45s; }
+.hub__chips .hub__chip:nth-child(3) { animation-delay: 0.55s; }
+
+/* Cards stagger-fade-up on first paint. */
+.hub__grid .card,
+.hub__grid .card--coming {
+  opacity: 0;
+  animation: hubCardEnter 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.hub__grid > *:nth-child(1)  { animation-delay: 0.30s; }
+.hub__grid > *:nth-child(2)  { animation-delay: 0.36s; }
+.hub__grid > *:nth-child(3)  { animation-delay: 0.42s; }
+.hub__grid > *:nth-child(4)  { animation-delay: 0.48s; }
+.hub__grid > *:nth-child(5)  { animation-delay: 0.54s; }
+.hub__grid > *:nth-child(6)  { animation-delay: 0.60s; }
+.hub__grid > *:nth-child(7)  { animation-delay: 0.66s; }
+.hub__grid > *:nth-child(8)  { animation-delay: 0.72s; }
+.hub__grid > *:nth-child(9)  { animation-delay: 0.78s; }
+.hub__grid > *:nth-child(10) { animation-delay: 0.84s; }
+.hub__grid > *:nth-child(11) { animation-delay: 0.90s; }
+.hub__grid > *:nth-child(12) { animation-delay: 0.96s; }
+.hub__grid > *:nth-child(13) { animation-delay: 1.02s; }
+.hub__grid > *:nth-child(14) { animation-delay: 1.08s; }
+
+/* Footer slides up at the end. */
+.hub__footer {
+  opacity: 0;
+  animation: hubFooterEnter 0.5s ease-out 1.15s both;
+}
+
+/* Card hover gains a slow pink↔cyan glow shift (in addition to the transform). */
+.card:hover {
+  animation: cardHoverGlow 2.4s ease-in-out infinite;
+}
+.card:hover .card__cta {
+  /* arrow nudge already covered by the existing translateX hover rule; add a loop */
+  animation: ctaArrowNudge 1.4s ease-in-out infinite;
+}
+/* Coming-soon card should not animate on hover (stays muted). */
+.card--coming:hover { animation: none; }
+.card--coming:hover .card__cta { animation: none; }
+
+/* Footer icon buttons pop on click. */
+.hub__icon-btn:active {
+  animation: iconBtnPop 0.35s ease-out;
+}
+
+/* Modal entrance: backdrop fades, panel rises. */
+.hub-modal:not([hidden]) { animation: modalBackdropFade 0.18s ease-out; }
+.hub-modal:not([hidden]) .hub-modal__panel { animation: modalPanelEnter 0.28s cubic-bezier(0.22, 1, 0.36, 1); }
+
+/* Daily-seed chip: subtle pulse to draw the eye. */
+@keyframes seedShimmer {
+  0%, 100% { color: var(--muted); }
+  50%      { color: var(--neon-yellow); text-shadow: 0 0 6px rgba(255, 210, 63, 0.4); }
+}
+#daily-seed { animation: seedShimmer 5s ease-in-out infinite; }
+
+/* Skip everything above on prefers-reduced-motion (in addition to the body.reduced-motion class). */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

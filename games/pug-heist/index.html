@@ -3,6 +3,10 @@
 <meta name="theme-color" content="#0a0716"><title>PUG HEIST SOCIETY</title>
 <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="../../src/shared/gameBase.css">
+<style>
+  .hud-card.is-alert { box-shadow: 0 0 0 2px #ff3a3a, 0 0 22px rgba(255,58,58,0.6); animation: hpulse 0.4s ease-in-out infinite alternate; }
+  @keyframes hpulse { from { background-color: rgba(255,58,58,0.08); } to { background-color: rgba(255,58,58,0.25); } }
+</style>
 </head><body>
 <canvas id="game-canvas"></canvas>
 <button id="mute-btn" class="mute-btn">🔊</button>
@@ -13,7 +17,7 @@
   <ul class="overlay__controls">
     <li><b>WASD</b> sneak · <b>SHIFT</b> fart boost (loud!)</li>
     <li><b>SPACE</b> bark (distracts) · <b>Q</b> smoke bomb · <b>G</b> tongue-grab · <b>T</b> decoy bone</li>
-    <li>Grab all loot then reach the EXIT. Rarities: 👑💎📺 = jackpots</li>
+    <li>Grab all loot then reach the EXIT. Rare items <span class="loot-rare-tip" style="display:inline-flex;gap:3px;vertical-align:middle"></span> = jackpots</li>
     <li>Stay undetected for <b>S-grade</b> bonus</li>
   </ul>
   <button id="start-btn" class="overlay__btn">SNEAK IN</button>

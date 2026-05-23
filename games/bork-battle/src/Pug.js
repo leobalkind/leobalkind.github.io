@@ -58,6 +58,15 @@ export class Pug {
     this.borkCooldown = 0;   // seconds until bork can be charged again
     this.invuln = 0;         // brief i-frames after spawn / hit
     this.flashT = 0;         // visual flash timer
+    // Ability cooldowns (player only — bots ignore these)
+    this.dashCd = 0;          // E — short forward burst
+    this.decoyCd = 0;         // Q — drop fake target
+    this.healCd = 0;          // R — instant heal + ally pulse
+    // Dash motion state: dashT counts down a quick burst window where we
+    // override velocity with dashVx/dashVy.
+    this.dashT = 0;
+    this.dashVx = 0;
+    this.dashVy = 0;
 
     this.container = new Container();
     this.container.label = `pug-${this.id}`;
@@ -129,6 +138,15 @@ export class Pug {
 
   // Apply movement vector (already normalized) for this frame.
   move(dx, dy, dt) {
+    // Dash overrides normal control during the burst window.
+    if (this.dashT > 0) {
+      this.dashT -= dt;
+      this.vx = this.dashVx;
+      this.vy = this.dashVy;
+      this.x += this.vx * dt;
+      this.y += this.vy * dt;
+      return;
+    }
     const sp = this.form.speed;
     // accelerate toward target velocity
     const targetVx = dx * sp;

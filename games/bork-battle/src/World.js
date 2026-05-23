@@ -363,6 +363,10 @@ export class World {
       container: c, frisbees, loot,
       x: this.width / 2, y: this.height / 2,
       radius: 75, damage: 16,
+      // Loot drop state — Game owns the timer/spawn logic; we just hold refs
+      // so Game can update the floating label per-frame.
+      lootText: '★ LOOT ★',
+      lootColor: COLORS.yellow,
     };
   }
 
@@ -457,6 +461,14 @@ export class World {
     }
     if (this.tornado.loot) {
       this.tornado.loot.y = -100 + Math.sin(matchTimeSec * 2) * 4;
+      // Sync label text/color if Game has updated it (cheap; Text only updates
+      // its texture when content actually changes).
+      if (this.tornado.loot.text !== this.tornado.lootText) {
+        this.tornado.loot.text = this.tornado.lootText;
+      }
+      if (this.tornado.lootColor != null && this.tornado.loot.style.fill !== this.tornado.lootColor) {
+        this.tornado.loot.style.fill = this.tornado.lootColor;
+      }
     }
 
     this._updateZone(dt, matchTimeSec);

@@ -452,7 +452,8 @@ canvas { display: block; image-rendering: pixelated; image-rendering: crisp-edge
 .hud-slot--active { border-color: var(--neon-yellow); box-shadow: 0 0 18px rgba(255,210,63,0.4); }
 .hud-slot--armed { border-color: var(--neon-green); box-shadow: 0 0 20px rgba(94,243,140,0.7); }
 .hud-slot__num { position: absolute; top: 2px; left: 4px; font-size: 0.45rem; color: var(--neon-cyan); }
-.hud-slot__icon { font-size: 24px; line-height: 1; }
+.hud-slot__icon { font-size: 24px; line-height: 1; display: inline-flex; align-items: center; justify-content: center; height: 24px; }
+.hud-slot__icon svg { display: block; image-rendering: pixelated; }
 .hud-slot__name { color: var(--text); letter-spacing: 0.05em; }
 .hud-slot__cost { color: var(--muted); font-size: 0.42rem; letter-spacing: 0; }
 
@@ -488,3 +489,39 @@ canvas { display: block; image-rendering: pixelated; image-rendering: crisp-edge
 .hud-toast__msg.good { border-left-color: var(--neon-green); color: var(--neon-green); }
 @keyframes toastIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes toastOut { to { opacity: 0; transform: translateY(-10px); } }
+
+/* Wave-start banner: dramatic, centered, fades */
+.pf-wave-banner {
+  position: fixed;
+  top: 32%;
+  left: 50%;
+  transform: translate(-50%, -50%) scale(0.6);
+  font-family: var(--font-display, 'Press Start 2P', monospace);
+  font-size: 1.6rem;
+  letter-spacing: 0.14em;
+  color: var(--neon-pink);
+  text-shadow: 0 0 16px rgba(255, 58, 161, 0.85), 0 0 4px #000;
+  opacity: 0;
+  pointer-events: none;
+  z-index: 80;
+}
+.pf-wave-banner--show {
+  animation: pfWaveBanner 1.6s ease-out forwards;
+}
+@keyframes pfWaveBanner {
+  0%   { opacity: 0; transform: translate(-50%, -50%) scale(0.55); }
+  20%  { opacity: 1; transform: translate(-50%, -50%) scale(1.08); }
+  35%  { transform: translate(-50%, -50%) scale(1); }
+  80%  { opacity: 1; }
+  100% { opacity: 0; transform: translate(-50%, -50%) scale(1.12); }
+}
+
+/* Critical HUD card pulse — low HP or low generator HP */
+.hud-card--critical {
+  border-color: var(--crimson, #ff3a3a) !important;
+  animation: pfHudCritical 0.55s ease-in-out infinite;
+}
+@keyframes pfHudCritical {
+  0%, 100% { box-shadow: 0 0 0 rgba(255, 58, 58, 0); }
+  50%      { box-shadow: 0 0 18px rgba(255, 58, 58, 0.85); }
+}

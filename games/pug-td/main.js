@@ -2,6 +2,7 @@
 import { submitRun, loadBest } from '../../src/persistence/highScores.js';
 import { createSfx } from '../../src/shared/miniSfx.js';
 import { showTip } from '../../src/shared/tutorialTip.js';
+import { drawIcon, iconSvg } from '../../src/shared/icons.js';
 
 const canvas = document.getElementById('game-canvas');
 const ctx = canvas.getContext('2d');
@@ -142,15 +143,15 @@ let currentMap = MAPS.classic;
 function isPath(c, r) { return currentMap.path.some((p) => p[0] === c && p[1] === r); }
 
 const TOWERS = {
-  basic:  { name: 'Bork', icon: '🐶', cost: 30, range: 3.0, dmg: 8,  cd: 0.5, color: '#4cc9f0', hitsAir: true, projColor: '#4cc9f0', desc: 'Cheap balanced shots' },
-  sniper: { name: 'Snoot', icon: '👃', cost: 80, range: 6.5, dmg: 45, cd: 1.5, color: '#ffd23f', hitsAir: true, projColor: '#ffd23f', desc: 'Long range, high dmg' },
-  gatling:{ name: 'Gat', icon: '🎯', cost: 100, range: 2.6, dmg: 4,  cd: 0.1, color: '#ff8e3c', hitsAir: true, projColor: '#ff8e3c', desc: 'Spray of bullets' },
-  cannon: { name: 'Cannon', icon: '💥', cost: 120, range: 3.0, dmg: 25, cd: 1.2, color: '#ff3a3a', hitsAir: false, splash: 1.4, projColor: '#ff3a3a', desc: 'Splash dmg, ground only' },
-  frost:  { name: 'Frost', icon: '🧊', cost: 75, range: 2.8, dmg: 3,  cd: 0.4, color: '#b0e8ff', hitsAir: true, slow: 0.4, slowDur: 1.5, projColor: '#b0e8ff', desc: 'Slows enemies' },
-  buff:   { name: 'Buff', icon: '⭐', cost: 90, range: 2.5, dmg: 0,  cd: 0.5, color: '#b055ff', hitsAir: false, buff: 1.4, desc: 'Boosts nearby towers +40%' },
+  basic:  { name: 'Bork', icon: '🐶', iconName: 'pugFace', cost: 30, range: 3.0, dmg: 8,  cd: 0.5, color: '#4cc9f0', hitsAir: true, projColor: '#4cc9f0', desc: 'Cheap balanced shots' },
+  sniper: { name: 'Snoot', icon: '👃', iconName: 'pugFace', cost: 80, range: 6.5, dmg: 45, cd: 1.5, color: '#ffd23f', hitsAir: true, projColor: '#ffd23f', desc: 'Long range, high dmg' },
+  gatling:{ name: 'Gat', icon: '🎯', iconName: 'lightning', cost: 100, range: 2.6, dmg: 4,  cd: 0.1, color: '#ff8e3c', hitsAir: true, projColor: '#ff8e3c', desc: 'Spray of bullets' },
+  cannon: { name: 'Cannon', icon: '💥', iconName: 'flame', cost: 120, range: 3.0, dmg: 25, cd: 1.2, color: '#ff3a3a', hitsAir: false, splash: 1.4, projColor: '#ff3a3a', desc: 'Splash dmg, ground only' },
+  frost:  { name: 'Frost', icon: '🧊', iconName: 'diamond', cost: 75, range: 2.8, dmg: 3,  cd: 0.4, color: '#b0e8ff', hitsAir: true, slow: 0.4, slowDur: 1.5, projColor: '#b0e8ff', desc: 'Slows enemies' },
+  buff:   { name: 'Buff', icon: '⭐', iconName: 'crown', cost: 90, range: 2.5, dmg: 0,  cd: 0.5, color: '#b055ff', hitsAir: false, buff: 1.4, desc: 'Boosts nearby towers +40%' },
   // NEW towers
-  bone:   { name: 'Bone', icon: '🦴', cost: 110, range: 3.5, dmg: 12, cd: 0.7, color: '#eae0c0', hitsAir: true, projColor: '#eae0c0', boomerang: true, desc: 'Boomerang hits twice' },
-  tar:    { name: 'Tar', icon: '🛢', cost: 95, range: 2.5, dmg: 6,  cd: 0.55, color: '#222228', hitsAir: false, projColor: '#222228', tarPool: true, slow: 0.5, slowDur: 2.2, desc: 'Drops slow-pools on ground' },
+  bone:   { name: 'Bone', icon: '🦴', iconName: 'bone', cost: 110, range: 3.5, dmg: 12, cd: 0.7, color: '#eae0c0', hitsAir: true, projColor: '#eae0c0', boomerang: true, desc: 'Boomerang hits twice' },
+  tar:    { name: 'Tar', icon: '🛢', iconName: 'smokeBomb', cost: 95, range: 2.5, dmg: 6,  cd: 0.55, color: '#222228', hitsAir: false, projColor: '#222228', tarPool: true, slow: 0.5, slowDur: 2.2, desc: 'Drops slow-pools on ground' },
 };
 
 const TARGETING_MODES = ['FIRST', 'LAST', 'STRONG', 'CLOSE'];
@@ -182,13 +183,19 @@ const WAVES = [
   { boss: 1, tank: 10, bird: 10 },
 ];
 
-let money, lives, waveIdx, enemies, towers, projectiles, particles, running, spawnQueue, spawnT, betweenWaveT, inWave, selectedTowerType, selectedTower;
+let money, lives, waveIdx, enemies, towers, projectiles, particles, popups, running, spawnQueue, spawnT, betweenWaveT, inWave, selectedTowerType, selectedTower;
+let runId = 0;
+// Screen-shake state (canvas translate during render) + wave banner
+let shakeT = 0, shakeMag = 0, waveBannerT = 0, waveBannerText = '', vaultFlashT = 0;
+function screenShake(mag, dur) { shakeMag = Math.max(shakeMag, mag); shakeT = Math.max(shakeT, dur); }
+function spawnPopup(x, y, text, color = '#5ef38c') { popups.push({ x, y, text, color, t: 0, life: 0.9 }); }
 
 function reset() {
   money = 100; lives = 10; waveIdx = 0;
-  enemies = []; towers = []; projectiles = []; particles = [];
+  enemies = []; towers = []; projectiles = []; particles = []; popups = [];
   spawnQueue = []; spawnT = 0; betweenWaveT = 0; inWave = false;
   selectedTowerType = null; selectedTower = null;
+  shakeT = 0; shakeMag = 0; waveBannerT = 0; vaultFlashT = 0;
 }
 
 function buildBar() {
@@ -197,7 +204,10 @@ function buildBar() {
   for (const [id, t] of Object.entries(TOWERS)) {
     const el = document.createElement('div');
     el.className = 'tw-pick' + (selectedTowerType === id ? ' selected' : '') + (money < t.cost ? ' disabled' : '');
-    el.innerHTML = `<div class="tw-pick__icon">${t.icon}</div><div>${t.name}</div><div class="tw-pick__cost">$${t.cost}</div>`;
+    const iconHtml = (t.iconName && iconSvg[t.iconName])
+      ? iconSvg[t.iconName](22)
+      : t.icon;
+    el.innerHTML = `<div class="tw-pick__icon">${iconHtml}</div><div>${t.name}</div><div class="tw-pick__cost">$${t.cost}</div>`;
     el.addEventListener('click', () => {
       if (money < t.cost) return;
       selectedTowerType = selectedTowerType === id ? null : id;
@@ -296,6 +306,8 @@ function startWave() {
   spawnQueue.sort(() => Math.random() - 0.5);
   inWave = true; spawnT = 0;
   waveIdx++;
+  waveBannerText = `WAVE ${waveIdx}`;
+  waveBannerT = 1.4;
   buildBar();
 }
 
@@ -326,7 +338,12 @@ function tick(dt) {
       inWave = false;
       betweenWaveT = 5;
       // bonus
-      money += 20 + waveIdx * 5;
+      const bonus = 20 + waveIdx * 5;
+      money += bonus;
+      // Wave-complete pop near the vault
+      const vlast = currentMap.path[currentMap.path.length - 1];
+      spawnPopup(vlast[0] * TILE + gridOffsetX() + TILE / 2, vlast[1] * TILE + gridOffsetY() - 6, `WAVE CLEAR  +$${bonus}`, '#ffd23f');
+      screenShake(4, 0.22);
       sfx.arp([523, 659, 784], 'triangle', 0.08, 0.22, 0.25);
       if (waveIdx >= WAVES.length) return end(true);
       buildBar();
@@ -344,6 +361,11 @@ function tick(dt) {
       // Reached end
       e.alive = false;
       lives--;
+      // Vault hit: flash + shake + popup
+      vaultFlashT = 0.35;
+      screenShake(7, 0.28);
+      const vlast = currentMap.path[currentMap.path.length - 1];
+      spawnPopup(vlast[0] * TILE + gridOffsetX() + TILE / 2, vlast[1] * TILE + gridOffsetY() - 6, '-1 LIFE', '#ff3a3a');
       sfx.sweep(220, 110, 'sawtooth', 0.2, 0.2);
       if (lives <= 0) return end(false);
       continue;
@@ -433,7 +455,9 @@ function tick(dt) {
         }
         // Boomerang: queue a second hit 0.4s later on whatever is closest to origin
         if (p.boomerang) {
+          const runToken = runId;
           setTimeout(() => {
+            if (!running || runToken !== runId) return; // stale projectile from a prior match
             let best = null, bestD = Infinity;
             for (const e of enemies) {
               if (!e.alive) continue;
@@ -453,10 +477,17 @@ function tick(dt) {
           e.alive = false;
           money += e.def.gold;
           sfx.tone(660, 'triangle', 0.05, 0.16);
-          for (let k = 0; k < 6; k++) {
+          const ex = e.x * TILE + gridOffsetX();
+          const ey = e.y * TILE + gridOffsetY();
+          // Floating "+$N" popup
+          spawnPopup(ex, ey - 6, `+$${e.def.gold}`, '#ffd23f');
+          // Bigger kill burst for bosses
+          const burst = e.type === 'boss' ? 18 : 6;
+          if (e.type === 'boss') screenShake(8, 0.32);
+          for (let k = 0; k < burst; k++) {
             const a = Math.random() * Math.PI * 2;
-            const sp = 60 + Math.random() * 80;
-            particles.push({ x: e.x * TILE + gridOffsetX(), y: e.y * TILE + gridOffsetY(), vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, color: e.def.color, life: 0.4, t: 0, size: 4 });
+            const sp = 60 + Math.random() * (e.type === 'boss' ? 160 : 80);
+            particles.push({ x: ex, y: ey, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, color: e.def.color, life: 0.4, t: 0, size: 4 });
           }
         }
       }
@@ -472,11 +503,27 @@ function tick(dt) {
     if (!p.ring) { p.x += (p.vx || 0) * dt; p.y += (p.vy || 0) * dt; p.vx *= 0.94; p.vy *= 0.94; }
   }
   particles = particles.filter((p) => p.t < p.life);
+  // Floating score popups (drift upward, fade)
+  for (const p of popups) { p.t += dt; p.y -= 28 * dt; }
+  popups = popups.filter((p) => p.t < p.life);
+  // Shake decay + banner + vault flash
+  if (shakeT > 0) shakeT = Math.max(0, shakeT - dt);
+  if (waveBannerT > 0) waveBannerT = Math.max(0, waveBannerT - dt);
+  if (vaultFlashT > 0) vaultFlashT = Math.max(0, vaultFlashT - dt);
   updateHud();
 }
 
 function render() {
   ctx.fillStyle = '#1a0f2e'; ctx.fillRect(0, 0, W, H);
+  // Screen shake — translate the world layers (HUD is DOM, unaffected)
+  let shakeOx = 0, shakeOy = 0;
+  if (shakeT > 0 && shakeMag > 0) {
+    const k = (shakeT) * shakeMag;
+    shakeOx = (Math.random() - 0.5) * k;
+    shakeOy = (Math.random() - 0.5) * k;
+    ctx.save();
+    ctx.translate(shakeOx, shakeOy);
+  }
   const ox = gridOffsetX(), oy = gridOffsetY();
   // Cells
   for (let r = 0; r < GRID_H; r++) {
@@ -499,17 +546,22 @@ function render() {
   // Spawn marker (left edge)
   ctx.fillStyle = '#ff3aa1'; ctx.font = "12px sans-serif"; ctx.textAlign = 'center';
   ctx.fillText('▶', ox - 14, oy + (currentMap.path[0][1] + 0.5) * TILE + 4);
-  // Vault (end)
+  // Vault (end) — flashes white briefly when hit
   const last = currentMap.path[currentMap.path.length - 1];
   const vx = ox + last[0] * TILE + TILE / 2;
   const vy = oy + last[1] * TILE + TILE / 2;
-  ctx.fillStyle = '#ffd23f';
+  ctx.fillStyle = vaultFlashT > 0 ? '#ffffff' : '#ffd23f';
   ctx.fillRect(vx - 18, vy - 18, 36, 36);
   ctx.fillStyle = '#c89c20';
   ctx.fillRect(vx - 18, vy + 12, 36, 6);
   ctx.fillStyle = '#000'; ctx.font = "8px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
   ctx.fillText('🦴', vx, vy + 4);
   ctx.fillText('VAULT', vx, vy + 22);
+  if (vaultFlashT > 0) {
+    ctx.strokeStyle = `rgba(255,58,58,${vaultFlashT / 0.35})`;
+    ctx.lineWidth = 3;
+    ctx.strokeRect(vx - 20, vy - 20, 40, 40);
+  }
 
   // Towers
   for (const tw of towers) {
@@ -531,9 +583,13 @@ function render() {
     ctx.beginPath(); ctx.ellipse(x, bobY + 3, TILE * 0.24, TILE * 0.17, 0, 0, Math.PI * 2); ctx.fill();
     ctx.fillStyle = '#fff';
     ctx.fillRect(x - 5, bobY - 3, 3, 3); ctx.fillRect(x + 2, bobY - 3, 3, 3);
-    // Icon
-    ctx.font = "14px serif"; ctx.textAlign = 'center';
-    ctx.fillText(def.icon, x, bobY - TILE * 0.36);
+    // Icon — pixel-art (from shared library) when available, else emoji fallback.
+    if (def.iconName && drawIcon[def.iconName]) {
+      drawIcon[def.iconName](ctx, x, bobY - TILE * 0.36 - 8, 16);
+    } else {
+      ctx.font = "14px serif"; ctx.textAlign = 'center';
+      ctx.fillText(def.icon, x, bobY - TILE * 0.36);
+    }
     // Level pips
     for (let i = 0; i < tw.level; i++) {
       ctx.fillStyle = '#ffd23f';
@@ -579,6 +635,32 @@ function render() {
       ctx.globalAlpha = 1;
     }
   }
+  // Floating score popups
+  for (const p of popups) {
+    const k = 1 - p.t / p.life;
+    ctx.globalAlpha = k;
+    ctx.font = "10px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
+    // shadow
+    ctx.fillStyle = 'rgba(0,0,0,0.85)';
+    ctx.fillText(p.text, p.x + 1, p.y + 1);
+    ctx.fillStyle = p.color;
+    ctx.fillText(p.text, p.x, p.y);
+    ctx.globalAlpha = 1;
+  }
+  // Close screen-shake transform before drawing UI overlays
+  if (shakeT > 0 && shakeMag > 0) ctx.restore();
+  // Wave-start banner (centered, fades)
+  if (waveBannerT > 0) {
+    const k = Math.min(1, waveBannerT / 1.4);
+    const alpha = waveBannerT > 1.1 ? (1.4 - waveBannerT) / 0.3 : k;
+    ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
+    ctx.font = "26px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
+    ctx.fillStyle = 'rgba(0,0,0,0.7)';
+    ctx.fillText(waveBannerText, W / 2 + 2, H / 2 + 2);
+    ctx.fillStyle = '#ffd23f';
+    ctx.fillText(waveBannerText, W / 2, H / 2);
+    ctx.globalAlpha = 1;
+  }
   // Placement preview (if a tower is selected & mouse hovers a buildable cell)
   if (selectedTowerType) {
     const def = TOWERS[selectedTowerType];
@@ -594,7 +676,14 @@ function render() {
 
 function updateHud() {
   document.getElementById('hud-money').textContent = '$' + money;
-  document.getElementById('hud-lives').textContent = lives;
+  const livesEl = document.getElementById('hud-lives');
+  livesEl.textContent = lives;
+  // Critical lives — pulse the HUD card red
+  const hudCard = document.querySelector('#hud .hud-card');
+  if (hudCard) {
+    if (lives > 0 && lives <= 3) hudCard.classList.add('td-hud-critical');
+    else hudCard.classList.remove('td-hud-critical');
+  }
   document.getElementById('hud-wave').textContent = `${waveIdx}/${WAVES.length}`;
   document.getElementById('hud-enemies').textContent = enemies.length;
   const best = loadBest('pug-td');
@@ -643,7 +732,7 @@ document.getElementById('start-btn').addEventListener('click', start);
 document.getElementById('end-restart').addEventListener('click', start);
 function start() {
   currentMap = MAPS[chosenMapId] || MAPS.classic;
-  reset(); running = true;
+  reset(); running = true; runId++;
   document.getElementById('overlay').hidden = true; document.getElementById('overlay').classList.add('is-hidden');
   document.getElementById('end-overlay').hidden = true; document.getElementById('end-overlay').classList.add('is-hidden');
   document.getElementById('hud').hidden = false;

@@ -72,12 +72,17 @@ export function createSfx({ storageKey = 'wg:muted' } = {}) {
     if (!btn) return;
     const sync = () => { btn.textContent = muted ? '🔇' : '🔊'; btn.classList.toggle('muted', muted); };
     sync();
-    btn.addEventListener('click', () => { toggleMute(); sync(); });
+    btn.addEventListener('click', () => { resume(); toggleMute(); sync(); });
     window.addEventListener('keydown', (e) => {
+      if (e.repeat) return;
       if ((e.key === 'm' || e.key === 'M') && !/^(INPUT|TEXTAREA)$/.test(e.target?.tagName)) {
         toggleMute(); sync();
       }
     });
   };
+  // Auto-resume the audio context on first user interaction (mobile autoplay policy).
+  const _resumeOnce = () => { resume(); document.removeEventListener('pointerdown', _resumeOnce); document.removeEventListener('keydown', _resumeOnce); };
+  document.addEventListener('pointerdown', _resumeOnce, { once: false });
+  document.addEventListener('keydown', _resumeOnce, { once: false });
   return { tone, sweep, noise, arp, isMuted, setMuted, toggleMute, resume, applyButton };
 }

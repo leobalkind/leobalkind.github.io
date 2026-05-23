@@ -2,6 +2,56 @@
 import { submitRun, loadBest } from '../../src/persistence/highScores.js';
 import { createSfx } from '../../src/shared/miniSfx.js';
 import { showTip } from '../../src/shared/tutorialTip.js';
+import { drawIcon } from '../../src/shared/icons.js';
+
+// --- Custom weapon icons (drawn on canvas; size ~ 18px) -----------------------
+// Library doesn't have sausage / toast / bubble, so we draw them inline here in
+// the same pixel-art style as the shared icons (centered at x, y).
+function drawSausage(ctx, x, y, size) {
+  const s = size / 16;
+  ctx.save(); ctx.translate(x, y);
+  // bun-orange body
+  ctx.fillStyle = '#ff8e3c';
+  ctx.fillRect(-6 * s, -2 * s, 12 * s, 4 * s);
+  ctx.fillRect(-7 * s, -1 * s,  1 * s, 2 * s);
+  ctx.fillRect( 6 * s, -1 * s,  1 * s, 2 * s);
+  // shading underside
+  ctx.fillStyle = '#b35a1c';
+  ctx.fillRect(-6 * s,  1 * s, 12 * s, 1 * s);
+  // highlight
+  ctx.fillStyle = '#ffcc88';
+  ctx.fillRect(-5 * s, -2 * s, 4 * s, 1 * s);
+  ctx.restore();
+}
+function drawToast(ctx, x, y, size) {
+  const s = size / 16;
+  ctx.save(); ctx.translate(x, y);
+  // crust outline
+  ctx.fillStyle = '#8a5a2c';
+  ctx.fillRect(-6 * s, -7 * s, 12 * s, 14 * s);
+  ctx.fillRect(-7 * s, -6 * s,  1 * s, 12 * s);
+  ctx.fillRect( 6 * s, -6 * s,  1 * s, 12 * s);
+  // bread interior
+  ctx.fillStyle = '#ffd23f';
+  ctx.fillRect(-5 * s, -6 * s, 10 * s, 12 * s);
+  // butter melt highlight
+  ctx.fillStyle = '#fff1b0';
+  ctx.fillRect(-3 * s, -4 * s, 4 * s, 2 * s);
+  ctx.fillRect(-1 * s,  1 * s, 3 * s, 2 * s);
+  ctx.restore();
+}
+function drawBubble(ctx, x, y, size) {
+  const s = size / 16;
+  ctx.save(); ctx.translate(x, y);
+  // outer ring (cyan)
+  ctx.strokeStyle = '#4cc9f0';
+  ctx.lineWidth = Math.max(1, 1.4 * s);
+  ctx.beginPath(); ctx.arc(0, 0, 6 * s, 0, Math.PI * 2); ctx.stroke();
+  // inner sheen
+  ctx.fillStyle = 'rgba(255,255,255,0.35)';
+  ctx.beginPath(); ctx.arc(-2 * s, -2 * s, 1.8 * s, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+}
 
 const canvas = document.getElementById('game-canvas');
 const ctx = canvas.getContext('2d');
@@ -16,16 +66,27 @@ function resize() {
   canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
 }
-window.addEventListener('resize', resize); resize();
+window.addEventListener('resize', () => { resize(); if (crowd && crowd.length) buildCrowd(); }); resize();
 
 const WEAPONS = [
-  { id: 'tennis',   name: 'Tennis', icon: '🎾', cooldown: 0.4, speed: 480, dmg: 14, color: '#5ef38c', shape: 'ball' },
-  { id: 'sausage',  name: 'Sausage', icon: '🌭', cooldown: 0.55, speed: 380, dmg: 22, color: '#ff8e3c', shape: 'sausage' },
-  { id: 'toaster',  name: 'Toast', icon: '🍞', cooldown: 0.8, speed: 320, dmg: 30, color: '#ffd23f', shape: 'toast' },
-  { id: 'bubble',   name: 'Bubble', icon: '🫧', cooldown: 0.3, speed: 240, dmg: 8, color: '#4cc9f0', shape: 'bubble' },
+  { id: 'tennis',   name: 'Tennis', drawIconFn: drawIcon.tennisBall, cooldown: 0.4, speed: 480, dmg: 14, color: '#5ef38c', shape: 'ball' },
+  { id: 'sausage',  name: 'Sausage', drawIconFn: drawSausage, cooldown: 0.55, speed: 380, dmg: 22, color: '#ff8e3c', shape: 'sausage' },
+  { id: 'toaster',  name: 'Toast', drawIconFn: drawToast, cooldown: 0.8, speed: 320, dmg: 30, color: '#ffd23f', shape: 'toast' },
+  { id: 'bubble',   name: 'Bubble', drawIconFn: drawBubble, cooldown: 0.3, speed: 240, dmg: 8, color: '#4cc9f0', shape: 'bubble' },
 ];
 
-let pug, bots, projectiles, particles, kills, running, mouse;
+let pug, bots, projectiles, particles, popups, sparks, kills, running, mouse;
+let shakeT = 0, shakeAmp = 0;
+let comboT = 0, comboN = 0, comboBannerT = 0;
+let lastHitT = 0; // for player hit-flash
+let crowd = [];
+let weaponPickups = []; // {x, y, weapon, t, bob}
+let weaponSpawnT = 0;   // seconds until next spawn
+function shake(amp, dur) { shakeAmp = Math.max(shakeAmp, amp); shakeT = Math.max(shakeT, dur); }
+function popup(x, y, text, color) {
+  if (popups.length > 32) popups.shift();
+  popups.push({ x, y, vy: -40, text, color: color || '#ffd23f', life: 1.0, t: 0 });
+}
 function mkPug(x, y, isPlayer, color, mask) {
   return {
     x, y, vx: 0, vy: 0, hp: 100, maxHp: 100,
@@ -34,7 +95,17 @@ function mkPug(x, y, isPlayer, color, mask) {
     fireCd: 0,
     jetT: 0, jetCd: 0,
     targetAng: 0,
+    hitFlashT: 0,
   };
+}
+function buildCrowd() {
+  crowd = [];
+  // Top + bottom rows of silhouettes outside the stadium walls
+  const STEP = 14;
+  for (let x = 12; x < W; x += STEP) {
+    crowd.push({ x, y: 14, base: 14, phase: Math.random() * Math.PI * 2, c: ['#3a2a5a','#4a3a6a','#5a3a4a','#2a3a5a'][Math.floor(Math.random()*4)] });
+    crowd.push({ x, y: H - 14, base: H - 14, phase: Math.random() * Math.PI * 2, c: ['#3a2a5a','#4a3a6a','#5a3a4a','#2a3a5a'][Math.floor(Math.random()*4)] });
+  }
 }
 function reset() {
   pug = mkPug(W / 2, H - 100, true, '#c8854a', '#1a0d05');
@@ -47,8 +118,28 @@ function reset() {
     const c = colors[i];
     bots.push(mkPug(W / 2 + Math.cos(ang) * r, H / 2 + Math.sin(ang) * r, false, c[0], c[1]));
   }
-  projectiles = []; particles = []; kills = 0;
+  projectiles = []; particles = []; popups = []; sparks = []; kills = 0;
+  comboT = 0; comboN = 0; comboBannerT = 0;
+  shakeT = 0; shakeAmp = 0;
+  weaponPickups = []; weaponSpawnT = 6; // first pickup after 6s
   mouse = { x: W / 2, y: H / 2 };
+  buildCrowd();
+}
+function spawnWeaponPickup() {
+  // Pick a random non-current weapon for variety
+  const candidates = WEAPONS.filter((w) => !pug || w.id !== pug.weapon.id);
+  const w = candidates[Math.floor(Math.random() * candidates.length)] || WEAPONS[0];
+  // Spawn at a random arena spot away from any pug
+  for (let tries = 0; tries < 30; tries++) {
+    const x = 80 + Math.random() * (W - 160);
+    const y = 80 + Math.random() * (H - 160);
+    let ok = true;
+    for (const p of [pug, ...bots]) {
+      if (!p) continue;
+      if (Math.hypot(p.x - x, p.y - y) < 90) { ok = false; break; }
+    }
+    if (ok) { weaponPickups.push({ x, y, weapon: w, t: 0, bob: Math.random() * Math.PI * 2 }); return; }
+  }
 }
 
 const keys = new Set();
@@ -88,6 +179,34 @@ function fire(shooter, ang) {
 
 function tick(dt) {
   if (!running) return;
+  // Weapon pickups — periodic spawn + collision check
+  weaponSpawnT -= dt;
+  if (weaponSpawnT <= 0 && weaponPickups.length < 2) {
+    spawnWeaponPickup();
+    weaponSpawnT = 9 + Math.random() * 4; // every 9-13s
+  }
+  for (let i = weaponPickups.length - 1; i >= 0; i--) {
+    const wp = weaponPickups[i];
+    wp.t += dt; wp.bob += dt * 3;
+    // Player pickup
+    if (pug.hp > 0 && Math.hypot(pug.x - wp.x, pug.y - wp.y) < 28) {
+      pug.weapon = wp.weapon;
+      popup(pug.x, pug.y - 20, wp.weapon.name.toUpperCase() + '!', wp.weapon.color);
+      sfx.tone(880, 'triangle', 0.1, 0.25);
+      sfx.tone(1320, 'triangle', 0.1, 0.18);
+      weaponPickups.splice(i, 1);
+      continue;
+    }
+    // Bot pickup
+    for (const b of bots) {
+      if (b.hp <= 0) continue;
+      if (Math.hypot(b.x - wp.x, b.y - wp.y) < 26) {
+        b.weapon = wp.weapon;
+        weaponPickups.splice(i, 1);
+        break;
+      }
+    }
+  }
   // Player movement
   let mx = 0, my = 0;
   if (keys.has('w')) my -= 1;
@@ -149,6 +268,10 @@ function tick(dt) {
   for (let i = projectiles.length - 1; i >= 0; i--) {
     const pr = projectiles[i];
     pr.x += pr.vx * dt; pr.y += pr.vy * dt; pr.life -= dt;
+    // Wall sparks if it flew offscreen
+    if (pr.x < 8 || pr.x > W - 8 || pr.y < 8 || pr.y > H - 8) {
+      spawnSpark(Math.max(4, Math.min(W - 4, pr.x)), Math.max(4, Math.min(H - 4, pr.y)));
+    }
     if (pr.life <= 0 || pr.x < -20 || pr.x > W + 20 || pr.y < -20 || pr.y > H + 20) { projectiles.splice(i, 1); continue; }
     // Hit check
     for (const target of [pug, ...bots]) {
@@ -156,10 +279,22 @@ function tick(dt) {
       const d = Math.hypot(target.x - pr.x, target.y - pr.y);
       if (d < 22) {
         target.hp -= pr.dmg;
+        target.hitFlashT = 0.18;
         spawnHit(pr.x, pr.y, pr.color);
         sfx.tone(220, 'square', 0.05, 0.18);
+        if (target === pug) { lastHitT = 0.25; shake(4, 0.18); }
         if (target.hp <= 0) {
-          if (pr.owner === pug && target !== pug) kills++;
+          if (pr.owner === pug && target !== pug) {
+            kills++;
+            // combo
+            if (comboT > 0) comboN++; else comboN = 1;
+            comboT = 3.0;
+            if (comboN >= 2) comboBannerT = 1.4;
+            popup(target.x, target.y - 30, '+25', '#5ef38c');
+            shake(8, 0.28);
+          } else {
+            shake(5, 0.18);
+          }
           spawnDeath(target.x, target.y, target.color);
           sfx.sweep(440, 110, 'sawtooth', 0.25, 0.22);
         }
@@ -168,12 +303,34 @@ function tick(dt) {
       }
     }
   }
+  // particle cap (oldest first)
+  if (particles.length > 220) particles.splice(0, particles.length - 220);
   for (let i = particles.length - 1; i >= 0; i--) {
     const p = particles[i];
     p.t += dt; p.x += p.vx * dt; p.y += p.vy * dt;
     p.vx *= 0.92; p.vy *= 0.92;
     if (p.t >= p.life) particles.splice(i, 1);
   }
+  // sparks
+  for (let i = sparks.length - 1; i >= 0; i--) {
+    const s = sparks[i];
+    s.t += dt; s.x += s.vx * dt; s.y += s.vy * dt;
+    s.vx *= 0.86; s.vy *= 0.86;
+    if (s.t >= s.life) sparks.splice(i, 1);
+  }
+  // popups
+  for (let i = popups.length - 1; i >= 0; i--) {
+    const p = popups[i]; p.t += dt; p.y += p.vy * dt; p.vy *= 0.9;
+    if (p.t >= p.life) popups.splice(i, 1);
+  }
+  // timers
+  shakeT = Math.max(0, shakeT - dt); if (shakeT === 0) shakeAmp = 0;
+  comboT = Math.max(0, comboT - dt); if (comboT === 0) comboN = 0;
+  comboBannerT = Math.max(0, comboBannerT - dt);
+  lastHitT = Math.max(0, lastHitT - dt);
+  for (const p of [pug, ...bots]) p.hitFlashT = Math.max(0, p.hitFlashT - dt);
+  // crowd ambient sway uses real-time, no state to update
+
   // End check
   if (pug.hp <= 0) return end(false);
   if (bots.every((b) => b.hp <= 0)) return end(true);
@@ -194,21 +351,101 @@ function spawnDeath(x, y, color) {
     particles.push({ x, y, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp, color, life: 0.8, t: 0, size: 4 });
   }
 }
+function spawnSpark(x, y) {
+  if (sparks.length > 60) return;
+  for (let i = 0; i < 4; i++) {
+    const ang = Math.random() * Math.PI * 2;
+    const sp = 100 + Math.random() * 160;
+    sparks.push({ x, y, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp, life: 0.25, t: 0 });
+  }
+}
+function spawnJet(x, y) {
+  if (particles.length > 200) return;
+  for (let i = 0; i < 2; i++) {
+    const ang = Math.PI / 2 + (Math.random() - 0.5) * 0.6;
+    const sp = 120 + Math.random() * 120;
+    const cols = ['#ffd23f', '#ff8e3c', '#ff5a3a'];
+    particles.push({
+      x: x + (Math.random() - 0.5) * 6, y: y + 14,
+      vx: Math.cos(ang) * sp * 0.4, vy: Math.sin(ang) * sp,
+      color: cols[Math.floor(Math.random() * cols.length)],
+      life: 0.35, t: 0, size: 3 + Math.random() * 3,
+    });
+  }
+}
 
 function render() {
-  // Kitchen floor
-  ctx.fillStyle = '#5a3a1c'; ctx.fillRect(0, 0, W, H);
-  // tiles
+  // screen-shake offset
+  const sx = shakeAmp > 0 ? (Math.random() - 0.5) * shakeAmp * 2 : 0;
+  const sy = shakeAmp > 0 ? (Math.random() - 0.5) * shakeAmp * 2 : 0;
+  ctx.save();
+  ctx.translate(sx, sy);
+
+  // Stadium floor: warm tone with a parking-lot/stadium grid
+  ctx.fillStyle = '#5a3a1c'; ctx.fillRect(-12, -12, W + 24, H + 24);
+  // big tile alternation
   ctx.fillStyle = 'rgba(0,0,0,0.1)';
   for (let y = 0; y < H; y += 48) for (let x = 0; x < W; x += 48)
     if ((x + y) % 96 === 0) ctx.fillRect(x, y, 48, 48);
+  // grid lines (parking-lot feel)
+  ctx.strokeStyle = 'rgba(255,255,255,0.06)'; ctx.lineWidth = 1;
+  ctx.beginPath();
+  for (let x = 0; x <= W; x += 48) { ctx.moveTo(x + 0.5, 0); ctx.lineTo(x + 0.5, H); }
+  for (let y = 0; y <= H; y += 48) { ctx.moveTo(0, y + 0.5); ctx.lineTo(W, y + 0.5); }
+  ctx.stroke();
+  // center circle (stadium midfield)
+  ctx.strokeStyle = 'rgba(255,210,63,0.15)'; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.arc(W / 2, H / 2, Math.min(W, H) * 0.18, 0, Math.PI * 2); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(W / 2, H / 2 - 6); ctx.lineTo(W / 2, H / 2 + 6); ctx.moveTo(W / 2 - 6, H / 2); ctx.lineTo(W / 2 + 6, H / 2); ctx.stroke();
   // Kitchen obstacles (sketch)
   ctx.fillStyle = '#3a2a14';
   ctx.fillRect(W * 0.2, H * 0.2, 60, 60); // table
   ctx.fillRect(W * 0.7, H * 0.6, 80, 40);
+  // Weapon pickups — glowing crate with floating weapon icon
+  for (const wp of weaponPickups) {
+    const bobY = wp.y + Math.sin(wp.bob) * 4;
+    // ground glow
+    const glow = ctx.createRadialGradient(wp.x, wp.y + 8, 4, wp.x, wp.y + 8, 38);
+    glow.addColorStop(0, wp.weapon.color + 'cc');
+    glow.addColorStop(1, wp.weapon.color + '00');
+    ctx.fillStyle = glow;
+    ctx.beginPath(); ctx.arc(wp.x, wp.y + 8, 38, 0, Math.PI * 2); ctx.fill();
+    // crate
+    ctx.fillStyle = '#3a2a14';
+    ctx.fillRect(wp.x - 14, wp.y - 4, 28, 18);
+    ctx.fillStyle = wp.weapon.color;
+    ctx.fillRect(wp.x - 14, wp.y - 4, 28, 2);
+    ctx.fillRect(wp.x - 14, wp.y + 12, 28, 2);
+    // floating icon
+    if (wp.weapon.drawIconFn) wp.weapon.drawIconFn(ctx, wp.x, bobY - 12, 18);
+    // label
+    ctx.fillStyle = '#fff'; ctx.font = "8px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
+    ctx.fillText(wp.weapon.name.toUpperCase(), wp.x, wp.y + 26);
+  }
+
+  // Stadium walls (chrome rails) at edges
+  ctx.fillStyle = '#1a0d05';
+  ctx.fillRect(0, 0, W, 8); ctx.fillRect(0, H - 8, W, 8);
+  ctx.fillRect(0, 0, 8, H); ctx.fillRect(W - 8, 0, 8, H);
+  ctx.fillStyle = 'rgba(255,255,255,0.08)';
+  ctx.fillRect(0, 0, W, 2); ctx.fillRect(0, H - 8, W, 2);
+
+  // Crowd silhouettes — waving heads (above/below the walls)
+  if (crowd.length) {
+    const tNow = performance.now() * 0.001;
+    for (const c of crowd) {
+      const sway = Math.sin(tNow * 1.8 + c.phase) * 2;
+      ctx.fillStyle = c.c;
+      ctx.beginPath();
+      ctx.arc(c.x, c.base + sway, 5, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+
   // pugs
   for (const p of [pug, ...bots]) {
     if (p.hp <= 0) continue;
+    // jetpack thruster particles (player only)
+    if (p === pug && pug.jetT > 0) spawnJet(p.x, p.y);
     // body
     ctx.fillStyle = p.color;
     ctx.beginPath(); ctx.arc(p.x, p.y, 18, 0, Math.PI * 2); ctx.fill();
@@ -216,20 +453,28 @@ function render() {
     ctx.beginPath(); ctx.ellipse(p.x, p.y + 3, 13, 9, 0, 0, Math.PI * 2); ctx.fill();
     ctx.fillStyle = '#fff';
     ctx.fillRect(p.x - 8, p.y - 4, 3, 3); ctx.fillRect(p.x + 4, p.y - 4, 3, 3);
-    // weapon
-    ctx.font = "16px serif"; ctx.textAlign = 'center';
-    ctx.fillText(p.weapon.icon, p.x + Math.cos(p.ang) * 22, p.y + Math.sin(p.ang) * 22 + 5);
+    // hit flash overlay
+    if (p.hitFlashT > 0) {
+      ctx.globalAlpha = Math.min(1, p.hitFlashT * 5);
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath(); ctx.arc(p.x, p.y, 18, 0, Math.PI * 2); ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+    // weapon (custom canvas icon, centered ~22px out along aim)
+    if (p.weapon.drawIconFn) {
+      p.weapon.drawIconFn(ctx, p.x + Math.cos(p.ang) * 22, p.y + Math.sin(p.ang) * 22, 18);
+    }
     // hp bar
     ctx.fillStyle = 'rgba(0,0,0,0.5)';
     ctx.fillRect(p.x - 18, p.y - 28, 36, 4);
     ctx.fillStyle = p.hp > 50 ? '#5ef38c' : (p.hp > 25 ? '#ffd23f' : '#ff3a3a');
     ctx.fillRect(p.x - 18, p.y - 28, 36 * Math.max(0, p.hp) / p.maxHp, 4);
-    // jetpack flame
+    // jetpack flame (bigger, glowy)
     if (p === pug && pug.jetT > 0) {
       ctx.fillStyle = '#ff8e3c';
-      ctx.fillRect(p.x - 3, p.y + 16, 6, 12);
+      ctx.fillRect(p.x - 4, p.y + 16, 8, 14);
       ctx.fillStyle = '#ffd23f';
-      ctx.fillRect(p.x - 2, p.y + 16, 4, 6);
+      ctx.fillRect(p.x - 2, p.y + 16, 4, 8);
     }
   }
   // Projectiles
@@ -251,11 +496,25 @@ function render() {
       ctx.beginPath(); ctx.arc(pr.x - 3, pr.y - 3, 2, 0, Math.PI * 2); ctx.fill();
     }
   }
+  // Sparks (wall hits)
+  for (const s of sparks) {
+    const a = 1 - s.t / s.life;
+    ctx.strokeStyle = `rgba(255,210,63,${a})`; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(s.x, s.y); ctx.lineTo(s.x - s.vx * 0.02, s.y - s.vy * 0.02); ctx.stroke();
+  }
   // Particles
   for (const p of particles) {
     ctx.globalAlpha = 1 - (p.t / p.life);
     ctx.fillStyle = p.color;
     ctx.fillRect(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size);
+    ctx.globalAlpha = 1;
+  }
+  // Score popups
+  for (const p of popups) {
+    const a = 1 - p.t / p.life;
+    ctx.globalAlpha = a;
+    ctx.fillStyle = p.color; ctx.font = "bold 14px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
+    ctx.fillText(p.text, p.x, p.y);
     ctx.globalAlpha = 1;
   }
   // Aim line for player
@@ -266,10 +525,39 @@ function render() {
     ctx.beginPath(); ctx.moveTo(pug.x, pug.y); ctx.lineTo(pug.x + Math.cos(pug.ang) * 200, pug.y + Math.sin(pug.ang) * 200); ctx.stroke();
     ctx.setLineDash([]);
   }
+
+  // Hit vignette when player just got hit
+  if (lastHitT > 0) {
+    const a = (lastHitT / 0.25) * 0.35;
+    const grad = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.25, W / 2, H / 2, Math.max(W, H) * 0.7);
+    grad.addColorStop(0, 'rgba(255,58,58,0)');
+    grad.addColorStop(1, `rgba(255,58,58,${a})`);
+    ctx.fillStyle = grad; ctx.fillRect(0, 0, W, H);
+  }
+
+  // Combo banner
+  if (comboBannerT > 0 && comboN >= 2) {
+    const a = Math.min(1, comboBannerT / 0.4);
+    ctx.globalAlpha = a;
+    ctx.fillStyle = '#ffd23f';
+    ctx.font = "bold 22px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
+    ctx.fillText('x' + comboN + ' COMBO!', W / 2, 70);
+    ctx.globalAlpha = 1;
+  }
+  ctx.restore();
 }
 
 function updateHud() {
-  document.getElementById('hud-hp').textContent = Math.max(0, Math.ceil(pug.hp));
+  const hpEl = document.getElementById('hud-hp');
+  hpEl.textContent = Math.max(0, Math.ceil(pug.hp));
+  // low-HP pulse
+  const hud = document.getElementById('hud');
+  if (pug.hp <= 25 && pug.hp > 0) {
+    const pulse = 0.6 + 0.4 * Math.sin(performance.now() * 0.012);
+    hud.style.filter = `drop-shadow(0 0 ${6 + pulse * 8}px rgba(255,58,58,${0.4 + pulse * 0.4}))`;
+  } else {
+    hud.style.filter = '';
+  }
   document.getElementById('hud-kills').textContent = kills;
   document.getElementById('hud-left').textContent = bots.filter((b) => b.hp > 0).length;
   document.getElementById('hud-weapon').textContent = pug.weapon.name;

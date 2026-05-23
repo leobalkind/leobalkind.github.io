@@ -2,6 +2,39 @@
 import { submitRun, loadBest } from '../../src/persistence/highScores.js';
 import { createSfx } from '../../src/shared/miniSfx.js';
 import { showTip } from '../../src/shared/tutorialTip.js';
+import { drawIcon } from '../../src/shared/icons.js';
+
+// --- Custom plush toy icon (library has no plushie) ---------------------------
+function drawPlushToy(ctx, x, y, size) {
+  const s = size / 16;
+  ctx.save(); ctx.translate(x, y);
+  // teddy bear silhouette - body
+  ctx.fillStyle = '#a0683a';
+  ctx.fillRect(-4 * s, -2 * s, 8 * s, 6 * s);
+  // head
+  ctx.fillRect(-3 * s, -6 * s, 6 * s, 4 * s);
+  // ears
+  ctx.fillRect(-4 * s, -7 * s, 2 * s, 2 * s);
+  ctx.fillRect( 2 * s, -7 * s, 2 * s, 2 * s);
+  // arms
+  ctx.fillRect(-5 * s, -1 * s, 1 * s, 3 * s);
+  ctx.fillRect( 4 * s, -1 * s, 1 * s, 3 * s);
+  // legs
+  ctx.fillRect(-3 * s,  4 * s, 2 * s, 2 * s);
+  ctx.fillRect( 1 * s,  4 * s, 2 * s, 2 * s);
+  // ear inner & belly tan
+  ctx.fillStyle = '#d8a06a';
+  ctx.fillRect(-3 * s, -6 * s, 1 * s, 1 * s);
+  ctx.fillRect( 2 * s, -6 * s, 1 * s, 1 * s);
+  ctx.fillRect(-2 * s,  0 * s, 4 * s, 3 * s);
+  // eyes
+  ctx.fillStyle = '#000';
+  ctx.fillRect(-2 * s, -5 * s, 1 * s, 1 * s);
+  ctx.fillRect( 1 * s, -5 * s, 1 * s, 1 * s);
+  // nose
+  ctx.fillRect(-1 * s, -3 * s, 2 * s, 1 * s);
+  ctx.restore();
+}
 
 const canvas = document.getElementById('game-canvas');
 const ctx = canvas.getContext('2d');
@@ -24,17 +57,48 @@ const TILE_TYPES = {
   dirt:   { color: '#6b3a1c', shade: '#4a2a0c', val: 0, stam: 1 },
   stone:  { color: '#5a5a72', shade: '#3a3a4a', val: 0, stam: 2 },
   cheese: { color: '#ffd23f', shade: '#c89c20', val: 0, stam: 2, biome: true },
-  bone:   { icon: '🦴', val: 15, stam: 1 },
-  toy:    { icon: '🧸', val: 25, stam: 1 },
-  gold:   { icon: '🟡', val: 50, stam: 2 },
-  biscuit:{ icon: '🟡', val: 100, stam: 3, golden: true },
-  gem:    { icon: '💎', val: 60, stam: 2 },
+  bone:   { isLoot: true, drawIconFn: drawIcon.bone,    val: 15,  stam: 1 },
+  toy:    { isLoot: true, drawIconFn: drawPlushToy,     val: 25,  stam: 1 },
+  gold:   { isLoot: true, drawIconFn: drawIcon.gold,    val: 50,  stam: 2 },
+  biscuit:{ isLoot: true, drawIconFn: drawIcon.biscuit, val: 100, stam: 3, golden: true },
+  gem:    { isLoot: true, drawIconFn: drawIcon.gem,     val: 60,  stam: 2 },
 };
 
 let cols, rows = 0;
 let grid = []; // [row][col] = type
 let pug, money, depth, stam, maxStam, bag, maxBag, drillSpeed, drillCd;
 let upgrades, running;
+let particles = []; // dig dust + ambient
+let popups = [];
+let supports = []; // {row, col} placements of decorative support beams
+let shakeT = 0, shakeAmp = 0;
+let surfaceCelebT = 0;     // rays/light burst on surface arrival with loot
+let lastPickup = 0;        // dollar haul to flash since last surface
+let biomeBannerT = 0;      // banner fades over biomeBannerLife seconds
+let biomeBannerText = '';
+let biomeBannerColor = '#ffd23f';
+let cheeseBiomeEntered = false; // once-per-run flag
+function shake(amp, dur) { shakeAmp = Math.max(shakeAmp, amp); shakeT = Math.max(shakeT, dur); }
+function popup(x, y, text, color) {
+  if (popups.length > 24) popups.shift();
+  popups.push({ x, y, vy: -32, text, color: color || '#ffd23f', life: 1.0, t: 0 });
+}
+function spawnDust(x, y, color, n) {
+  for (let i = 0; i < (n || 6); i++) {
+    if (particles.length > 180) break;
+    const ang = Math.random() * Math.PI * 2;
+    const sp = 30 + Math.random() * 90;
+    particles.push({ x, y, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp - 20, gy: 140, color, life: 0.45 + Math.random() * 0.25, t: 0, size: 2 + Math.random() * 2 });
+  }
+}
+function spawnAmbient(camY) {
+  // light, slow falling dust above the player
+  if (particles.length > 160) return;
+  if (Math.random() > 0.6) return;
+  const x = Math.random() * W;
+  const y = camY + Math.random() * H * 0.5;
+  particles.push({ x, y, vx: (Math.random() - 0.5) * 10, vy: 8 + Math.random() * 18, gy: 0, color: 'rgba(220,200,160,0.5)', life: 2.2, t: 0, size: 1 + Math.random() * 1.5, ambient: true });
+}
 
 const UPGRADES = [
   { id: 'bag', name: 'Bigger Backpack', cost: 50, max: 5, apply: () => maxBag += 5 },
@@ -43,22 +107,59 @@ const UPGRADES = [
   { id: 'helmet', name: 'Hard Hat', cost: 200, max: 2, apply: () => { /* reduces stone cost */ } },
 ];
 
+// Cheese Caverns biome boundary — below this row, world generation changes.
+const CHEESE_DEPTH_ROW = 50;
 function reset() {
   cols = Math.max(8, Math.floor(W / TILE));
-  rows = 60;
+  rows = 80; // extended to make room for cheese caverns + vault
   grid = Array.from({ length: rows }, () => Array(cols).fill('air'));
   // Surface row = air. Row 1 = ground level. Below = dirt/stone with treasures.
   for (let r = 2; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
       const rand = Math.random();
       const depthFactor = r / rows;
-      if (rand < 0.02 + depthFactor * 0.03) grid[r][c] = depthFactor < 0.4 ? 'bone' : 'gold';
-      else if (rand < 0.04 + depthFactor * 0.02) grid[r][c] = 'toy';
-      else if (rand < 0.06 && r > 20) grid[r][c] = 'gem';
-      else if (rand < 0.07 && r > 35) grid[r][c] = 'biscuit';
-      else if (r > 40 && Math.random() < 0.3) grid[r][c] = 'cheese';
-      else if (r > 8 && Math.random() < 0.4) grid[r][c] = 'stone';
-      else grid[r][c] = 'dirt';
+      if (r >= CHEESE_DEPTH_ROW) {
+        // Cheese Caverns: sparser walls (open caves), cheese-heavy, lots of gold + biscuit
+        if (rand < 0.55) { grid[r][c] = 'air'; continue; } // wide open caverns
+        if (rand < 0.62) grid[r][c] = 'gold';
+        else if (rand < 0.68) grid[r][c] = 'biscuit';
+        else if (rand < 0.74) grid[r][c] = 'gem';
+        else grid[r][c] = 'cheese';
+      } else if (rand < 0.02 + depthFactor * 0.03) {
+        grid[r][c] = depthFactor < 0.4 ? 'bone' : 'gold';
+      } else if (rand < 0.04 + depthFactor * 0.02) {
+        grid[r][c] = 'toy';
+      } else if (rand < 0.06 && r > 20) {
+        grid[r][c] = 'gem';
+      } else if (rand < 0.07 && r > 35) {
+        grid[r][c] = 'biscuit';
+      } else if (r > 40 && Math.random() < 0.3) {
+        grid[r][c] = 'cheese';
+      } else if (r > 8 && Math.random() < 0.4) {
+        grid[r][c] = 'stone';
+      } else {
+        grid[r][c] = 'dirt';
+      }
+    }
+  }
+  // CHEESE VAULT — enclosed chamber at the deepest 3 rows packed with biscuits + gold.
+  const vaultR = rows - 3;
+  const vaultCols = Math.min(cols, 7);
+  const vaultStartC = Math.max(0, Math.floor((cols - vaultCols) / 2));
+  for (let dr = -1; dr <= 2; dr++) {
+    for (let dc = -1; dc <= vaultCols; dc++) {
+      const r = vaultR + dr, c = vaultStartC + dc;
+      if (r < 0 || r >= rows || c < 0 || c >= cols) continue;
+      // wall border around vault, opening on top
+      const isBorder = dr === -1 || dr === 2 || dc === -1 || dc === vaultCols;
+      const isTopOpening = dr === -1 && dc === Math.floor(vaultCols / 2);
+      if (isTopOpening) grid[r][c] = 'air';
+      else if (isBorder) grid[r][c] = 'cheese';
+      else {
+        // Fill chamber with biscuits + gold, mostly biscuits
+        const rr = Math.random();
+        grid[r][c] = rr < 0.55 ? 'biscuit' : (rr < 0.85 ? 'gold' : 'gem');
+      }
     }
   }
   pug = { col: Math.floor(cols / 2), row: 1, x: 0, y: 0 };
@@ -67,6 +168,14 @@ function reset() {
   maxStam = 100; stam = maxStam; maxBag = 10;
   drillSpeed = 1; drillCd = 0;
   upgrades = { bag: 0, stam: 0, drill: 0, helmet: 0 };
+  particles = []; popups = []; supports = [];
+  shakeT = 0; shakeAmp = 0; surfaceCelebT = 0; lastPickup = 0;
+  biomeBannerT = 0; biomeBannerText = ''; cheeseBiomeEntered = false;
+  // Pre-place decorative support beams every ~5 rows along the side walls
+  for (let r = 5; r < rows; r += 5) {
+    supports.push({ row: r, col: 0 });
+    supports.push({ row: r, col: cols - 1 });
+  }
   renderUpgrades();
   document.getElementById('upgrades').style.display = 'none';
 }
@@ -95,18 +204,26 @@ function tryMove(dc, dr) {
   } else {
     // Dig
     const info = TILE_TYPES[t];
-    if (info.icon) {
+    const tileX = nc * TILE + TILE / 2;
+    const tileY = nr * TILE + TILE / 2;
+    if (info.isLoot) {
       // Treasure
       if (bag < maxBag) {
         bag++;
         money += info.val;
+        lastPickup += info.val;
+        popup(tileX, tileY - 8, '+$' + info.val, info.golden ? '#ffd23f' : '#5ef38c');
         sfx.tone(880, 'triangle', 0.1, 0.22);
+        spawnDust(tileX, tileY, info.golden ? '#ffd23f' : '#fffbe6', 10);
       } else {
+        popup(tileX, tileY - 8, 'BAG FULL', '#ff3a3a');
         sfx.tone(220, 'sawtooth', 0.1, 0.2); // bag full
         return;
       }
     } else {
       sfx.tone(330, 'square', 0.05, 0.15);
+      const dustC = t === 'stone' ? '#8a8aa0' : (t === 'cheese' ? '#ffd23f' : '#8a5a2c');
+      spawnDust(tileX, tileY, dustC, 6 + Math.floor(nr / 12));
     }
     let cost = info.stam;
     if (t === 'stone' && upgrades.helmet > 0) cost = Math.max(1, cost - upgrades.helmet);
@@ -116,11 +233,30 @@ function tryMove(dc, dr) {
     pug.col = nc; pug.row = nr;
     syncXY();
     drillCd = MOVE_COOLDOWN / drillSpeed;
+    // shake more for deep / stone / cheese
+    const deep = nr / rows;
+    if (t === 'stone' || t === 'cheese' || deep > 0.5) shake(2 + deep * 4, 0.18);
   }
   if (pug.row > depth) depth = pug.row;
+  // First entry into Cheese Caverns — banner + celebration shake
+  if (!cheeseBiomeEntered && pug.row >= CHEESE_DEPTH_ROW) {
+    cheeseBiomeEntered = true;
+    biomeBannerText = '★ CHEESE CAVERNS ★';
+    biomeBannerColor = '#ffd23f';
+    biomeBannerT = 2.4;
+    shake(6, 0.4);
+    sfx.tone(440, 'triangle', 0.18, 0.22);
+    sfx.tone(660, 'triangle', 0.18, 0.22);
+    sfx.tone(880, 'triangle', 0.25, 0.18);
+  }
   // surface refill
   if (pug.row <= 1) {
     money += bag * 0; // already counted on pickup
+    if (lastPickup > 0) {
+      surfaceCelebT = 1.6;
+      popup(pug.x, pug.y - 30, 'DEPOSIT +$' + lastPickup, '#ffd23f');
+      lastPickup = 0;
+    }
     bag = 0;
     stam = maxStam;
     document.getElementById('upgrades').style.display = 'block';
@@ -159,6 +295,24 @@ function tick(dt) {
   if (!running) return;
   drillCd = Math.max(0, drillCd - dt);
   moveT += dt;
+  // particles
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
+    p.t += dt; p.x += p.vx * dt; p.y += p.vy * dt;
+    p.vy += (p.gy || 0) * dt;
+    if (!p.ambient) { p.vx *= 0.92; p.vy *= 0.96; }
+    if (p.t >= p.life) particles.splice(i, 1);
+  }
+  // popups
+  for (let i = popups.length - 1; i >= 0; i--) {
+    const p = popups[i]; p.t += dt; p.y += p.vy * dt; p.vy *= 0.92;
+    if (p.t >= p.life) popups.splice(i, 1);
+  }
+  shakeT = Math.max(0, shakeT - dt); if (shakeT === 0) shakeAmp = 0;
+  surfaceCelebT = Math.max(0, surfaceCelebT - dt);
+  biomeBannerT = Math.max(0, biomeBannerT - dt);
+  // ambient dust falling near the player
+  spawnAmbient(pug.y - H / 2);
   if (drillCd > 0) return;
   let dc = 0, dr = 0;
   if (keys.has('w') || keys.has('arrowup')) dr -= 1;
@@ -175,40 +329,84 @@ function tick(dt) {
   if (dc || dr) tryMove(dc, dr);
 }
 
+function depthTint(r) {
+  // Layered geology — three biome bands.
+  // 0..0.4: dirt (brown). 0.4..0.7: stone bands (grey-blue). 0.7..1: cheese/lava.
+  const f = r / rows;
+  if (f < 0.4) return null;
+  if (f < 0.7) return `rgba(60,60,90,${0.05 + (f - 0.4) * 0.6})`;
+  // lava-warm tint near bottom
+  return `rgba(180,60,40,${0.10 + (f - 0.7) * 0.7})`;
+}
 function render() {
-  ctx.fillStyle = '#0a0716'; ctx.fillRect(0, 0, W, H);
+  // background — gradient that shifts with depth (sky -> deep purple -> hellish red)
+  const depthFrac = pug.row / rows;
+  const bg = ctx.createLinearGradient(0, 0, 0, H);
+  if (depthFrac < 0.3) { bg.addColorStop(0, '#3a2a5a'); bg.addColorStop(1, '#1a0d2a'); }
+  else if (depthFrac < 0.7) { bg.addColorStop(0, '#1a0d2a'); bg.addColorStop(1, '#0a0716'); }
+  else { bg.addColorStop(0, '#0a0716'); bg.addColorStop(1, '#2a0a14'); }
+  ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+
+  // screen-shake offset (applied to world)
+  const sxOff = shakeAmp > 0 ? (Math.random() - 0.5) * shakeAmp * 2 : 0;
+  const syOff = shakeAmp > 0 ? (Math.random() - 0.5) * shakeAmp * 2 : 0;
+
   // Camera follows pug (centers on it vertically)
   const camY = pug.y - H / 2;
   const camX = 0;
   ctx.save();
-  ctx.translate(-camX, -camY);
-  // Sky for surface
+  ctx.translate(-camX + sxOff, -camY + syOff);
+  // Sky for surface — bright daylight gradient when near top
   const skyTop = -H, skyBot = TILE * 2;
   const sky = ctx.createLinearGradient(0, skyTop, 0, skyBot);
-  sky.addColorStop(0, '#22103f'); sky.addColorStop(1, '#3a2a5a');
+  sky.addColorStop(0, '#7ad6ff');
+  sky.addColorStop(0.6, '#aee3ff');
+  sky.addColorStop(1, '#ffd9a8');
   ctx.fillStyle = sky; ctx.fillRect(0, skyTop, W, skyBot - skyTop);
+  // sun
+  ctx.fillStyle = 'rgba(255,240,180,0.9)';
+  ctx.beginPath(); ctx.arc(W * 0.78, -H * 0.35, 28, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = 'rgba(255,240,180,0.2)';
+  ctx.beginPath(); ctx.arc(W * 0.78, -H * 0.35, 60, 0, Math.PI * 2); ctx.fill();
+  // simple cloud silhouettes
+  ctx.fillStyle = 'rgba(255,255,255,0.85)';
+  ctx.beginPath(); ctx.arc(W * 0.2, -H * 0.45, 18, 0, Math.PI * 2); ctx.arc(W * 0.25, -H * 0.45, 22, 0, Math.PI * 2); ctx.arc(W * 0.3, -H * 0.45, 16, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(W * 0.5, -H * 0.55, 14, 0, Math.PI * 2); ctx.arc(W * 0.55, -H * 0.55, 18, 0, Math.PI * 2); ctx.fill();
+  // distant grass hills
+  ctx.fillStyle = '#3a6a2a';
+  ctx.beginPath();
+  ctx.moveTo(0, TILE);
+  ctx.quadraticCurveTo(W * 0.25, TILE - 24, W * 0.5, TILE - 6);
+  ctx.quadraticCurveTo(W * 0.75, TILE - 18, W, TILE);
+  ctx.lineTo(W, TILE + 6); ctx.lineTo(0, TILE + 6); ctx.closePath(); ctx.fill();
+
   // Tiles in viewport
   const rowStart = Math.max(0, Math.floor((camY) / TILE) - 1);
   const rowEnd = Math.min(rows - 1, Math.floor((camY + H) / TILE) + 1);
   for (let r = rowStart; r <= rowEnd; r++) {
+    const tint = depthTint(r);
     for (let c = 0; c < cols; c++) {
       const t = grid[r][c];
       if (t === 'air') continue;
       const x = c * TILE, y = r * TILE;
       const info = TILE_TYPES[t];
-      if (info.icon) {
-        // Treasure tile = dirt background + icon
+      if (info.isLoot) {
+        // Treasure tile = dirt background + pixel icon
         ctx.fillStyle = TILE_TYPES.dirt.color; ctx.fillRect(x, y, TILE, TILE);
-        ctx.font = `${TILE - 8}px serif`; ctx.textAlign = 'center';
+        if (tint) { ctx.fillStyle = tint; ctx.fillRect(x, y, TILE, TILE); }
+        const ix = x + TILE / 2;
+        const iy = y + TILE / 2;
+        const isize = TILE - 10;
         if (info.golden) {
           ctx.shadowColor = '#ffd23f'; ctx.shadowBlur = 12;
-          ctx.fillText('🟡', x + TILE / 2, y + TILE - 6);
+          info.drawIconFn(ctx, ix, iy, isize);
           ctx.shadowBlur = 0;
         } else {
-          ctx.fillText(info.icon, x + TILE / 2, y + TILE - 6);
+          info.drawIconFn(ctx, ix, iy, isize);
         }
       } else {
         ctx.fillStyle = info.color; ctx.fillRect(x, y, TILE, TILE);
+        if (tint && t === 'dirt') { ctx.fillStyle = tint; ctx.fillRect(x, y, TILE, TILE); }
         ctx.fillStyle = info.shade; ctx.fillRect(x, y, TILE, 3);
         ctx.fillRect(x, y + TILE - 3, TILE, 3);
         if (t === 'cheese') {
@@ -216,27 +414,151 @@ function render() {
           ctx.fillStyle = 'rgba(0,0,0,0.3)';
           ctx.beginPath(); ctx.arc(x + 10, y + 12, 3, 0, Math.PI * 2); ctx.fill();
           ctx.beginPath(); ctx.arc(x + 24, y + 22, 4, 0, Math.PI * 2); ctx.fill();
+        } else if (t === 'stone') {
+          // dotted speckle
+          ctx.fillStyle = 'rgba(255,255,255,0.06)';
+          ctx.fillRect(x + 6, y + 8, 2, 2);
+          ctx.fillRect(x + 22, y + 18, 2, 2);
+        } else if (t === 'dirt') {
+          // dirt pebbles
+          ctx.fillStyle = 'rgba(0,0,0,0.18)';
+          ctx.fillRect(x + 8, y + 12, 2, 2);
+          ctx.fillRect(x + 24, y + 22, 2, 2);
         }
       }
     }
   }
+
+  // Support beams on the side walls (decorative)
+  for (const s of supports) {
+    const y = s.row * TILE;
+    if (y + TILE < camY || y > camY + H) continue;
+    const x = s.col * TILE;
+    // beam crossbar
+    ctx.fillStyle = '#8a5a2c';
+    ctx.fillRect(x, y - 4, TILE, 4);
+    ctx.fillStyle = '#5a3a1c';
+    ctx.fillRect(x, y, 6, TILE);
+    ctx.fillRect(x + TILE - 6, y, 6, TILE);
+    // nails
+    ctx.fillStyle = '#cacad6';
+    ctx.fillRect(x + 2, y - 3, 2, 2);
+    ctx.fillRect(x + TILE - 4, y - 3, 2, 2);
+  }
+
   // Surface ground line (top of dirt)
   ctx.fillStyle = '#2a4a2a';
   ctx.fillRect(0, TILE, W, 6);
+  // grass tufts
+  ctx.fillStyle = '#5ef38c';
+  for (let gx = 8; gx < W; gx += 14) ctx.fillRect(gx, TILE - 2, 2, 4);
+
+  // Ambient + dig particles (in world space)
+  for (const p of particles) {
+    const a = 1 - p.t / p.life;
+    ctx.globalAlpha = Math.max(0, a);
+    ctx.fillStyle = p.color;
+    ctx.fillRect(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size);
+    ctx.globalAlpha = 1;
+  }
+
+  // Tunnel-edge shadow vignette around player (only when underground)
+  if (pug.row > 2) {
+    const radius = TILE * 3.2;
+    const grad = ctx.createRadialGradient(pug.x, pug.y, radius * 0.4, pug.x, pug.y, radius * 2.2);
+    grad.addColorStop(0, 'rgba(0,0,0,0)');
+    grad.addColorStop(1, 'rgba(0,0,0,0.55)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, camY, W, H);
+  }
+
+  // Surface celebration — rays of light when reaching top with loot
+  if (surfaceCelebT > 0) {
+    const a = Math.min(1, surfaceCelebT / 0.7);
+    const cx = pug.x, cy = pug.y;
+    ctx.save();
+    ctx.globalAlpha = a * 0.7;
+    ctx.translate(cx, cy);
+    const t = (1.6 - surfaceCelebT) * 1.4;
+    ctx.rotate(t);
+    for (let i = 0; i < 12; i++) {
+      ctx.rotate(Math.PI / 6);
+      const grad = ctx.createLinearGradient(0, 0, 0, -180);
+      grad.addColorStop(0, 'rgba(255,230,120,0.6)');
+      grad.addColorStop(1, 'rgba(255,230,120,0)');
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.moveTo(-6, 0); ctx.lineTo(6, 0); ctx.lineTo(2, -180); ctx.lineTo(-2, -180); ctx.closePath();
+      ctx.fill();
+    }
+    ctx.restore();
+    // sparkle particles
+    if (surfaceCelebT > 1.0 && Math.random() < 0.4 && particles.length < 180) {
+      const ang = Math.random() * Math.PI * 2;
+      const sp = 60 + Math.random() * 90;
+      particles.push({ x: cx, y: cy, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp - 30, gy: 100, color: '#ffd23f', life: 0.8, t: 0, size: 3 });
+    }
+  }
+
+  // Popups (in world space)
+  for (const p of popups) {
+    const a = 1 - p.t / p.life;
+    ctx.globalAlpha = a;
+    ctx.fillStyle = p.color; ctx.font = "bold 11px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
+    ctx.fillText(p.text, p.x, p.y);
+    ctx.globalAlpha = 1;
+  }
+
   // Pug
   ctx.fillStyle = '#c8854a';
   ctx.beginPath(); ctx.arc(pug.x, pug.y, 12, 0, Math.PI * 2); ctx.fill();
   ctx.fillStyle = '#ffd23f'; // helmet
   ctx.fillRect(pug.x - 12, pug.y - 14, 24, 4);
+  // helmet headlamp glow when underground
+  if (pug.row > 2) {
+    const lg = ctx.createRadialGradient(pug.x, pug.y - 8, 4, pug.x, pug.y - 8, 60);
+    lg.addColorStop(0, 'rgba(255,240,180,0.45)');
+    lg.addColorStop(1, 'rgba(255,240,180,0)');
+    ctx.fillStyle = lg;
+    ctx.beginPath(); ctx.arc(pug.x, pug.y - 8, 60, 0, Math.PI * 2); ctx.fill();
+  }
   ctx.fillStyle = '#1a0d05';
   ctx.fillRect(pug.x - 4, pug.y - 3, 2, 2); ctx.fillRect(pug.x + 2, pug.y - 3, 2, 2);
   ctx.restore();
-  // Depth indicator (right side)
+
+  // CHEESE CAVERNS biome screen tint when player is deep
+  if (pug.row >= CHEESE_DEPTH_ROW) {
+    const k = Math.min(1, (pug.row - CHEESE_DEPTH_ROW) / 10);
+    ctx.fillStyle = `rgba(255,210,63,${0.10 + k * 0.08})`;
+    ctx.fillRect(0, 0, W, H);
+  }
+
+  // Biome banner — centered, fades over its lifetime
+  if (biomeBannerT > 0) {
+    const life = 2.4;
+    const k = biomeBannerT / life;
+    const yPos = H * 0.35 + (1 - k) * 8;
+    ctx.globalAlpha = Math.min(1, k * 2.4);
+    ctx.fillStyle = 'rgba(0,0,0,0.7)';
+    ctx.fillRect(0, yPos - 32, W, 56);
+    ctx.fillStyle = biomeBannerColor;
+    ctx.font = "bold 22px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
+    ctx.shadowColor = biomeBannerColor; ctx.shadowBlur = 16;
+    ctx.fillText(biomeBannerText, W / 2, yPos);
+    ctx.shadowBlur = 0;
+    ctx.globalAlpha = 1;
+  }
+
+  // Depth indicator (right side) — pulses on low stam
+  const lowStam = stam / maxStam < 0.25;
+  const stamPulse = lowStam ? (0.6 + 0.4 * Math.sin(performance.now() * 0.014)) : 1;
   ctx.fillStyle = 'rgba(0,0,0,0.6)';
   ctx.fillRect(W - 30, 80, 18, H - 160);
-  ctx.fillStyle = '#5ef38c';
+  ctx.fillStyle = lowStam ? '#ff3a3a' : '#5ef38c';
+  ctx.globalAlpha = stamPulse;
   const k = depth / rows;
   ctx.fillRect(W - 30, 80, 18, (H - 160) * k);
+  ctx.globalAlpha = 1;
   ctx.fillStyle = '#fff'; ctx.font = "9px 'Press Start 2P', monospace"; ctx.textAlign = 'right';
   ctx.fillText('DEPTH', W - 14, 72);
 }
@@ -246,6 +568,13 @@ function updateHud() {
   document.getElementById('hud-depth').textContent = depth;
   document.getElementById('hud-stam').textContent = Math.floor(stam);
   document.getElementById('hud-bag').textContent = `${bag}/${maxBag}`;
+  const hud = document.getElementById('hud');
+  if (stam / maxStam < 0.25 && stam > 0) {
+    const pulse = 0.6 + 0.4 * Math.sin(performance.now() * 0.014);
+    hud.style.filter = `drop-shadow(0 0 ${6 + pulse * 8}px rgba(255,58,58,${0.4 + pulse * 0.4}))`;
+  } else {
+    hud.style.filter = '';
+  }
   const best = loadBest('dungeon-diggers');
   document.getElementById('hud-best').textContent = best ? '$' + best.money : '$0';
   renderUpgrades();

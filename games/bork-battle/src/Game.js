@@ -106,6 +106,16 @@ export class Game {
     this._botsEverSpawned = 0;
     this._hitstopT = 0;
     this._slowmoT = 0;
+    // Center tornado loot — first drop ~12s in so the player has time to gear up
+    this._tornadoLootT = 12;
+    this._tornadoLootInterval = 25;
+    this._tornadoActiveDrop = null; // ref to the spawned powerup drop (so we can detect pickup)
+    // Player ability decoys (Q-key): bot-distracting fake pugs
+    this._decoys = [];
+    // Ability cooldowns: source of truth lives on this.player; HUD reads them.
+    this.DASH_CD = 8.0;
+    this.DECOY_CD = 15.0;
+    this.HEAL_CD = 25.0;
 
     const seed = randomSeed();
     this.world = new World(seed, { width: 2400, height: 1800 });
@@ -172,6 +182,7 @@ export class Game {
       this.world = null;
     }
     this.pugs = [];
+    if (this._decoys) this._decoys = []; // containers are children of pugsLayer (destroyed with world)
   }
 
   _safeSpawnPos() {
@@ -256,6 +267,7 @@ export class Game {
     this.energy.update(dt);
     this.powerups.update(dt);
     this.weaponDrops.update(dt);
+    this._updateDecoys(dt);
     // Try weapon pickup
     if (this.player.alive) {
       const pick = this.weaponDrops.tryPickup(this.player);
@@ -295,7 +307,7 @@ export class Game {
           p.ammo = (p.weapon || defaultWeapon()).magSize;
         }
       }
-      const fire = p.think(this.world, this.energy, this.pugs, dt);
+      const fire = p.think(this.world, this.energy, this.pugs, dt, this._decoys);
       if (fire && !p.reloading) {
         this._fireProjectile(p, fire.aim);
         // Apply weapon fireRate multiplier to bot's cooldown
@@ -316,9 +328,19 @@ export class Game {
     // Pug-vs-pug contact damage (light brawl bumping)
     this._applyContactDamage(dt);
 
-    // Projectiles
-    this.projectiles.update(dt, this.pugs,
+    // Projectiles — pass pugs + decoys so bots' bullets can hit decoys
+    const targetsForProjectiles = this._decoys.length ? [...this.pugs, ...this._decoys] : this.pugs;
+    this.projectiles.update(dt, targetsForProjectiles,
       (p, hit) => {
+        // Decoy hit — absorb damage silently, no kill credit / XP / drops.
+        // Player-owned shots don't damage their own decoy (just pop the
+        // projectile harmlessly; player can walk away from the decoy anyway).
+        if (hit.isDecoy) {
+          if (this.player && p.ownerId === this.player.id) return;
+          hit.takeDamage(p.damage, null);
+          this._spawnHitParticles(hit.x, hit.y, p.color);
+          return;
+        }
         // Damage scaling:
         //  - bot-vs-bot = 25% (stops mutual wipeout)
         //  - bot-vs-player = botDmgMult from difficulty
@@ -507,7 +529,9 @@ export class Game {
 
     // Fire
     p.cooldownFire -= dt;
-    if (this.input.isFiring() && p.cooldownFire <= 0 && !p.reloading) {
+    const autoFire = localStorage.getItem('wg:auto-fire') === '1';
+    const wantsFire = autoFire || this.input.isFiring();
+    if (wantsFire && p.cooldownFire <= 0 && !p.reloading) {
       this._fireProjectile(p, p.aim);
       const fireMult =
         (p.bonus ? p.bonus.fireMult : 1) *
@@ -532,6 +556,155 @@ export class Game {
       p.borkCooldown = borkCd;
     } else {
       this.hud.updateBork(1);
+    }
+
+    // ===== Extra abilities: DASH (E) / DECOY (Q) / HEAL PULSE (R) =====
+    if (p.dashCd > 0) p.dashCd -= dt;
+    if (p.decoyCd > 0) p.decoyCd -= dt;
+    if (p.healCd > 0) p.healCd -= dt;
+    if (this.input.eJustPressed() && p.dashCd <= 0) this._abilityDash(p);
+    if (this.input.qJustPressed() && p.decoyCd <= 0) this._abilityDecoy(p);
+    if (this.input.rJustPressed() && p.healCd <= 0) this._abilityHealPulse(p);
+
+    // HUD ability ring updates (1.0 = ready, 0.0 = just used)
+    this.hud.updateAbilities({
+      dash:  1 - Math.max(0, p.dashCd) / this.DASH_CD,
+      decoy: 1 - Math.max(0, p.decoyCd) / this.DECOY_CD,
+      heal:  1 - Math.max(0, p.healCd) / this.HEAL_CD,
+    });
+  }
+
+  // ===== Ability implementations =====
+
+  _abilityDash(p) {
+    // 180px burst over 150ms in current aim direction; brief invuln.
+    const dist = 180;
+    const dur = 0.15;
+    p.dashVx = Math.cos(p.aim) * (dist / dur);
+    p.dashVy = Math.sin(p.aim) * (dist / dur);
+    p.dashT = dur;
+    p.invuln = Math.max(p.invuln, 0.5);
+    p.dashCd = this.DASH_CD;
+    // visual streak — quick afterimage burst behind player
+    for (let i = 0; i < 8; i++) {
+      const g = new Graphics();
+      g.rect(-3, -3, 6, 6).fill(0x4cc9f0);
+      g.x = p.x; g.y = p.y;
+      this.effectsLayer.addChild(g);
+      const back = p.aim + Math.PI;
+      const sp = 60 + Math.random() * 40;
+      this.particles.push({
+        kind: 'spark', g, x: p.x, y: p.y,
+        vx: Math.cos(back) * sp + (Math.random() - 0.5) * 30,
+        vy: Math.sin(back) * sp + (Math.random() - 0.5) * 30,
+        life: 0.3, t: 0,
+      });
+    }
+    this._spawnTextBurst(p.x, p.y - 24, 'DASH!', 0x4cc9f0, 12);
+    Sfx.click?.();
+  }
+
+  _abilityDecoy(p) {
+    // Drop a fake stationary pug at the player's position. Bots within
+    // 600px will fire at it for 3.5s (handled in Bot.think via decoys arg).
+    const lifeT = 3.5;
+    const c = new Container();
+    c.x = p.x; c.y = p.y;
+    // Reuse the player's visual style — render a faded copy of the form
+    const inner = new Container();
+    p.form.draw(inner);
+    inner.alpha = 0.6;
+    inner.scale.set(1.18);
+    c.addChild(inner);
+    // Faint cyan ring + "DECOY" tag
+    const ring = new Graphics();
+    ring.circle(0, 0, p.form.radius + 4).stroke({ color: 0x4cc9f0, width: 2, alpha: 0.7 });
+    c.addChild(ring);
+    const tag = new Text({
+      text: 'DECOY',
+      style: { fill: 0x4cc9f0, fontFamily: 'monospace', fontSize: 8, fontWeight: 'bold',
+        stroke: { color: 0x000000, width: 2 } },
+    });
+    tag.anchor.set(0.5, 1);
+    tag.y = -p.form.radius - 12;
+    c.addChild(tag);
+    this.pugsLayer.addChild(c);
+
+    const decoy = {
+      id: -1000 - this._decoys.length, // negative so it can't collide with real pug ids
+      x: p.x, y: p.y, vx: 0, vy: 0,
+      hp: 60, maxHp: 60,
+      alive: true,
+      isDecoy: true,
+      isPlayer: false,
+      form: { radius: p.form.radius },
+      container: c, ring,
+      lifeT,
+      takeDamage(amount /*, src */) {
+        this.hp -= amount;
+        if (this.hp <= 0) { this.alive = false; this.hp = 0; }
+      },
+    };
+    this._decoys.push(decoy);
+    p.decoyCd = this.DECOY_CD;
+    this._spawnTextBurst(p.x, p.y - 30, 'DECOY!', 0xff3aa1, 12);
+    Sfx.click?.();
+  }
+
+  _abilityHealPulse(p) {
+    p.heal(35);
+    // Pulse allies within 200px (only ones flagged ally; none currently exist
+    // but we honor the contract for future co-op).
+    for (const other of this.pugs) {
+      if (other === p || !other.alive) continue;
+      if (other.isAlly !== true) continue;
+      const dx = other.x - p.x, dy = other.y - p.y;
+      if (dx * dx + dy * dy < 200 * 200) other.heal(35);
+    }
+    // Visual: green ring expanding out
+    this._spawnBorkRing(p.x, p.y, 200, 0x5ef38c);
+    // Heart particles
+    for (let i = 0; i < 12; i++) {
+      const g = new Graphics();
+      g.circle(0, 0, 3).fill(0x5ef38c);
+      g.x = p.x; g.y = p.y;
+      this.effectsLayer.addChild(g);
+      const a = (i / 12) * Math.PI * 2;
+      this.particles.push({
+        kind: 'spark', g, x: p.x, y: p.y,
+        vx: Math.cos(a) * 90, vy: Math.sin(a) * 90 - 30,
+        gravity: -80, life: 0.7, t: 0,
+      });
+    }
+    this._spawnTextBurst(p.x, p.y - 30, '+35 HP', 0x5ef38c, 14);
+    p.healCd = this.HEAL_CD;
+    Sfx.pickup?.();
+  }
+
+  _updateDecoys(dt) {
+    if (!this._decoys.length) return;
+    for (let i = this._decoys.length - 1; i >= 0; i--) {
+      const d = this._decoys[i];
+      d.lifeT -= dt;
+      // gentle pulse on the ring
+      if (d.ring) d.ring.alpha = 0.4 + 0.4 * Math.abs(Math.sin(d.lifeT * 6));
+      if (!d.alive || d.lifeT <= 0) {
+        // poof particles
+        for (let k = 0; k < 6; k++) {
+          const g = new Graphics();
+          g.rect(-2, -2, 4, 4).fill(0x4cc9f0);
+          g.x = d.x; g.y = d.y;
+          this.effectsLayer.addChild(g);
+          const a = (k / 6) * Math.PI * 2;
+          this.particles.push({
+            kind: 'spark', g, x: d.x, y: d.y,
+            vx: Math.cos(a) * 80, vy: Math.sin(a) * 80,
+            life: 0.4, t: 0,
+          });
+        }
+        d.container.destroy({ children: true });
+        this._decoys.splice(i, 1);
+      }
     }
   }
 
@@ -1523,6 +1696,68 @@ export class Game {
         if (!p.alive) this._handleKill(null, p, false);
       }
     }
+    // Loot drop cycle — see _tornadoLoot* state in start().
+    this._tickTornadoLoot(dt);
+  }
+
+  _tickTornadoLoot(dt) {
+    const t = this.world.tornado;
+    if (!t) return;
+    // If a drop is on the ground, check whether it's still there. PowerupManager
+    // removes from its drops[] array on pickup/despawn, so we just look it up.
+    if (this._tornadoActiveDrop) {
+      const stillThere = this.powerups.drops.includes(this._tornadoActiveDrop);
+      if (stillThere) {
+        // keep the "GRAB IT" label up
+        t.lootText = '★ GRAB IT ★';
+        t.lootColor = 0x5ef38c;
+        return;
+      }
+      // Picked up or despawned — reset cooldown
+      this._tornadoActiveDrop = null;
+      this._tornadoLootT = this._tornadoLootInterval;
+    }
+    // Countdown to next drop
+    this._tornadoLootT -= dt;
+    if (this._tornadoLootT > 0) {
+      const secs = Math.ceil(this._tornadoLootT);
+      t.lootText = `LOOT IN ${secs}s`;
+      t.lootColor = 0xffd23f;
+      return;
+    }
+    // Spawn!
+    this._spawnTornadoLoot();
+  }
+
+  _spawnTornadoLoot() {
+    const t = this.world.tornado;
+    // Pick a random powerup — weighted toward useful ones (shield/med a bit
+    // rarer so it's not always 100% safe to grab).
+    const pool = ['med', 'ammo', 'dmg', 'spd', 'rapid', 'shield'];
+    const id = pool[Math.floor(Math.random() * pool.length)];
+    // Spawn slightly off-center so it's grabbable without sitting in the dead-zone
+    // (tornado radius is 75 + damage zone). Drop just inside the rim where the
+    // damage drop-off is lighter but still risky.
+    const ang = Math.random() * Math.PI * 2;
+    const r = t.radius * 0.55;
+    const x = t.x + Math.cos(ang) * r;
+    const y = t.y + Math.sin(ang) * r;
+    this.powerups._spawn(id, x, y);
+    // The just-spawned drop is the last item in the array
+    this._tornadoActiveDrop = this.powerups.drops[this.powerups.drops.length - 1];
+
+    // Flash + sfx + visual burst
+    this._spawnBorkRing(t.x, t.y, 90, COLORS.yellow);
+    this._spawnBorkRing(t.x, t.y, 60, 0xffffff);
+    this._spawnTextBurst(t.x, t.y - 60, '★ LOOT! ★', COLORS.yellow, 18);
+    this._screenShake(3, 0.18);
+    Sfx.pickup?.();
+    Sfx.levelUp?.();
+    // HUD toast
+    this.hud.toastMessage('★ Loot dropped at center! ★', 'kill');
+    // Label flips on next frame via _tickTornadoLoot()
+    t.lootText = '★ GRAB IT ★';
+    t.lootColor = 0x5ef38c;
   }
 
   _applyZone(dt) {
@@ -1742,6 +1977,11 @@ export class Game {
   }
 
   _renderFormPreview(formId) {
+    // Silently bail if the Pixi renderer isn't ready yet (e.g. main.js calls
+    // renderStarters() synchronously at module load BEFORE game.init() finishes).
+    // The caller (main.js / _openEvolveMenu) already handles `null` by falling
+    // back to an emoji icon, so we don't need to warn here.
+    if (!this.app || !this.app.renderer || !this.app.renderer.extract) return null;
     try {
       const wrap = new Container();
       // bg panel

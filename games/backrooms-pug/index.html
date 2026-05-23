@@ -3,17 +3,28 @@
 <meta name="theme-color" content="#0a0716"><title>THE BACKROOMS OF PUG</title>
 <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="../../src/shared/gameBase.css">
+<style>
+  /* Custom HUD bits for sanity / battery */
+  #hud .hud-bar { width: 100px; height: 8px; background: #1a1424; border: 1px solid #2a2540; position: relative; }
+  #hud .hud-bar > i { display: block; height: 100%; width: 0; transition: width .25s ease, background .25s ease; }
+  #hud .hud-row.hud-row--bar { gap: 8px; align-items: center; }
+  #hud .hud-row.hud-row--bar > b { min-width: 56px; }
+  .arch-tag {
+    color: var(--neon-yellow); font-size: 0.55rem; letter-spacing: .05em;
+    opacity: .85; padding-top: 2px;
+  }
+</style>
 </head><body>
 <canvas id="game-canvas"></canvas>
 <button id="mute-btn" class="mute-btn">🔊</button>
 <div id="overlay" class="overlay"><div class="overlay__panel">
   <div class="overlay__tag">HORROR · STEALTH</div>
   <h1 class="overlay__title">THE BACKROOMS OF PUG</h1>
-  <p class="overlay__sub">Endless yellow hallways. A giant pug hunts you using sound and movement. Collect 5 cans of dog food. Find the exit. Don't run unless you have to.</p>
+  <p class="overlay__sub">You noclipped out of reality into a labyrinth of damp yellow rooms. The fluorescent hum never stops. Find 5 cans, reach the EXIT, and survive each new layer.</p>
   <ul class="overlay__controls">
-    <li><b>WASD</b> walk · <b>SHIFT</b> walk silently · <b>F</b> drop smoke bomb</li>
-    <li>Running makes loud footsteps · stand on 🪑 furniture to HIDE</li>
-    <li>Grab 🔦 for wide vision · 💨 smoke bombs blind the monster</li>
+    <li><b>WASD</b> walk · <b>SHIFT</b> sneak · <b>B</b> toggle flashlight · <b>F</b> smoke</li>
+    <li>Stay <b>lit</b> to keep your sanity · stand on furniture to <b>HIDE</b></li>
+    <li><b>Hounds</b> chase on sight · <b>Smilers</b> hate light · steam <b>blinds vision</b></li>
   </ul>
   <button id="start-btn" class="overlay__btn">ENTER</button>
   <a class="overlay__back" href="../../index.html">← back to hub</a>
@@ -21,8 +32,12 @@
 <div id="hud" hidden><div class="hud-card">
   <div class="hud-row"><b>CANS</b> <span id="hud-cans">0/5</span></div>
   <div class="hud-row"><b>STATE</b> <span id="hud-state">SAFE</span></div>
+  <div class="hud-row hud-row--bar"><b>SANITY</b> <span class="hud-bar"><i id="hud-sanity-bar" style="width:100%;background:#5ef38c"></i></span></div>
+  <div class="hud-row hud-row--bar"><b>BATTERY</b> <span class="hud-bar"><i id="hud-battery-bar" style="width:50%;background:#ffd23f"></i></span></div>
+  <div class="hud-row hud-row--small"><b>SMOKE</b> <span id="hud-smoke">× 0</span></div>
   <div class="hud-row hud-row--small"><b>DEPTH</b> <span id="hud-depth">Level 1</span></div>
   <div class="hud-row hud-row--small"><b>BEST</b> <span id="hud-best">0</span></div>
+  <div class="arch-tag" id="hud-arch">THE LOBBY</div>
 </div></div>
 <div id="end-overlay" class="overlay is-hidden" hidden><div class="overlay__panel">
   <h2 class="overlay__title" id="end-title">SCREAMED</h2>

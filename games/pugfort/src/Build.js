@@ -5,10 +5,10 @@ import { COLORS, shade } from './Colors.js';
 // MATERIALS — 4 resource types. Each buildable's cost is an object.
 // =============================================================================
 export const MATERIALS = {
-  wood:        { id: 'wood',        icon: '🪵', name: 'Wood' },
-  scrap:       { id: 'scrap',       icon: '🔩', name: 'Scrap' },
-  explosives:  { id: 'explosives',  icon: '💣', name: 'Explosives' },
-  electronics: { id: 'electronics', icon: '🔌', name: 'Electronics' },
+  wood:        { id: 'wood',        icon: '🪵', iconName: 'biscuit',    name: 'Wood' },
+  scrap:       { id: 'scrap',       icon: '🔩', iconName: 'gold',       name: 'Scrap' },
+  explosives:  { id: 'explosives',  icon: '💣', iconName: 'smokeBomb',  name: 'Explosives' },
+  electronics: { id: 'electronics', icon: '🔌', iconName: 'lightning',  name: 'Electronics' },
 };
 
 // =============================================================================
@@ -298,21 +298,21 @@ function createRepairBayGraphic() {
 // ---------- BUILDABLES TABLE ----------
 export const BUILDABLES = {
   wall: {
-    id: 'wall', name: 'WALL', icon: '🧱',
+    id: 'wall', name: 'WALL', icon: '🧱', iconName: 'shield',
     cost: { wood: 5 },
     build: createWallGraphic, width: WALL_W, height: WALL_H,
     rotatable: true, autoRotates: false, hp: 200,
     desc: 'Basic wooden barricade.',
   },
   sandbag: {
-    id: 'sandbag', name: 'SANDBAG', icon: '🟫',
+    id: 'sandbag', name: 'SANDBAG', icon: '🟫', iconName: 'sock',
     cost: { wood: 3 },
     build: createSandbagGraphic, width: SAND_W, height: SAND_H,
     rotatable: true, hp: 80,
     desc: 'Cheap. Weaker. Quick to deploy.',
   },
   spike: {
-    id: 'spike', name: 'SPIKES', icon: '⚔️',
+    id: 'spike', name: 'SPIKES', icon: '⚔️', iconName: 'crown',
     cost: { wood: 4, scrap: 2 },
     build: createSpikeGraphic, width: SPIKE_W, height: SPIKE_H,
     rotatable: false, hp: 100,
@@ -321,7 +321,7 @@ export const BUILDABLES = {
     desc: 'Dmg/sec to any zombie standing on it.',
   },
   mine: {
-    id: 'mine', name: 'MINE', icon: '💣',
+    id: 'mine', name: 'MINE', icon: '💣', iconName: 'smokeBomb',
     cost: { wood: 2, explosives: 3 },
     build: createMineGraphic, width: MINE_W, height: MINE_H,
     rotatable: false, hp: 40,
@@ -332,7 +332,7 @@ export const BUILDABLES = {
     desc: 'Single-use AOE. Triggers on proximity.',
   },
   turret: {
-    id: 'turret', name: 'TURRET', icon: '🔫',
+    id: 'turret', name: 'TURRET', icon: '🔫', iconName: 'nitro',
     cost: { wood: 18, scrap: 8 },
     build: createTurretGraphic, width: TURRET_W, height: TURRET_H,
     rotatable: true, autoRotates: true, hp: 140,
@@ -340,7 +340,7 @@ export const BUILDABLES = {
     desc: 'Auto-fires at zombies in range.',
   },
   sniperTurret: {
-    id: 'sniperTurret', name: 'SNIPER', icon: '🎯',
+    id: 'sniperTurret', name: 'SNIPER', icon: '🎯', iconName: 'lightning',
     cost: { wood: 30, scrap: 12, electronics: 6 },
     build: createSniperTurretGraphic, width: SNIPER_W, height: SNIPER_H,
     rotatable: true, autoRotates: true, hp: 220,
@@ -348,7 +348,7 @@ export const BUILDABLES = {
     desc: 'Slow. Huge damage. Long range.',
   },
   repair: {
-    id: 'repair', name: 'REPAIR', icon: '➕',
+    id: 'repair', name: 'REPAIR', icon: '➕', iconName: 'heart',
     cost: { wood: 20, electronics: 8 },
     build: createRepairBayGraphic, width: REPAIR_W, height: REPAIR_H,
     rotatable: false, hp: 120,

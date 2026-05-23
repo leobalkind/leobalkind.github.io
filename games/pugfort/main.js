@@ -5,6 +5,8 @@ import '../../src/touch/touchControls.css';
 import { getGamepad } from '../../src/gamepad/gamepad.js';
 
 import { showTip } from '../../src/shared/tutorialTip.js';
+import { iconSvg } from '../../src/shared/icons.js';
+import { BUILDABLES, MATERIALS } from './src/Build.js';
 
 const touch = createTouchControls({ enableAbility: true, abilityLabel: 'BUILD' });
 if (touch.enabled) document.body.classList.add('is-touch');
@@ -128,6 +130,21 @@ document.querySelectorAll('.diff-btn').forEach((btn) => {
     document.querySelectorAll('.diff-btn').forEach((b) => b.classList.toggle('diff-btn--active', b === btn));
   });
 });
+
+// Paint shared pixel-art icons over the emoji placeholders in the hotbar.
+// Cost lines still use emoji (the wood/scrap counts) since they live in
+// regular text content — keeping the source-of-truth in MATERIALS.icon.
+function paintHotbarIcons() {
+  for (const id of Object.keys(BUILDABLES)) {
+    const def = BUILDABLES[id];
+    if (!def.iconName || !iconSvg[def.iconName]) continue;
+    const slot = document.getElementById('slot-' + id);
+    if (!slot) continue;
+    const iconEl = slot.querySelector('.hud-slot__icon');
+    if (iconEl) iconEl.innerHTML = iconSvg[def.iconName](22);
+  }
+}
+paintHotbarIcons();
 
 // Restore accessibility preferences from hub-wide settings
 if (localStorage.getItem('wg:large-text') === '1') document.body.classList.add('large-text');

@@ -18,6 +18,7 @@ export const WEAPONS = {
     id: 'pistol',
     name: 'PISTOL',
     icon: '🔫',
+    iconName: 'nitro',
     dmgMult: 1.4,        // was 1.0
     fireRateMult: 1.2,   // was 1.0
     magSize: 14,         // was 12
@@ -33,6 +34,7 @@ export const WEAPONS = {
     id: 'ar',
     name: 'AR',
     icon: '🪖',
+    iconName: 'smokeBomb',
     dmgMult: 0.45,       // was 0.55
     fireRateMult: 2.0,   // was 2.6
     magSize: 22,         // was 30
@@ -49,6 +51,7 @@ export const WEAPONS = {
     id: 'shotgun',
     name: 'SHOTGUN',
     icon: '💥',
+    iconName: 'flame',
     dmgMult: 0.75,       // was 0.40 (now 0.75 × 8 pellets = 6× pistol close)
     fireRateMult: 0.55,
     magSize: 7,          // was 6
@@ -63,6 +66,7 @@ export const WEAPONS = {
     id: 'sniper',
     name: 'SNIPER',
     icon: '🎯',
+    iconName: 'lightning',
     dmgMult: 4.2,        // was 3.6
     fireRateMult: 0.35,  // was 0.30
     magSize: 5,          // was 4

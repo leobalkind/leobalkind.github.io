@@ -12,6 +12,13 @@ export class Input {
     this._spaceJustReleased = false;
     this._spaceDown = false;
     this._eJustPressed = false;
+    this._qJustPressed = false;
+    this._rJustPressed = false;
+    // Touch button hooks — set by main.js so the 3 ability buttons can
+    // virtually "press" E/Q/R without us caring whether it was keyboard or DOM.
+    this._touchEJustPressed = false;
+    this._touchQJustPressed = false;
+    this._touchRJustPressed = false;
 
     // Normalize arrow keys → wasd so moveVector() can stay simple
     const norm = (k) => ({ arrowup: 'w', arrowdown: 's', arrowleft: 'a', arrowright: 'd' }[k] || k);
@@ -19,13 +26,19 @@ export class Input {
       const raw = e.key.toLowerCase();
       const k = norm(raw);
       const isSpace = e.code === 'Space' || k === ' ';
-      if (['w','a','s','d','e','m','b'].includes(k) || isSpace) e.preventDefault();
+      if (['w','a','s','d','e','q','r','m','b'].includes(k) || isSpace) e.preventDefault();
       if (isSpace) {
         if (!this._spaceDown) this._spaceJustPressed = true;
         this._spaceDown = true;
       }
       if (k === 'e' && !this.keys.has('e')) {
         this._eJustPressed = true;
+      }
+      if (k === 'q' && !this.keys.has('q')) {
+        this._qJustPressed = true;
+      }
+      if (k === 'r' && !this.keys.has('r')) {
+        this._rJustPressed = true;
       }
       this.keys.add(k);
     });
@@ -84,6 +97,11 @@ export class Input {
     this._spaceJustReleased = false;
     this._spaceJustPressed = false;
     this._eJustPressed = false;
+    this._qJustPressed = false;
+    this._rJustPressed = false;
+    this._touchEJustPressed = false;
+    this._touchQJustPressed = false;
+    this._touchRJustPressed = false;
   }
 
   spaceDown() {
@@ -100,5 +118,11 @@ export class Input {
     if (this.gp?.connected && this.gp.justAbility) return true;
     return this.touch?.enabled && this.touch.consumeAbilityPressed();
   }
-  eJustPressed() { return this._eJustPressed; }
+  eJustPressed() { return this._eJustPressed || this._touchEJustPressed; }
+  qJustPressed() { return this._qJustPressed || this._touchQJustPressed; }
+  rJustPressed() { return this._rJustPressed || this._touchRJustPressed; }
+  // Touch button hooks — called by main.js when DOM ability buttons fire.
+  triggerTouchE() { this._touchEJustPressed = true; }
+  triggerTouchQ() { this._touchQJustPressed = true; }
+  triggerTouchR() { this._touchRJustPressed = true; }
 }

@@ -608,6 +608,16 @@ body.colorblind {
   border: 1px solid rgba(0, 0, 0, 0.4);
 }
 
+.loadout-btn__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  image-rendering: pixelated;
+}
+.loadout-btn__icon svg { display: block; image-rendering: pixelated; }
+
 /* Difficulty buttons get a left accent stripe matching their vibe */
 .loadout-btn--diff-easy {
   border-left: 4px solid var(--neon-green);
@@ -1002,11 +1012,131 @@ body.colorblind {
   box-shadow: 0 0 10px var(--neon-cyan);
   transition: width 0.1s linear;
 }
+.ability-bar--ready {
+  border-color: var(--neon-yellow) !important;
+  animation: borkReadyPulse 0.5s ease-in-out infinite;
+}
+.ability-bar--ready #hud-bork-fill {
+  background: linear-gradient(90deg, var(--neon-yellow), #ffffff, var(--neon-yellow));
+  box-shadow: 0 0 18px var(--neon-yellow);
+}
+@keyframes borkReadyPulse {
+  0%, 100% { box-shadow: 0 0 6px rgba(255,210,63,0.45); }
+  50%      { box-shadow: 0 0 20px rgba(255,210,63,0.95); }
+}
+.hud-card--critical {
+  border-color: var(--magenta) !important;
+  animation: hudCardCritical 0.55s ease-in-out infinite;
+}
+@keyframes hudCardCritical {
+  0%, 100% { box-shadow: 0 2px 8px rgba(0,0,0,0.4); }
+  50%      { box-shadow: 0 0 18px rgba(255, 43, 214, 0.85); }
+}
 
 .ability-name {
   color: var(--neon-cyan);
   letter-spacing: 0.1em;
   text-shadow: 0 0 6px rgba(76, 201, 240, 0.5);
+}
+
+/* Three ability chips below the BORK bar — DASH (E) / DECOY (Q) / HEAL (R) */
+.ability-chips {
+  display: flex;
+  flex-direction: row;
+  gap: 10px;
+  margin-top: 6px;
+}
+.ability-chip {
+  position: relative;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: rgba(10, 7, 22, 0.85);
+  border: 1px solid rgba(76, 201, 240, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 8px rgba(76, 201, 240, 0.25);
+}
+.ability-chip__icon {
+  width: 24px;
+  height: 24px;
+  image-rendering: pixelated;
+  position: relative;
+  z-index: 2;
+}
+.ability-chip__ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  pointer-events: none;
+  /* Cooldown sweep — controlled via conic-gradient stop. 100% = fully covered (on cooldown).
+     We update --cd from JS (0..1 where 1 = ready, 0 = just used). */
+  background: conic-gradient(transparent calc(var(--cd, 1) * 360deg), rgba(10,7,22,0.78) 0);
+  z-index: 1;
+}
+.ability-chip__key {
+  position: absolute;
+  bottom: -10px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 0.45rem;
+  letter-spacing: 0.05em;
+  color: var(--neon-cyan);
+  background: rgba(10, 7, 22, 0.9);
+  padding: 1px 4px;
+  border-radius: 2px;
+  border: 1px solid rgba(76, 201, 240, 0.4);
+  z-index: 3;
+}
+.ability-chip--ready {
+  border-color: var(--neon-yellow);
+  box-shadow: 0 0 12px rgba(255, 210, 63, 0.6);
+  animation: chipReadyPulse 1s ease-in-out infinite;
+}
+@keyframes chipReadyPulse {
+  0%, 100% { transform: scale(1); }
+  50%      { transform: scale(1.06); }
+}
+
+/* Touch buttons: 3 small ability buttons stacked above the existing BORK btn.
+   Only visible on touch devices (matches .is-touch class set by main.js). */
+body:not(.is-touch) .touch-ability-extra { display: none !important; }
+.touch-ability-extra {
+  position: fixed;
+  right: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  z-index: 50;
+  pointer-events: auto;
+}
+.touch-ability-extra__btn {
+  width: 54px;
+  height: 54px;
+  border-radius: 50%;
+  background: rgba(10, 7, 22, 0.85);
+  border: 2px solid var(--neon-cyan);
+  color: var(--neon-cyan);
+  font-weight: bold;
+  letter-spacing: 0.05em;
+  font-size: 0.6rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: inherit;
+  box-shadow: 0 0 12px rgba(76, 201, 240, 0.35);
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+.touch-ability-extra__btn:active {
+  background: var(--neon-cyan);
+  color: var(--park-deep);
+  transform: scale(0.94);
+}
+.touch-ability-extra__btn[disabled] {
+  opacity: 0.4;
+  filter: grayscale(0.6);
 }
 
 .hud-toast {

@@ -5,6 +5,7 @@
 import { submitRun, loadBest } from '../../src/persistence/highScores.js';
 import { createSfx } from '../../src/shared/miniSfx.js';
 import { showTip } from '../../src/shared/tutorialTip.js';
+import { drawIcon } from '../../src/shared/icons.js';
 
 const canvas = document.getElementById('game-canvas');
 const ctx = canvas.getContext('2d');
@@ -40,6 +41,23 @@ let combo = 0, comboT = 0, toxicPuddles = [], spikeStrips = [], achievementsSeen
 let weather = 'clear'; // 'clear' | 'rain' | 'fog' | 'night'
 let weatherT = 0; // seconds remaining in current weather
 let raindrops = []; // for rain visual
+// --- Juice: screen shake, hit flash, score popups, smog ---
+let shakeT = 0, shakeMag = 0;
+let hitFlashT = 0;
+let popups = []; // {x, y, text, color, t}
+let smog = []; // ambient dust drift particles
+let exhaust = []; // tiny exhaust puffs from vehicle
+let burst = []; // pickup burst particles
+function addShake(mag, dur) { shakeMag = Math.max(shakeMag, mag); shakeT = Math.max(shakeT, dur); }
+function addPopup(x, y, text, color) { popups.push({ x, y, text, color: color || '#ffd23f', t: 0 }); if (popups.length > 30) popups.shift(); }
+function addBurst(x, y, color, n) {
+  for (let i = 0; i < (n || 8); i++) {
+    const a = Math.random() * Math.PI * 2;
+    const s = 60 + Math.random() * 120;
+    burst.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, color, t: 0, life: 0.6 });
+  }
+  if (burst.length > 240) burst.splice(0, burst.length - 240);
+}
 const ACHIEVEMENTS = {
   1: 'FIRST DELIVERY! 🎉',
   5: '5 DELIVERIES — getting good',
@@ -73,6 +91,13 @@ function reset() {
   for (let i = 0; i < 4; i++) spikeStrips.push({ x: rand(80, WORLD_W - 80), y: rand(80, WORLD_H - 80), w: 80 });
   time = 30; deliveries = 0; fuel = 100;
   cam = { x: pug.x, y: pug.y };
+  shakeT = 0; shakeMag = 0; hitFlashT = 0;
+  popups = []; exhaust = []; burst = [];
+  // seed smog particles across viewport (drift across screen)
+  smog = [];
+  for (let i = 0; i < 30; i++) {
+    smog.push({ x: Math.random() * W, y: Math.random() * H, vx: -8 - Math.random() * 14, vy: -2 - Math.random() * 4, r: 24 + Math.random() * 40, a: 0.04 + Math.random() * 0.06 });
+  }
 }
 function spawnRaccoon() {
   obstacles.push({
@@ -171,6 +196,27 @@ function tick(dt) {
   if (comboT <= 0) combo = 0;
   for (const t of toasts) t.t += dt;
   toasts = toasts.filter((t) => t.t < 2.5);
+  // Juice timers + ambient
+  if (shakeT > 0) { shakeT -= dt; if (shakeT <= 0) shakeMag = 0; }
+  if (hitFlashT > 0) hitFlashT = Math.max(0, hitFlashT - dt);
+  for (const p of popups) { p.t += dt; p.y -= 28 * dt; }
+  popups = popups.filter((p) => p.t < 1.2);
+  for (const p of burst) { p.t += dt; p.x += p.vx * dt; p.y += p.vy * dt; p.vx *= 0.92; p.vy *= 0.92; }
+  burst = burst.filter((p) => p.t < p.life);
+  for (const s of smog) {
+    s.x += s.vx * dt; s.y += s.vy * dt;
+    if (s.x + s.r < 0) { s.x = W + s.r; s.y = Math.random() * H; }
+    if (s.y + s.r < 0) { s.y = H + s.r; }
+  }
+  // Vehicle exhaust trail (only when moving)
+  const _spd = Math.hypot(pug.vx, pug.vy);
+  if (_spd > 80 && Math.random() < 0.6) {
+    const back = pug.ang + Math.PI;
+    exhaust.push({ x: pug.x + Math.cos(back) * 16, y: pug.y + Math.sin(back) * 16, vx: Math.cos(back) * 20 + (Math.random() - 0.5) * 20, vy: Math.sin(back) * 20 + (Math.random() - 0.5) * 20, t: 0, life: nitroT > 0 ? 0.6 : 0.4, r: 4 + Math.random() * 3, hot: nitroT > 0 });
+  }
+  for (const e of exhaust) { e.t += dt; e.x += e.vx * dt; e.y += e.vy * dt; e.vx *= 0.92; e.vy *= 0.92; e.r += 12 * dt; }
+  exhaust = exhaust.filter((e) => e.t < e.life);
+  if (exhaust.length > 80) exhaust.splice(0, exhaust.length - 80);
   // Toxic puddle damage
   for (const p of toxicPuddles) {
     if (Math.hypot(p.x - pug.x, p.y - pug.y) < p.r) {
@@ -195,9 +241,17 @@ function tick(dt) {
   pug.x += pug.vx * dt; pug.y += pug.vy * dt;
   pug.x = Math.max(20, Math.min(WORLD_W - 20, pug.x));
   pug.y = Math.max(20, Math.min(WORLD_H - 20, pug.y));
-  // Skid marks when steering hard or boosting
+  // Skid marks when boosting or drifting (velocity direction differs from input)
   const spd = Math.hypot(pug.vx, pug.vy);
-  if (spd > 100 && (Math.abs(steer) > 0.4 || nitroT > 0)) {
+  let drifting = false;
+  if (spd > 0 && (mx || my)) {
+    const velAng = Math.atan2(pug.vy, pug.vx);
+    let d = velAng - pug.ang;
+    while (d > Math.PI) d -= Math.PI * 2;
+    while (d < -Math.PI) d += Math.PI * 2;
+    drifting = Math.abs(d) > 0.6;
+  }
+  if (spd > 100 && (drifting || nitroT > 0)) {
     skidMarks.push({ x: pug.x, y: pug.y, ang: pug.ang, t: 0 });
     if (skidMarks.length > 200) skidMarks.shift();
   }
@@ -214,11 +268,15 @@ function tick(dt) {
       if (d < 240 && d > 0) { p.x += (dx / d) * 180 * dt; p.y += (dy / d) * 180 * dt; }
     }
     if (Math.hypot(p.x - pug.x, p.y - pug.y) < grabR) {
+      const labels = { nitro: '+NITRO', shield: '+SHIELD', magnet: '+MAGNET', repair: '+REPAIR' };
+      const colors = { nitro: '#ff8e3c', shield: '#4cc9f0', magnet: '#b055ff', repair: '#5ef38c' };
       if (p.type === 'nitro') { nitroT = 3; }
       else if (p.type === 'shield') { shieldT = 4; }
       else if (p.type === 'magnet') { magnetT = 6; }
       else if (p.type === 'repair') { pug.hp = vehicle.hp; }
       sfx.tone(880, 'triangle', 0.1, 0.22);
+      addPopup(p.x, p.y, labels[p.type], colors[p.type]);
+      addBurst(p.x, p.y, colors[p.type], 10);
       powerups.splice(i, 1);
       if (powerups.length < 4) spawnPowerup();
     }
@@ -237,6 +295,9 @@ function tick(dt) {
     const bonusTime = 18 + Math.floor(combo * 0.5);
     time = Math.min(time + bonusTime, 60);
     sfx.arp([523, 659, 784, 1047], 'triangle', 0.08, 0.22, 0.25);
+    addPopup(marker.x, marker.y - 10, `+${bonusTime}s`, '#5ef38c');
+    addBurst(marker.x, marker.y, '#5ef38c', 16);
+    addShake(4, 0.18);
     // Achievement check
     if (ACHIEVEMENTS[deliveries] && !achievementsSeen.has(deliveries)) {
       toasts.push({ text: '🏆 ' + ACHIEVEMENTS[deliveries], t: 0 });
@@ -331,10 +392,17 @@ function tick(dt) {
 let invuln = 0;
 function damage() {
   if (invuln > 0) return;
-  if (shieldT > 0) { shieldT = 0; invuln = 0.4; sfx.tone(880, 'sine', 0.12, 0.2); return; }
+  if (shieldT > 0) {
+    shieldT = 0; invuln = 0.4; sfx.tone(880, 'sine', 0.12, 0.2);
+    addShake(3, 0.15); addBurst(pug.x, pug.y, '#4cc9f0', 10);
+    return;
+  }
   pug.hp--;
   invuln = 1.0;
   sfx.sweep(220, 110, 'sawtooth', 0.15, 0.22);
+  hitFlashT = 0.18;
+  addShake(7, 0.28);
+  addBurst(pug.x, pug.y, '#ff3a3a', 14);
   if (pug.hp <= 0) end();
 }
 
@@ -343,25 +411,82 @@ function tickInvuln(dt) { invuln = Math.max(0, invuln - dt); }
 function render() {
   // World view
   ctx.fillStyle = '#1a0f2e'; ctx.fillRect(0, 0, W, H);
+  // Screen shake offset (applied to world translate)
+  let shkx = 0, shky = 0;
+  if (shakeT > 0 && shakeMag > 0) {
+    const k = Math.min(1, shakeT / 0.3);
+    shkx = (Math.random() - 0.5) * shakeMag * 2 * k;
+    shky = (Math.random() - 0.5) * shakeMag * 2 * k;
+  }
   ctx.save();
-  ctx.translate(W / 2 - cam.x, H / 2 - cam.y);
-  // ground (ruined asphalt)
+  ctx.translate(W / 2 - cam.x + shkx, H / 2 - cam.y + shky);
+  // ground (ruined asphalt with subtle gradient)
   ctx.fillStyle = '#2a2540';
   ctx.fillRect(0, 0, WORLD_W, WORLD_H);
-  // cracks pattern
-  ctx.strokeStyle = '#3a2a5a';
+  // Road grid — wide streets every 320px, with sidewalk borders
+  const ROAD = 320;
+  ctx.fillStyle = '#1f1a30';
+  for (let x = 0; x < WORLD_W; x += ROAD) ctx.fillRect(x - 40, 0, 80, WORLD_H);
+  for (let y = 0; y < WORLD_H; y += ROAD) ctx.fillRect(0, y - 40, WORLD_W, 80);
+  // Sidewalk borders along roads
+  ctx.fillStyle = '#3a3050';
+  for (let x = 0; x < WORLD_W; x += ROAD) {
+    ctx.fillRect(x - 44, 0, 4, WORLD_H);
+    ctx.fillRect(x + 40, 0, 4, WORLD_H);
+  }
+  for (let y = 0; y < WORLD_H; y += ROAD) {
+    ctx.fillRect(0, y - 44, WORLD_W, 4);
+    ctx.fillRect(0, y + 40, WORLD_W, 4);
+  }
+  // Lane dashes (yellow) along centerlines
+  ctx.fillStyle = 'rgba(255,210,63,0.5)';
+  for (let x = 0; x < WORLD_W; x += ROAD) {
+    for (let y = 10; y < WORLD_H; y += 36) ctx.fillRect(x - 1, y, 2, 18);
+  }
+  for (let y = 0; y < WORLD_H; y += ROAD) {
+    for (let x = 10; x < WORLD_W; x += 36) ctx.fillRect(x, y - 1, 18, 2);
+  }
+  // cracks pattern (kept, but lighter)
+  ctx.strokeStyle = 'rgba(58,42,90,0.5)';
   ctx.lineWidth = 1;
   for (let y = 0; y < WORLD_H; y += 80) {
     for (let x = 0; x < WORLD_W; x += 80) {
       ctx.strokeRect(x, y, 80, 80);
     }
   }
-  // Rubble piles
-  ctx.fillStyle = '#1a1a22';
-  for (let i = 0; i < 60; i++) {
+  // Rubble piles (deterministic, varied size)
+  for (let i = 0; i < 80; i++) {
     const x = (i * 173) % WORLD_W;
     const y = (i * 211) % WORLD_H;
-    ctx.fillRect(x, y, 18, 18);
+    const sz = 10 + ((i * 37) % 14);
+    ctx.fillStyle = i % 3 === 0 ? '#2a1f3a' : '#1a1a22';
+    ctx.fillRect(x, y, sz, sz);
+    ctx.fillStyle = 'rgba(0,0,0,0.4)';
+    ctx.fillRect(x + 2, y + sz - 3, sz, 3);
+  }
+  // Manhole covers at road intersections
+  ctx.fillStyle = '#2c2438';
+  ctx.strokeStyle = '#1a1426';
+  ctx.lineWidth = 2;
+  for (let x = ROAD; x < WORLD_W; x += ROAD) {
+    for (let y = ROAD; y < WORLD_H; y += ROAD) {
+      ctx.beginPath(); ctx.arc(x, y, 14, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#1a1426';
+      for (let k = 0; k < 6; k++) {
+        const a = (k / 6) * Math.PI * 2;
+        ctx.fillRect(x + Math.cos(a) * 8 - 1, y + Math.sin(a) * 8 - 1, 2, 2);
+      }
+      ctx.fillStyle = '#2c2438';
+    }
+  }
+  // Bloodstains/oil splats (deterministic)
+  for (let i = 0; i < 18; i++) {
+    const x = ((i * 421) % (WORLD_W - 40)) + 20;
+    const y = ((i * 311) % (WORLD_H - 40)) + 20;
+    ctx.fillStyle = i % 2 === 0 ? 'rgba(80,0,12,0.45)' : 'rgba(10,8,18,0.55)';
+    ctx.beginPath();
+    ctx.ellipse(x, y, 10 + (i % 4) * 2, 6 + (i % 3) * 2, (i % 7) * 0.4, 0, Math.PI * 2);
+    ctx.fill();
   }
   // Toxic puddles
   for (const p of toxicPuddles) {
@@ -384,6 +509,14 @@ function render() {
       ctx.closePath(); ctx.fill();
     }
   }
+  // Exhaust puffs (under vehicle)
+  for (const e of exhaust) {
+    const a = (1 - e.t / e.life) * 0.55;
+    ctx.fillStyle = e.hot
+      ? `rgba(255,142,60,${a})`
+      : `rgba(120,120,140,${a})`;
+    ctx.beginPath(); ctx.arc(e.x, e.y, e.r, 0, Math.PI * 2); ctx.fill();
+  }
   // Skid marks (under everything)
   for (const s of skidMarks) {
     const a = (1 - s.t / 3) * 0.6;
@@ -405,14 +538,20 @@ function render() {
   // Powerups
   for (const p of powerups) {
     const colors = { nitro: '#ff8e3c', shield: '#4cc9f0', magnet: '#b055ff', repair: '#5ef38c' };
-    const icons = { nitro: '🔥', shield: '🛡', magnet: '🧲', repair: '🔧' };
     ctx.shadowColor = colors[p.type]; ctx.shadowBlur = 14;
     ctx.fillStyle = colors[p.type];
     ctx.fillRect(p.x - 12, p.y - 12, 24, 24);
     ctx.shadowBlur = 0;
-    ctx.fillStyle = '#fff';
-    ctx.font = "16px serif"; ctx.textAlign = 'center';
-    ctx.fillText(icons[p.type], p.x, p.y + 5);
+    // Pixel-art icon overlay (library): nitro→flame, shield→shield, magnet→magnet.
+    // Repair has no library match — render a white "+" cross to match the wrench feel.
+    if (p.type === 'nitro')      drawIcon.flame(ctx, p.x, p.y, 20);
+    else if (p.type === 'shield') drawIcon.shield(ctx, p.x, p.y, 20);
+    else if (p.type === 'magnet') drawIcon.magnet(ctx, p.x, p.y, 20);
+    else {
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(p.x - 6, p.y - 2, 12, 4);
+      ctx.fillRect(p.x - 2, p.y - 6, 4, 12);
+    }
   }
   // Pug-vehicle
   ctx.save();
@@ -448,11 +587,42 @@ function render() {
     ctx.beginPath(); ctx.arc(0, 0, 240, 0, Math.PI * 2); ctx.stroke();
   }
   ctx.restore();
-  // HP indicators (hearts above pug)
-  ctx.fillStyle = '#ff3a3a';
-  ctx.font = "10px sans-serif";
-  for (let i = 0; i < pug.hp; i++) ctx.fillText('♥', pug.x - 12 + i * 8, pug.y - 24);
+  // HP indicators (pixel hearts above pug, world space)
+  for (let i = 0; i < pug.hp; i++) drawIcon.heart(ctx, pug.x - 10 + i * 8, pug.y - 24, 10);
+  // Burst particles (world space)
+  for (const p of burst) {
+    const a = Math.max(0, 1 - p.t / p.life);
+    ctx.fillStyle = p.color;
+    ctx.globalAlpha = a;
+    ctx.fillRect(p.x - 2, p.y - 2, 4, 4);
+    ctx.globalAlpha = 1;
+  }
+  // Score popups (world space)
+  ctx.font = "bold 11px 'Press Start 2P', monospace";
+  ctx.textAlign = 'center';
+  for (const p of popups) {
+    const a = p.t < 0.1 ? p.t / 0.1 : (p.t > 0.9 ? Math.max(0, (1.2 - p.t) / 0.3) : 1);
+    ctx.globalAlpha = a;
+    ctx.fillStyle = '#000'; ctx.fillText(p.text, p.x + 1, p.y + 1);
+    ctx.fillStyle = p.color; ctx.fillText(p.text, p.x, p.y);
+    ctx.globalAlpha = 1;
+  }
   ctx.restore();
+  // Hit flash (full screen)
+  if (hitFlashT > 0) {
+    ctx.fillStyle = `rgba(255,58,58,${Math.min(0.45, hitFlashT * 2.2)})`;
+    ctx.fillRect(0, 0, W, H);
+  }
+  // Ambient smog drift (screen-space, atmospheric)
+  for (const s of smog) {
+    ctx.fillStyle = `rgba(120,108,160,${s.a})`;
+    ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2); ctx.fill();
+  }
+  // Vignette (subtle, around camera)
+  const vg = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.4, W / 2, H / 2, Math.max(W, H) * 0.7);
+  vg.addColorStop(0, 'rgba(0,0,0,0)');
+  vg.addColorStop(1, 'rgba(0,0,0,0.45)');
+  ctx.fillStyle = vg; ctx.fillRect(0, 0, W, H);
 
   // Weather overlay (full-screen, after world render)
   if (weather === 'night') {
@@ -618,8 +788,12 @@ function end() {
 
 function updateHud() {
   document.getElementById('hud-del').textContent = deliveries;
-  document.getElementById('hud-time').textContent = Math.ceil(time);
-  document.getElementById('hud-fuel').textContent = Math.floor(fuel);
+  const timeEl = document.getElementById('hud-time');
+  timeEl.textContent = Math.ceil(time);
+  timeEl.parentElement.classList.toggle('is-low', time < 8);
+  const fuelEl = document.getElementById('hud-fuel');
+  fuelEl.textContent = Math.floor(fuel);
+  fuelEl.parentElement.classList.toggle('is-low', fuel < 25);
   document.getElementById('hud-vehicle').textContent = vehicle.name;
   const best = loadBest('delivery-pugs');
   document.getElementById('hud-best').textContent = best ? best.score : 0;

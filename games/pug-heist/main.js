@@ -4,6 +4,7 @@
 import { submitRun, loadBest } from '../../src/persistence/highScores.js';
 import { createSfx } from '../../src/shared/miniSfx.js';
 import { showTip } from '../../src/shared/tutorialTip.js';
+import { drawIcon, iconSvg } from '../../src/shared/icons.js';
 
 const canvas = document.getElementById('game-canvas');
 const ctx = canvas.getContext('2d');
@@ -20,18 +21,24 @@ function resize() {
 }
 window.addEventListener('resize', resize); resize();
 
-// Loot types — varied values (rare = worth more)
+// Inline pixel-art icons into the rare-loot tip in the start overlay
+const _rareTip = document.querySelector('.loot-rare-tip');
+if (_rareTip) {
+  _rareTip.innerHTML = iconSvg.crownGold(14) + iconSvg.diamond(14) + iconSvg.camera(14);
+}
+
+// Loot types — varied values (rare = worth more). `iconName` maps to drawIcon.*
 const LOOT_TYPES = [
-  { icon: '🦴', val: 50, rare: false },
-  { icon: '🧀', val: 60, rare: false },
-  { icon: '🧦', val: 30, rare: false },
-  { icon: '🍖', val: 45, rare: false },
-  { icon: '🥓', val: 55, rare: false },
-  { icon: '🥪', val: 40, rare: false },
-  { icon: '🎾', val: 35, rare: false },
-  { icon: '👑', val: 200, rare: true },   // crown
-  { icon: '💎', val: 150, rare: true },   // diamond
-  { icon: '📺', val: 120, rare: true },   // remote
+  { iconName: 'bone',      val: 50,  rare: false },
+  { iconName: 'cheese',    val: 60,  rare: false },
+  { iconName: 'sock',      val: 30,  rare: false },
+  { iconName: 'meat',      val: 45,  rare: false },
+  { iconName: 'bacon',     val: 55,  rare: false },
+  { iconName: 'sandwich',  val: 40,  rare: false },
+  { iconName: 'tennisBall',val: 35,  rare: false },
+  { iconName: 'crownGold', val: 200, rare: true },   // crown
+  { iconName: 'diamond',   val: 150, rare: true },   // diamond
+  { iconName: 'camera',    val: 120, rare: true },   // was remote — camera is the closest jackpot tech icon
 ];
 let pug, humans, walls, loot, exitZ, floor, barkCd, fartCd, running;
 let smokeCd = 0, tongueCd = 0, decoyCd = 0;
@@ -44,6 +51,15 @@ let lootValueThisFloor = 0;
 let floorStartTime = 0;
 let achievementsSeen = new Set();
 let cats = [];
+// --- Juice ---
+let shakeT = 0, shakeMag = 0;
+let hitFlashT = 0;
+let popups = []; // {x, y, text, color, t}
+let lights = []; // ceiling lights placed per-floor: {x, y, flickerT, on}
+let scatter = []; // floor decorations: cracks, stains, debris
+let dustMotes = []; // ambient dust motes drifting
+function addShake(mag, dur) { shakeMag = Math.max(shakeMag, mag); shakeT = Math.max(shakeT, dur); }
+function addPopup(x, y, text, color) { popups.push({ x, y, text, color: color || '#ffd23f', t: 0 }); if (popups.length > 30) popups.shift(); }
 
 function genFloor(level) {
   pug = { x: 60, y: H - 100, vx: 0, vy: 0, alive: true, fartT: 0, sound: 0 };
@@ -131,6 +147,37 @@ function genFloor(level) {
   alertedThisFloor = false;
   lootValueThisFloor = 0;
   floorStartTime = performance.now();
+  // Ceiling lights — one per "room" cell
+  lights = [];
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      lights.push({
+        x: c * cw + cw / 2,
+        y: r * ch + ch / 2,
+        flickerT: Math.random() * 2,
+        on: true,
+        broken: Math.random() < 0.18,
+      });
+    }
+  }
+  // Floor decor: deterministic-ish scatter (cracks, stains, debris)
+  scatter = [];
+  for (let i = 0; i < 70; i++) {
+    const x = 16 + Math.random() * (W - 32), y = 16 + Math.random() * (H - 32);
+    if (isWallNear(x, y, 8)) continue;
+    const k = Math.random();
+    if (k < 0.35) scatter.push({ kind: 'crack', x, y, ang: Math.random() * Math.PI, len: 14 + Math.random() * 22 });
+    else if (k < 0.6) scatter.push({ kind: 'stain', x, y, r: 6 + Math.random() * 10, color: Math.random() < 0.5 ? 'rgba(110,30,30,0.35)' : 'rgba(20,12,30,0.4)' });
+    else if (k < 0.85) scatter.push({ kind: 'debris', x, y, sz: 4 + Math.random() * 5 });
+    else scatter.push({ kind: 'tile', x, y, sz: 24 + Math.random() * 16 });
+  }
+  // Dust motes (ambient drift)
+  dustMotes = [];
+  for (let i = 0; i < 24; i++) {
+    dustMotes.push({ x: Math.random() * W, y: Math.random() * H, vx: -6 + Math.random() * 12, vy: -3 + Math.random() * 6, r: 1 + Math.random() * 1.6 });
+  }
+  shakeT = 0; shakeMag = 0; hitFlashT = 0;
+  popups = [];
 }
 
 function isWallNear(x, y, r) {
@@ -146,6 +193,14 @@ function rectCollide(e, dx, dy) {
   if (!isWallNear(nx, e.y, r)) e.x = nx;
   const ny = e.y + dy;
   if (!isWallNear(e.x, ny, r)) e.y = ny;
+}
+// Generic radius-aware move (used by cats; was previously called undefined)
+function move(e, dx, dy, r) {
+  const _r = r || 10;
+  const nx = e.x + dx;
+  if (!isWallNear(nx, e.y, _r)) e.x = nx;
+  const ny = e.y + dy;
+  if (!isWallNear(e.x, ny, _r)) e.y = ny;
 }
 
 const keys = new Set();
@@ -280,6 +335,8 @@ function tick(dt) {
       lootStolen++;
       sfx.tone(lt.rare ? 1320 : 880, 'triangle', 0.1, 0.22);
       spawnParticles(lt.x, lt.y, lt.rare ? '#ffd23f' : '#5ef38c');
+      addPopup(lt.x, lt.y - 6, '+$' + lt.val, lt.rare ? '#ffd23f' : '#5ef38c');
+      if (lt.rare) addShake(3, 0.15);
     }
   }
   // Gadget cooldown decay
@@ -315,6 +372,27 @@ function tick(dt) {
     p.t += dt; p.x += p.vx * dt; p.y += p.vy * dt; p.vx *= 0.95; p.vy *= 0.95;
   }
   particles = particles.filter((p) => p.t < p.life);
+  // Juice tick
+  if (shakeT > 0) { shakeT -= dt; if (shakeT <= 0) shakeMag = 0; }
+  if (hitFlashT > 0) hitFlashT = Math.max(0, hitFlashT - dt);
+  for (const p of popups) { p.t += dt; p.y -= 28 * dt; }
+  popups = popups.filter((p) => p.t < 1.2);
+  // Light flicker tick
+  for (const l of lights) {
+    l.flickerT -= dt;
+    if (l.flickerT <= 0) {
+      l.on = l.broken ? Math.random() < 0.55 : Math.random() < 0.95;
+      l.flickerT = l.broken ? 0.05 + Math.random() * 0.2 : 0.6 + Math.random() * 3;
+    }
+  }
+  // Dust drift
+  for (const d of dustMotes) {
+    d.x += d.vx * dt; d.y += d.vy * dt;
+    if (d.x < -4) d.x = W + 4;
+    if (d.x > W + 4) d.x = -4;
+    if (d.y < -4) d.y = H + 4;
+    if (d.y > H + 4) d.y = -4;
+  }
   // Exit check
   if (loot.every((l) => l.taken)) {
     if (Math.hypot(exitZ.x - pug.x, exitZ.y - pug.y) < exitZ.r) {
@@ -388,6 +466,8 @@ function tick(dt) {
 
 function caught() {
   if (!running) return;
+  addShake(8, 0.32);
+  hitFlashT = 0.25;
   running = false;
   sfx.sweep(220, 80, 'sawtooth', 0.6, 0.25);
   const g = calcGrade();
@@ -408,23 +488,92 @@ function caught() {
 }
 
 function render() {
-  // BG (carpet)
-  ctx.fillStyle = '#3a2a5a'; ctx.fillRect(0, 0, W, H);
-  // tiles
-  ctx.fillStyle = 'rgba(0,0,0,0.05)';
-  for (let y = 0; y < H; y += 40) for (let x = 0; x < W; x += 40)
-    if ((x + y) % 80 === 0) ctx.fillRect(x, y, 40, 40);
-  // Walls
+  // Screen shake offset
+  let _sx = 0, _sy = 0;
+  if (shakeT > 0 && shakeMag > 0) {
+    const k = Math.min(1, shakeT / 0.3);
+    _sx = (Math.random() - 0.5) * shakeMag * 2 * k;
+    _sy = (Math.random() - 0.5) * shakeMag * 2 * k;
+  }
+  ctx.save();
+  ctx.translate(_sx, _sy);
+  // BG: vary tile color by room cell (bedroom / hallway / vault look)
+  const cols = 4, rows = 3;
+  const cw = W / cols, ch = H / rows;
+  // Per-room palette (deterministic by floor seed via index)
+  const palettes = [
+    ['#3a2a5a', '#2e2148'], // hallway
+    ['#4a2a3a', '#3a1f2e'], // bedroom (warm)
+    ['#2a3a4a', '#1e2e3a'], // study (cool)
+    ['#5a4a2a', '#4a3a1f'], // vault (gold-tint)
+    ['#2a4a3a', '#1e3a2e'], // green office
+  ];
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const p = palettes[(r * 7 + c * 3 + (floor || 1)) % palettes.length];
+      ctx.fillStyle = p[0];
+      ctx.fillRect(c * cw, r * ch, cw, ch);
+      // checker
+      ctx.fillStyle = p[1];
+      for (let y = 0; y < ch; y += 40) {
+        for (let x = 0; x < cw; x += 40) {
+          if (((x / 40) + (y / 40)) % 2 === 0) ctx.fillRect(c * cw + x, r * ch + y, 40, 40);
+        }
+      }
+    }
+  }
+  // tile borders
+  ctx.strokeStyle = 'rgba(0,0,0,0.18)';
+  ctx.lineWidth = 1;
+  for (let y = 0; y < H; y += 40) {
+    ctx.beginPath(); ctx.moveTo(0, y + 0.5); ctx.lineTo(W, y + 0.5); ctx.stroke();
+  }
+  for (let x = 0; x < W; x += 40) {
+    ctx.beginPath(); ctx.moveTo(x + 0.5, 0); ctx.lineTo(x + 0.5, H); ctx.stroke();
+  }
+  // Floor scatter (cracks, stains, debris, tile accents)
+  for (const s of scatter) {
+    if (s.kind === 'crack') {
+      ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+      ctx.lineWidth = 1;
+      ctx.save();
+      ctx.translate(s.x, s.y); ctx.rotate(s.ang);
+      ctx.beginPath();
+      ctx.moveTo(-s.len / 2, 0);
+      ctx.lineTo(-s.len / 4, -2);
+      ctx.lineTo(s.len / 4, 1);
+      ctx.lineTo(s.len / 2, 0);
+      ctx.stroke();
+      ctx.restore();
+    } else if (s.kind === 'stain') {
+      ctx.fillStyle = s.color;
+      ctx.beginPath(); ctx.ellipse(s.x, s.y, s.r, s.r * 0.7, 0, 0, Math.PI * 2); ctx.fill();
+    } else if (s.kind === 'debris') {
+      ctx.fillStyle = 'rgba(40,28,52,0.7)';
+      ctx.fillRect(s.x, s.y, s.sz, s.sz);
+      ctx.fillStyle = 'rgba(0,0,0,0.25)';
+      ctx.fillRect(s.x, s.y + s.sz - 1, s.sz, 1);
+    } else if (s.kind === 'tile') {
+      ctx.strokeStyle = 'rgba(255,255,255,0.05)';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(s.x, s.y, s.sz, s.sz);
+    }
+  }
+  // Walls — thicker with highlight/shadow for depth
   ctx.fillStyle = '#1a0d05';
   for (const w of walls) ctx.fillRect(w.x, w.y, w.w, w.h);
+  // top highlight
   ctx.fillStyle = '#6b3a1c';
   for (const w of walls) ctx.fillRect(w.x, w.y, w.w, Math.min(3, w.h));
-  // Loot
+  // side highlight (left)
+  ctx.fillStyle = 'rgba(0,0,0,0.4)';
+  for (const w of walls) ctx.fillRect(w.x + w.w - 2, w.y + 2, 2, w.h - 2);
+  // Loot — pixel-art icons from shared library
   for (const lt of loot) {
     if (lt.taken) continue;
-    ctx.font = "22px serif"; ctx.textAlign = 'center';
     ctx.shadowColor = '#ffd23f'; ctx.shadowBlur = 12;
-    ctx.fillText(lt.icon, lt.x, lt.y + 6);
+    const fn = drawIcon[lt.iconName];
+    if (fn) fn(ctx, lt.x, lt.y, 22);
     ctx.shadowBlur = 0;
   }
   // Exit zone (only when all loot taken)
@@ -506,6 +655,76 @@ function render() {
     ctx.lineWidth = 2;
     ctx.beginPath(); ctx.arc(pug.x, pug.y, 30 * (1 - pug.sound + 1), 0, Math.PI * 2); ctx.stroke();
   }
+  // Score popups (world space, before lighting)
+  ctx.font = "bold 11px 'Press Start 2P', monospace";
+  ctx.textAlign = 'center';
+  for (const p of popups) {
+    const a = p.t < 0.1 ? p.t / 0.1 : (p.t > 0.9 ? Math.max(0, (1.2 - p.t) / 0.3) : 1);
+    ctx.globalAlpha = a;
+    ctx.fillStyle = '#000'; ctx.fillText(p.text, p.x + 1, p.y + 1);
+    ctx.fillStyle = p.color; ctx.fillText(p.text, p.x, p.y);
+    ctx.globalAlpha = 1;
+  }
+  // Dust motes (ambient, soft)
+  ctx.fillStyle = 'rgba(220,210,255,0.18)';
+  for (const d of dustMotes) {
+    ctx.beginPath(); ctx.arc(d.x, d.y, d.r, 0, Math.PI * 2); ctx.fill();
+  }
+  // ---- Lighting pass: darken whole stage, punch out light pools ----
+  ctx.save();
+  ctx.fillStyle = 'rgba(8,4,16,0.55)';
+  ctx.fillRect(0, 0, W, H);
+  ctx.globalCompositeOperation = 'destination-out';
+  // Player carries soft visibility halo
+  const pgrd = ctx.createRadialGradient(pug.x, pug.y, 10, pug.x, pug.y, 140);
+  pgrd.addColorStop(0, 'rgba(0,0,0,1)');
+  pgrd.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = pgrd;
+  ctx.beginPath(); ctx.arc(pug.x, pug.y, 140, 0, Math.PI * 2); ctx.fill();
+  // Each ceiling light contributes a pool when on
+  for (const l of lights) {
+    if (!l.on) continue;
+    const grd = ctx.createRadialGradient(l.x, l.y, 10, l.x, l.y, 110);
+    grd.addColorStop(0, 'rgba(0,0,0,1)');
+    grd.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = grd;
+    ctx.beginPath(); ctx.arc(l.x, l.y, 110, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.restore();
+  // Warm light tint over pools (additive feel)
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  for (const l of lights) {
+    if (!l.on) continue;
+    const grd = ctx.createRadialGradient(l.x, l.y, 0, l.x, l.y, 80);
+    grd.addColorStop(0, 'rgba(255,210,140,0.18)');
+    grd.addColorStop(1, 'rgba(255,210,140,0)');
+    ctx.fillStyle = grd;
+    ctx.beginPath(); ctx.arc(l.x, l.y, 80, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.restore();
+  // Ceiling light fixtures (small icons)
+  for (const l of lights) {
+    ctx.fillStyle = l.on ? '#ffd23f' : '#3a3040';
+    ctx.fillRect(l.x - 5, l.y - 1, 10, 2);
+    if (l.broken) {
+      ctx.strokeStyle = 'rgba(255,90,90,0.6)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(l.x - 6, l.y - 3); ctx.lineTo(l.x + 6, l.y - 3); ctx.stroke();
+    }
+  }
+  ctx.restore(); // closes the shake-translate save
+  // Hit flash overlay (screen space, after shake)
+  if (hitFlashT > 0) {
+    ctx.fillStyle = `rgba(255,58,58,${Math.min(0.5, hitFlashT * 2)})`;
+    ctx.fillRect(0, 0, W, H);
+  }
+  // Vignette
+  const vg = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.35, W / 2, H / 2, Math.max(W, H) * 0.65);
+  vg.addColorStop(0, 'rgba(0,0,0,0)');
+  vg.addColorStop(1, 'rgba(0,0,0,0.6)');
+  ctx.fillStyle = vg; ctx.fillRect(0, 0, W, H);
   drawGadgetHud();
 }
 
@@ -517,24 +736,37 @@ function updateHud() {
   document.getElementById('hud-fart').textContent = fartCd > 0 ? fartCd.toFixed(1) + 's' : 'READY';
   const best = loadBest('pug-heist');
   document.getElementById('hud-best').textContent = best ? best.floor : 0;
+  // Alert pulse: any human with vision suspicion or alerted
+  let suspicious = false;
+  for (const h of humans) {
+    if (h.alertT > 0 || (h._closeT || 0) > 0.6) { suspicious = true; break; }
+  }
+  const card = document.querySelector('#hud .hud-card');
+  if (card) card.classList.toggle('is-alert', suspicious);
 }
 
 function drawGadgetHud() {
   const ox = W - 200, oy = H - 80;
   ctx.fillStyle = 'rgba(0,0,0,0.6)';
   ctx.fillRect(ox - 8, oy - 8, 190, 70);
+  // Row icons: smokeBomb / no-match tongue / bone — drawn pixel-art at left of row
+  drawIcon.smokeBomb(ctx, ox + 8, oy + 4, 14);
+  // tongue has no library match — keep a tiny pink rounded blob
+  ctx.fillStyle = '#ff8ac8'; ctx.fillRect(ox + 2, oy + 21, 12, 4); ctx.fillRect(ox + 4, oy + 19, 8, 2);
+  drawIcon.bone(ctx, ox + 8, oy + 40, 14);
   ctx.fillStyle = '#fff'; ctx.font = "9px 'Press Start 2P', monospace"; ctx.textAlign = 'left';
-  ctx.fillText('💨 SMOKE [Q]  ' + (smokeCd > 0 ? smokeCd.toFixed(1) + 's' : 'READY'), ox, oy + 8);
-  ctx.fillText('👅 TONGUE [G] ' + (tongueCd > 0 ? tongueCd.toFixed(1) + 's' : 'READY'), ox, oy + 26);
-  ctx.fillText('🦴 DECOY [T]  ' + (decoyCd > 0 ? decoyCd.toFixed(1) + 's' : 'READY'), ox, oy + 44);
+  ctx.fillText('SMOKE [Q]  ' + (smokeCd > 0 ? smokeCd.toFixed(1) + 's' : 'READY'), ox + 22, oy + 8);
+  ctx.fillText('TONGUE [G] ' + (tongueCd > 0 ? tongueCd.toFixed(1) + 's' : 'READY'), ox + 22, oy + 26);
+  ctx.fillText('DECOY [T]  ' + (decoyCd > 0 ? decoyCd.toFixed(1) + 's' : 'READY'), ox + 22, oy + 44);
   // Loot value running total
   ctx.fillStyle = '#ffd23f'; ctx.font = "11px 'Press Start 2P', monospace"; ctx.textAlign = 'right';
   ctx.fillText(`$ ${totalLootValue}`, W - 16, 26);
 }
 
 function calcGrade() {
-  const totalLoot = loot.length + lootStolen; // includes taken
-  const collectedPct = lootStolen / Math.max(1, totalLoot);
+  // Per-floor grade: how much of this floor's loot did we take?
+  const floorTaken = loot.filter((l) => l.taken).length;
+  const collectedPct = floorTaken / Math.max(1, loot.length);
   const undetected = !alertedThisFloor;
   if (collectedPct >= 0.95 && undetected) return { grade: 'S', desc: 'PERFECT HEIST' };
   if (collectedPct >= 0.85 && undetected) return { grade: 'A', desc: 'CLEAN' };

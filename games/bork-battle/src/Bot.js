@@ -15,7 +15,7 @@ export class Bot extends Pug {
     this.barkCooldown = Math.random() * 6;
   }
 
-  think(world, energyMgr, pugs, dt) {
+  think(world, energyMgr, pugs, dt, decoys = null) {
     if (!this.alive) return null;
     this.thinkT -= dt;
     this.barkCooldown -= dt;
@@ -32,6 +32,19 @@ export class Bot extends Pug {
       const dx = p.x - this.x, dy = p.y - this.y;
       const d = Math.hypot(dx, dy);
       if (d < nearestDist) { nearestDist = d; nearestEnemy = p; }
+    }
+    // Decoys — fake stationary pugs dropped by the player. Only attract bots
+    // within 600px (so it's a tactical bait, not a global distraction).
+    if (decoys && decoys.length) {
+      for (const d of decoys) {
+        if (!d.alive) continue;
+        const dx = d.x - this.x, dy = d.y - this.y;
+        const dist = Math.hypot(dx, dy);
+        if (dist < 600 && dist < nearestDist) {
+          nearestDist = dist;
+          nearestEnemy = d;
+        }
+      }
     }
     // Identify nearest treat
     let nearestTreat = null;

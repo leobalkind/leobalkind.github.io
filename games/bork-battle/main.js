@@ -8,6 +8,7 @@ import '../../src/touch/touchControls.css';
 import { getGamepad } from '../../src/gamepad/gamepad.js';
 
 import { showTip } from '../../src/shared/tutorialTip.js';
+import { drawIcon, iconSvg } from '../../src/shared/icons.js';
 
 // Detect touch device + create overlay controls (no-op on desktop)
 const touch = createTouchControls({ enableAbility: true, abilityLabel: 'BORK' });
@@ -60,11 +61,13 @@ game.gamepad = gp;
 })();
 
 // Available starter forms — the puppy + 3 Tier 1 quick-picks
+// `iconName` resolves to the shared pixel-art icon library; `emoji` is kept as
+// a last-resort fallback if the icon library ever fails to load.
 const STARTERS = [
-  { id: 'bork_pup',   emoji: '🐶', tag: 'PUPPY',     hint: 'Tiny + speedy. Pure chaos potato.' },
-  { id: 'loaf',       emoji: '🍞', tag: 'TANK',      hint: 'Bread tank. Slow but THICC.' },
-  { id: 'snoot',      emoji: '👃', tag: 'SHARPSHOOT', hint: 'Stretchy snoot. Fast fire.' },
-  { id: 'zoom',       emoji: '💨', tag: 'SPEED',     hint: 'Rocket-skate. Pure zoom.' },
+  { id: 'bork_pup',   iconName: 'pugFace',   emoji: '🐶', tag: 'PUPPY',     hint: 'Tiny + speedy. Pure chaos potato.' },
+  { id: 'loaf',       iconName: 'biscuit',   emoji: '🍞', tag: 'TANK',      hint: 'Bread tank. Slow but THICC.' },
+  { id: 'snoot',      iconName: 'pugFace',   emoji: '👃', tag: 'SHARPSHOOT', hint: 'Stretchy snoot. Fast fire.' },
+  { id: 'zoom',       iconName: 'lightning', emoji: '💨', tag: 'SPEED',     hint: 'Rocket-skate. Pure zoom.' },
 ];
 
 let chosenStarter = 'bork_pup';
@@ -84,7 +87,10 @@ function renderDifficulty() {
     btn.type = 'button';
     btn.className = 'loadout-btn loadout-btn--diff loadout-btn--diff-' + id
       + (chosenDifficulty === id ? ' active' : '');
-    btn.innerHTML = `<span>${d.icon}</span><span>${d.name}</span>`;
+    const iconHtml = (d.iconName && iconSvg[d.iconName])
+      ? `<span class="loadout-btn__icon">${iconSvg[d.iconName](20)}</span>`
+      : `<span>${d.icon}</span>`;
+    btn.innerHTML = `${iconHtml}<span>${d.name}</span>`;
     btn.title = `${d.desc}\nbot HP×${d.botHpMult}  bot DMG×${d.botDmgMult}  player HP×${d.playerHpMult}  player DMG×${d.playerDmgMult}  XP×${d.xpMult}  $×${d.moneyMult}`;
     btn.addEventListener('click', () => { chosenDifficulty = id; renderDifficulty(); });
     difficultyChoicesEl.appendChild(btn);
@@ -98,7 +104,10 @@ function renderWeapons() {
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'loadout-btn' + (chosenWeapon === wid ? ' active' : '');
-    btn.innerHTML = `<span>${w.icon}</span><span>${w.name}</span>`;
+    const iconHtml = (w.iconName && iconSvg[w.iconName])
+      ? `<span class="loadout-btn__icon">${iconSvg[w.iconName](20)}</span>`
+      : `<span>${w.icon}</span>`;
+    btn.innerHTML = `${iconHtml}<span>${w.name}</span>`;
     btn.title = `${w.desc}\nDMG ×${w.dmgMult}  FR ×${w.fireRateMult}  MAG ${w.magSize}  RELOAD ${w.reloadTime}s${w.pellets > 1 ? `  PELLETS ${w.pellets}` : ''}`;
     btn.addEventListener('click', () => { chosenWeapon = wid; renderWeapons(); });
     weaponChoicesEl.appendChild(btn);
@@ -141,6 +150,15 @@ function renderStarters() {
     const previewEl = card.querySelector('.evolve-card__preview');
     const canvas = game._renderFormPreview(s.id);
     if (canvas) previewEl.appendChild(canvas);
+    else if (s.iconName && drawIcon[s.iconName]) {
+      // Render the shared pixel-art icon onto a small canvas as a fallback
+      // (instead of the raw emoji) while Pixi is still initializing.
+      const fb = document.createElement('canvas');
+      fb.width = 64; fb.height = 64;
+      fb.style.cssText = 'width:64px;height:64px;image-rendering:pixelated;';
+      drawIcon[s.iconName](fb.getContext('2d'), 32, 32, 56);
+      previewEl.appendChild(fb);
+    }
     else previewEl.innerHTML = `<div style="font-size:54px;line-height:1;">${s.emoji}</div>`;
     card.addEventListener('click', () => {
       chosenStarter = s.id;
@@ -299,8 +317,38 @@ const _startOv = document.getElementById('overlay');
 if (_startOv) {
   const _showOnHide = () => {
     if (_startOv.classList.contains('is-hidden') || _startOv.hidden) {
-      showTip('MOUSE aim · CLICK fire · SPACE hold = BORK · WASD drive', 6000);
+      showTip('MOUSE aim · CLICK fire · SPACE BORK · E dash · Q decoy · R heal', 6500);
     }
   };
   new MutationObserver(_showOnHide).observe(_startOv, { attributes: true, attributeFilter: ['hidden', 'class'] });
+}
+
+// ============ Touch ability buttons (DASH / DECOY / HEAL) ============
+// Built in DOM (not in shared touchControls.js) to avoid edits to shared code.
+// Stack above the existing BORK button on the right edge.
+if (touch.enabled) {
+  const wrap = document.createElement('div');
+  wrap.className = 'touch-ability-extra';
+  // Position above the shared .touch-ability button (which sits bottom: 200px,
+  // size 84x84). Stack 3 chips (54px + 10px gap = 64px tall each) above it.
+  wrap.style.bottom = 'calc(300px + env(safe-area-inset-bottom, 0))';
+  wrap.innerHTML = `
+    <button type="button" class="touch-ability-extra__btn" id="touch-btn-dash"  aria-label="Dash">DASH</button>
+    <button type="button" class="touch-ability-extra__btn" id="touch-btn-decoy" aria-label="Decoy">DECOY</button>
+    <button type="button" class="touch-ability-extra__btn" id="touch-btn-heal"  aria-label="Heal">HEAL</button>
+  `;
+  document.body.appendChild(wrap);
+  const bind = (id, fn) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const handler = (ev) => {
+      ev.preventDefault();
+      if (!game?.input) return;
+      fn(game.input);
+    };
+    el.addEventListener('pointerdown', handler, { passive: false });
+  };
+  bind('touch-btn-dash',  (input) => input.triggerTouchE());
+  bind('touch-btn-decoy', (input) => input.triggerTouchQ());
+  bind('touch-btn-heal',  (input) => input.triggerTouchR());
 }

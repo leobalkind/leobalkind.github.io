@@ -1,5 +1,6 @@
 // HTML-driven HUD. Game pushes state in; HUD updates DOM.
 // Keeps the canvas free of pixi text noise and keeps fonts crisp.
+import { drawIcon } from '../../../src/shared/icons.js';
 
 export class Hud {
   constructor() {
@@ -23,6 +24,36 @@ export class Hud {
     this.minimap = document.getElementById('hud-minimap');
     this.minimapCtx = this.minimap ? this.minimap.getContext('2d') : null;
     this.screenFlash = document.getElementById('screen-flash');
+    // Ability chips (DASH/DECOY/HEAL) — render the icon ONCE and reuse.
+    this._chipDash  = document.getElementById('hud-chip-dash');
+    this._chipDecoy = document.getElementById('hud-chip-decoy');
+    this._chipHeal  = document.getElementById('hud-chip-heal');
+    this._paintChipIcon(this._chipDash,  'lightning');
+    this._paintChipIcon(this._chipDecoy, 'pugFace');
+    this._paintChipIcon(this._chipHeal,  'heart');
+  }
+
+  _paintChipIcon(chipEl, iconName) {
+    if (!chipEl) return;
+    const c = chipEl.querySelector('canvas.ability-chip__icon');
+    if (!c) return;
+    const ctx = c.getContext('2d');
+    if (!ctx || !drawIcon[iconName]) return;
+    ctx.clearRect(0, 0, c.width, c.height);
+    drawIcon[iconName](ctx, c.width / 2, c.height / 2, c.width);
+  }
+
+  // Receive ability cooldown readiness (1.0 = ready, 0.0 = just used).
+  // Drives the conic-gradient sweep on each chip + the ready-pulse animation.
+  updateAbilities({ dash, decoy, heal }) {
+    if (this._chipDash)  this._setChipState(this._chipDash,  dash);
+    if (this._chipDecoy) this._setChipState(this._chipDecoy, decoy);
+    if (this._chipHeal)  this._setChipState(this._chipHeal,  heal);
+  }
+  _setChipState(chipEl, ready) {
+    chipEl.style.setProperty('--cd', String(Math.max(0, Math.min(1, ready))));
+    if (ready >= 0.999) chipEl.classList.add('ability-chip--ready');
+    else chipEl.classList.remove('ability-chip--ready');
   }
 
   flashScreen(intensity = 1) {
@@ -106,6 +137,12 @@ export class Hud {
     const hpRatio = Math.max(0, pug.hp / pug.maxHp) * 100;
     this.hpFill.style.width = `${hpRatio}%`;
     this.hpText.textContent = `${Math.ceil(pug.hp)}/${pug.maxHp}`;
+    // Pulse the player HUD card border red when HP is critical
+    if (!this._playerCard) this._playerCard = this.formName ? this.formName.closest('.hud-card') : null;
+    if (this._playerCard) {
+      if (pug.alive && hpRatio < 25) this._playerCard.classList.add('hud-card--critical');
+      else this._playerCard.classList.remove('hud-card--critical');
+    }
     // weapon/ammo
     const ammoFill = document.getElementById('hud-ammo-fill');
     const ammoText = document.getElementById('hud-ammo-text');
@@ -182,6 +219,12 @@ export class Hud {
 
   updateBork(charge) {
     this.borkFill.style.width = `${Math.round(charge * 100)}%`;
+    // Dramatic visual at near-full charge — pulse + extra glow
+    if (!this._borkBar) this._borkBar = this.borkFill ? this.borkFill.parentElement : null;
+    if (this._borkBar) {
+      if (charge >= 0.95) this._borkBar.classList.add('ability-bar--ready');
+      else this._borkBar.classList.remove('ability-bar--ready');
+    }
   }
 
   showEvent(name, desc) {

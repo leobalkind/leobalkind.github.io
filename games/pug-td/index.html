@@ -10,7 +10,8 @@
 .tw-pick:hover { border-color: var(--neon-yellow); transform: translateY(-2px); }
 .tw-pick.selected { border-color: var(--neon-yellow); background: rgba(255,210,63,0.18); box-shadow: 0 0 12px rgba(255,210,63,0.45); }
 .tw-pick.disabled { opacity: 0.4; cursor: not-allowed; }
-.tw-pick__icon { font-size: 22px; line-height: 1; margin-bottom: 2px; }
+.tw-pick__icon { font-size: 22px; line-height: 1; margin-bottom: 2px; display: inline-flex; align-items: center; justify-content: center; height: 24px; }
+.tw-pick__icon svg { display: block; image-rendering: pixelated; }
 .tw-pick__cost { color: var(--neon-yellow); font-size: 0.42rem; }
 #td-wave-btn { background: linear-gradient(180deg, var(--neon-green), #3aa860); color: #0a1018; border: 3px solid #9ef0b0; padding: 8px 14px; font-family: var(--font-display); font-size: 0.55rem; cursor: pointer; border-radius: 6px; box-shadow: 0 4px 0 #1a5a30; align-self: center; }
 #td-wave-btn:hover { transform: translateY(-2px); }
@@ -20,6 +21,8 @@
 #tower-popup button { margin-top: 6px; width: 100%; padding: 6px; background: rgba(0,0,0,0.4); color: var(--text); border: 2px solid var(--border); border-radius: 4px; font-family: var(--font-display); font-size: 0.45rem; cursor: pointer; }
 #tower-popup button:hover { border-color: var(--neon-yellow); }
 #tower-popup button.sell:hover { border-color: var(--crimson); color: var(--crimson); }
+.td-hud-critical { border-color: var(--crimson) !important; animation: tdHudPulse 0.6s ease-in-out infinite; }
+@keyframes tdHudPulse { 0%, 100% { box-shadow: 0 0 0 rgba(255,58,58,0); } 50% { box-shadow: 0 0 14px rgba(255,58,58,0.8); } }
 </style></head><body>
 <canvas id="game-canvas"></canvas>
 <button id="mute-btn" class="mute-btn">🔊</button>

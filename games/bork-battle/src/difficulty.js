@@ -8,6 +8,7 @@ export const DIFFICULTIES = {
     id: 'easy',
     name: 'EASY',
     icon: '🌟',
+    iconName: 'gem',
     botHpMult: 0.65,
     botDmgMult: 0.6,    // damage bots deal to player
     playerHpMult: 1.35,
@@ -20,6 +21,7 @@ export const DIFFICULTIES = {
     id: 'normal',
     name: 'NORMAL',
     icon: '⚔️',
+    iconName: 'shield',
     botHpMult: 1.0,
     botDmgMult: 1.0,
     playerHpMult: 1.0,
@@ -32,6 +34,7 @@ export const DIFFICULTIES = {
     id: 'hard',
     name: 'HARD',
     icon: '💀',
+    iconName: 'skull',
     botHpMult: 1.5,
     botDmgMult: 1.35,
     playerHpMult: 0.85,
