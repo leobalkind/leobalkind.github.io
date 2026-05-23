@@ -249,6 +249,80 @@ pauseLarge?.addEventListener('click', () => {
   pauseLarge.textContent = on ? 'LARGE TEXT: ON' : 'LARGE TEXT: OFF';
 });
 pauseQuit?.addEventListener('click', () => { window.location.href = '../../index.html'; });
+
+// ===== MID-MATCH ARMOURY SHOP =====
+const shopBtn = document.getElementById('bork-shop-btn');
+const shopModal = document.getElementById('bork-shop-modal');
+const shopClose = document.getElementById('bork-shop-close');
+const shopMoneyEl = document.getElementById('bork-shop-money');
+const shopListEl = document.getElementById('bork-shop-list');
+let shopOpen = false;
+
+function renderShopList() {
+  if (!shopListEl) return;
+  const money = Math.floor(game?.player?.money || 0);
+  if (shopMoneyEl) shopMoneyEl.textContent = money;
+  shopListEl.innerHTML = '';
+  if (!Game?.SHOP_BUYS) return;
+  for (const def of Game.SHOP_BUYS) {
+    const canBuy = money >= def.cost;
+    const row = document.createElement('div');
+    row.className = 'bork-shop-row';
+    row.innerHTML = `
+      <div class="bork-shop-row__icon">${def.icon}</div>
+      <div class="bork-shop-row__body">
+        <div class="bork-shop-row__name">${def.name}</div>
+        <div class="bork-shop-row__desc">${def.desc}</div>
+      </div>
+      <button class="bork-shop-row__btn" ${canBuy ? '' : 'disabled'}>$${def.cost}</button>
+    `;
+    if (canBuy) {
+      row.querySelector('button').addEventListener('click', () => {
+        if (game.buyShopItem(def.id)) renderShopList();
+      });
+    }
+    shopListEl.appendChild(row);
+  }
+}
+function openShopModal() {
+  if (!game?.running) return;
+  shopOpen = true;
+  shopModal.hidden = false;
+  // Stop the Pixi ticker directly so the world freezes (no pause panel shown).
+  if (game?.app?.ticker?.started) game.app.ticker.stop();
+  renderShopList();
+}
+function closeShopModal() {
+  shopOpen = false;
+  shopModal.hidden = true;
+  // Resume Pixi ticker only if the user-pause overlay isn't active.
+  if (!paused && game?.app?.ticker && !game.app.ticker.started) game.app.ticker.start();
+}
+shopBtn?.addEventListener('click', openShopModal);
+shopClose?.addEventListener('click', closeShopModal);
+shopModal?.addEventListener('click', (e) => { if (e.target === shopModal) closeShopModal(); });
+
+// Keyboard shortcut: B opens shop (mirrors pug-cafe / pugzilla / supermarket)
+window.addEventListener('keydown', (e) => {
+  if (e.target && /^(INPUT|TEXTAREA)$/.test(e.target.tagName)) return;
+  if ((e.key === 'b' || e.key === 'B') && game?.running) {
+    e.preventDefault();
+    if (shopOpen) closeShopModal(); else openShopModal();
+  }
+});
+
+// Keep button label fresh (shows current money) + toggle visibility with game state
+function _shopBtnLoop() {
+  if (shopBtn) {
+    // Hide during evolve menu / user pause / shop modal already open
+    const evolveOpen = !document.getElementById('evolve-overlay')?.hidden;
+    const visible = !!(game?.running && game?.player?.alive && !paused && !shopOpen && !evolveOpen);
+    shopBtn.hidden = !visible;
+    if (visible) shopBtn.textContent = `🛒 SHOP $${Math.floor(game.player.money || 0)}`;
+  }
+  requestAnimationFrame(_shopBtnLoop);
+}
+_shopBtnLoop();
 document.getElementById('pause-photo')?.addEventListener('click', () => {
   const canvas = document.querySelector('canvas');
   if (!canvas) return;

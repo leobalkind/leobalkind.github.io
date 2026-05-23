@@ -6,6 +6,107 @@
 <style>
   .hud-row.is-low { color: #ff5a5a; animation: zpulse 0.5s ease-in-out infinite alternate; }
   @keyframes zpulse { from { text-shadow: 0 0 0 #ff5a5a; } to { text-shadow: 0 0 12px #ff5a5a; } }
+  /* SKIN PICKER */
+  .pz-skins {
+    margin: 14px 0 18px;
+    text-align: left;
+  }
+  .pz-skins__label {
+    font-family: var(--font-display);
+    font-size: 0.5rem;
+    letter-spacing: 0.1em;
+    color: var(--neon-cyan);
+    text-shadow: 0 0 6px var(--neon-cyan);
+    margin: 0 0 8px;
+    text-align: center;
+  }
+  .pz-skins__row {
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 4px 2px 10px;
+    scrollbar-width: thin;
+    scrollbar-color: var(--neon-cyan) rgba(0,0,0,0.4);
+    -webkit-overflow-scrolling: touch;
+  }
+  .pz-skins__row::-webkit-scrollbar { height: 6px; }
+  .pz-skins__row::-webkit-scrollbar-thumb { background: var(--neon-cyan); border-radius: 3px; }
+  .pz-skin-card {
+    flex: 0 0 64px;
+    width: 64px;
+    height: 80px;
+    background: rgba(0,0,0,0.55);
+    border: 2px solid rgba(255,255,255,0.15);
+    border-radius: 6px;
+    padding: 4px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    cursor: pointer;
+    position: relative;
+    transition: transform 0.12s;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .pz-skin-card:hover { transform: translateY(-2px); }
+  .pz-skin-card.is-selected {
+    border-color: var(--neon-cyan);
+    box-shadow: 0 0 10px var(--neon-cyan);
+  }
+  .pz-skin-card.is-locked {
+    cursor: default;
+    opacity: 0.55;
+  }
+  .pz-skin-card.is-locked:hover { transform: none; }
+  .pz-skin-card__swatch {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    margin-top: 4px;
+    border: 2px solid rgba(0,0,0,0.6);
+    box-shadow: inset 0 -6px 0 rgba(0,0,0,0.3);
+  }
+  .pz-skin-card__name {
+    font-family: var(--font-display);
+    font-size: 0.34rem;
+    letter-spacing: 0.04em;
+    color: #fff;
+    margin-top: 4px;
+    line-height: 1.1;
+    text-align: center;
+    word-break: break-word;
+  }
+  .pz-skin-card__lock {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    background: rgba(0,0,0,0.55);
+    border-radius: 4px;
+    font-family: var(--font-display);
+    font-size: 0.34rem;
+    color: #ffd23f;
+    text-align: center;
+    padding: 2px;
+    line-height: 1.2;
+  }
+  .pz-skin-card__lock-icon { font-size: 14px; margin-bottom: 2px; }
+  .pz-newskin-toast {
+    margin: 10px auto 0;
+    padding: 8px 12px;
+    background: rgba(0,0,0,0.6);
+    border: 2px solid var(--neon-cyan);
+    border-radius: 6px;
+    color: var(--neon-cyan);
+    font-family: var(--font-display);
+    font-size: 0.5rem;
+    letter-spacing: 0.06em;
+    text-shadow: 0 0 8px var(--neon-cyan);
+    text-align: center;
+    animation: zpulse 0.6s ease-in-out infinite alternate;
+  }
 </style>
 </head><body>
 <canvas id="game-canvas"></canvas>
@@ -19,6 +120,10 @@
     <li><b>WASD</b> walk · <b>CLICK</b> smash building · <b>SPACE</b> shockwave bork</li>
     <li>Eat 5 vehicles → evolve to bigger form</li>
   </ul>
+  <div class="pz-skins">
+    <div class="pz-skins__label">★ CHOOSE YOUR FORM ★</div>
+    <div class="pz-skins__row" id="pz-skin-row"></div>
+  </div>
   <button id="start-btn" class="overlay__btn">RAMPAGE</button>
   <a class="overlay__back" href="../../index.html">← back to hub</a>
 </div></div>
@@ -40,6 +145,7 @@
     <li>Vehicles eaten: <b id="end-eaten">0</b></li>
     <li id="end-best">Best: <b>—</b></li>
   </ul>
+  <div id="end-new-skins"></div>
   <button id="end-restart" class="overlay__btn">RERAMPAGE</button>
   <a class="overlay__back" href="../../index.html">← back to hub</a>
 </div></div>

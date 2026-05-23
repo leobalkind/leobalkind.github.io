@@ -6,6 +6,97 @@ import { createSfx } from '../../src/shared/miniSfx.js';
 import { showTip } from '../../src/shared/tutorialTip.js';
 import { drawIcon } from '../../src/shared/icons.js';
 import { drawPug } from '../../src/shared/pugSprite.js';
+import { profileKey } from '../../src/shared/profile.js';
+
+// =============================================================================
+// SKINS / FORMS — 8 visual variants the player picks on the start screen.
+// Each has a tiny stat tweak (one perk per skin — keep balance simple).
+// Unlocks are tracked persistently in localStorage (per profile).
+// =============================================================================
+const SKINS = [
+  { id: 'classic', name: 'CLASSIC',  color: '#ff8e3c', ear: '#8a5a2c',
+    unlock: { type: 'default' }, perk: null,
+    desc: 'The original orange menace.' },
+  { id: 'night',   name: 'NIGHT',    color: '#3a2a5a', ear: '#6b4a7a',
+    unlock: { type: 'score',  value: 5000 }, perk: 'borkRadius+10',
+    desc: '+10% bork radius' },
+  { id: 'toxic',   name: 'TOXIC',    color: '#5ef38c', ear: '#3a8a3a',
+    unlock: { type: 'score',  value: 10000 }, perk: 'eatRage+50',
+    desc: '+50% rage on civilian eats' },
+  { id: 'cyber',   name: 'CYBER',    color: '#4cc9f0', ear: '#2a6a8a',
+    unlock: { type: 'score',  value: 20000 }, perk: 'missileResist-20',
+    desc: 'Missiles deal 20% less damage' },
+  { id: 'molten',  name: 'MOLTEN',   color: '#ff3a3a', ear: '#8a2a2a',
+    unlock: { type: 'score',  value: 35000 }, perk: 'borkRadius+20',
+    desc: '+20% bork radius' },
+  { id: 'ghost',   name: 'GHOST',    color: '#cacad6', ear: '#9a9aa6',
+    unlock: { type: 'score',  value: 50000 }, perk: 'phaseFirstMissile',
+    desc: 'Translucent; ignores 1st missile per match' },
+  { id: 'gold',    name: 'GOLD',     color: '#ffd23f', ear: '#c89c20',
+    unlock: { type: 'rampage', value: 1 }, perk: 'civBonus+30',
+    desc: 'Civilian eats give +30 score (was +20)' },
+  { id: 'void',    name: 'VOID',     color: '#0a0716', ear: '#3a2a5a',
+    unlock: { type: 'buildings', value: 100 }, perk: 'rage2x',
+    desc: 'Gains rage 2× faster' },
+];
+const SKINS_BY_ID = Object.fromEntries(SKINS.map((s) => [s.id, s]));
+
+// Persistent skin state — stored per profile via profileKey().
+const SKIN_STORE_KEY = 'pugzilla:skinState';
+function _defaultSkinState() {
+  return { chosen: 'classic', unlocked: ['classic'], rampagesEver: 0, buildingsEverSmashed: 0 };
+}
+function loadSkinState() {
+  try {
+    const raw = localStorage.getItem(profileKey(SKIN_STORE_KEY));
+    if (!raw) return _defaultSkinState();
+    const parsed = JSON.parse(raw);
+    return {
+      chosen: parsed.chosen || 'classic',
+      unlocked: Array.isArray(parsed.unlocked) && parsed.unlocked.length ? parsed.unlocked : ['classic'],
+      rampagesEver: parsed.rampagesEver || 0,
+      buildingsEverSmashed: parsed.buildingsEverSmashed || 0,
+    };
+  } catch { return _defaultSkinState(); }
+}
+function saveSkinState() {
+  try { localStorage.setItem(profileKey(SKIN_STORE_KEY), JSON.stringify(skinState)); } catch {}
+}
+let skinState = loadSkinState();
+// Make sure chosen skin is actually unlocked (defensive)
+if (!skinState.unlocked.includes(skinState.chosen)) skinState.chosen = 'classic';
+function activeSkin() { return SKINS_BY_ID[skinState.chosen] || SKINS_BY_ID.classic; }
+
+// Returns label for a skin's unlock condition (used on locked cards).
+function unlockLabel(skin) {
+  const u = skin.unlock;
+  if (u.type === 'default') return '';
+  if (u.type === 'score') return '$' + (u.value >= 1000 ? (u.value / 1000) + 'K' : u.value);
+  if (u.type === 'rampage') return u.value + ' RAMPAGE';
+  if (u.type === 'buildings') return u.value + ' BLDGS';
+  return '???';
+}
+
+// Per-match flag for GHOST skin's "ignore 1st missile" perk.
+let phaseUsed = false;
+// Skins newly unlocked this match (shown as a toast on end overlay).
+let _newSkinsThisMatch = [];
+
+// Check unlock conditions vs current run stats; return array of newly unlocked skins.
+function checkSkinUnlocks(runScore) {
+  const newly = [];
+  for (const s of SKINS) {
+    if (skinState.unlocked.includes(s.id)) continue;
+    const u = s.unlock;
+    let ok = false;
+    if (u.type === 'default') ok = true;
+    else if (u.type === 'score') ok = runScore >= u.value;
+    else if (u.type === 'rampage') ok = (skinState.rampagesEver || 0) >= u.value;
+    else if (u.type === 'buildings') ok = (skinState.buildingsEverSmashed || 0) >= u.value;
+    if (ok) { skinState.unlocked.push(s.id); newly.push(s); }
+  }
+  return newly;
+}
 
 const canvas = document.getElementById('game-canvas');
 const ctx = canvas.getContext('2d');
@@ -33,6 +124,17 @@ const FORMS = [
 let pug, buildings, vehicles, helicopters, missiles, particles, powerups, score, smashed, eaten, hp, formIdx, borkCd, cam, running;
 let combo = 0, comboT = 0, dmgBoostT = 0;
 let mouse = { x: 0, y: 0 };
+// EVOLUTION SHOP — stackable per-run upgrades bought with score.
+// Each stack of an upgrade multiplies its cost by 1.5.
+const SHOP_DEFS = [
+  { id: 'bigBork',     name: 'BIGGER BORK',  baseCost: 300, max: 3, icon: '📢', desc: 'Bork radius +25% per stack (max 3)' },
+  { id: 'thickHide',   name: 'THICKER HIDE', baseCost: 250, max: 1, icon: '🛡️', desc: 'Take 30% less missile damage' },
+  { id: 'appetite',    name: 'APPETITE',     baseCost: 200, max: 1, icon: '🍴', desc: '+50% rage on civilian eats' },
+  { id: 'rampagePlus', name: 'RAMPAGE+',     baseCost: 500, max: 1, icon: '🔥', desc: 'RAMPAGE lasts 5s instead of 3s' },
+];
+let shopBuys = { bigBork: 0, thickHide: 0, appetite: 0, rampagePlus: 0 };
+let shopOpen = false;
+function shopCost(def) { return Math.round(def.baseCost * Math.pow(1.5, shopBuys[def.id] || 0)); }
 // Map upgrades
 let broadcastTower = null;     // {x, y, smashed, strobe}
 let civilians = [];            // {x, y, vx, vy, scream, screamT, color}
@@ -101,6 +203,13 @@ function reset() {
   // Rage
   rage = 0; rampageT = 0;
   towerHit = 0;
+  // Shop buys reset per run
+  shopBuys = { bigBork: 0, thickHide: 0, appetite: 0, rampagePlus: 0 };
+  shopOpen = false;
+  // Skin per-match state
+  phaseUsed = false;
+  _newSkinsThisMatch = [];
+  renderShopChips();
 }
 function makeBuilding() {
   // 8% bank, 10% gas, 8% hospital, 25% small house, rest offices
@@ -215,11 +324,23 @@ function smashAt(wx, wy) {
     const c = civilians[i];
     if (Math.hypot(c.x - pug.x, c.y - pug.y) < form().r + 8 && Math.hypot(c.x - wx, c.y - wy) < 24) {
       civilians.splice(i, 1);
-      score += 20;
+      // GOLD skin: civilian eats give +30 score (was +20)
+      const _sk = activeSkin();
+      const gain = _sk.perk === 'civBonus+30' ? 30 : 20;
+      score += gain;
       sfx.tone(720, 'triangle', 0.06, 0.18);
-      addPopup(c.x, c.y - 8, '+20 NOM', '#ff8ec8');
-      addBurst && addBurst(c.x, c.y, '#ff5050', 6);
-      addRage(4);
+      addPopup(c.x, c.y - 8, '+' + gain + ' NOM', _sk.perk === 'civBonus+30' ? '#ffd23f' : '#ff8ec8');
+      for (let i = 0; i < 6; i++) {
+        const a = Math.random() * Math.PI * 2;
+        const s = 60 + Math.random() * 80;
+        particles.push({ x: c.x, y: c.y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, color: '#ff5050', life: 0.5, t: 0, size: 3 });
+      }
+      // APPETITE shop upgrade: +50% rage on civilian eats
+      // TOXIC skin: also +50% rage on civilian eats (stacks additively — both = +100%)
+      let civRage = 4;
+      if (shopBuys.appetite) civRage += 2;          // +50% of base
+      if (_sk.perk === 'eatRage+50') civRage += 2;  // +50% of base
+      addRage(civRage);
       return;
     }
   }
@@ -269,7 +390,12 @@ function doBork() {
   addShake(8, 0.32);
   // Shockwave: push everything outward + damage helicopters; rage = +50% radius
   const rageRadiusBoost = (rage >= 80 || rampageT > 0) ? 1.5 : 1;
-  const reach = (form().r + 250) * rageRadiusBoost;
+  // BIGGER BORK shop upgrade: +25% per stack
+  const shopRadiusBoost = 1 + (shopBuys.bigBork || 0) * 0.25;
+  // SKIN perks: Night +10% bork radius, Molten +20% bork radius
+  const sk = activeSkin();
+  const skinRadiusBoost = sk.perk === 'borkRadius+10' ? 1.1 : (sk.perk === 'borkRadius+20' ? 1.2 : 1);
+  const reach = (form().r + 250) * rageRadiusBoost * shopRadiusBoost * skinRadiusBoost;
   for (const v of vehicles) {
     const dx = v.x - pug.x, dy = v.y - pug.y;
     const d = Math.hypot(dx, dy);
@@ -320,6 +446,8 @@ function smashBuilding(b, idx) {
   const gain = Math.floor(b.val * mult);
   score += gain;
   smashed++;
+  // Lifetime smashed count (for VOID skin unlock).
+  skinState.buildingsEverSmashed = (skinState.buildingsEverSmashed || 0) + 1;
   addRage(b.special ? 14 : 8);
   // Civilians inside this building scatter on death
   for (const c of civilians) {
@@ -380,12 +508,18 @@ function smashBuilding(b, idx) {
 
 function addRage(amount) {
   if (rampageT > 0) return; // locked during rampage
+  // VOID skin: gains rage 2× faster
+  const sk = activeSkin();
+  if (sk.perk === 'rage2x') amount *= 2;
   rage = Math.min(100, rage + amount);
   if (rage >= 100) {
-    rampageT = 3.0;
+    // RAMPAGE+ shop upgrade: 5s instead of 3s
+    rampageT = shopBuys.rampagePlus ? 5.0 : 3.0;
     addShake(12, 0.5);
     addPopup(pug.x, pug.y - form().r - 20, 'RAMPAGE!!!', '#ff3a3a');
     sfx.arp([220, 330, 110], 'sawtooth', 0.2, 0.4, 0.6);
+    // Track lifetime rampages for skin unlocks.
+    skinState.rampagesEver = (skinState.rampagesEver || 0) + 1;
   }
 }
 
@@ -622,6 +756,7 @@ function drawBroadcastTower() {
 
 function tick(dt) {
   if (!running) return;
+  if (shopOpen) return; // pause world while shopping
   borkCd = Math.max(0, borkCd - dt);
   comboT = Math.max(0, comboT - dt);
   if (comboT <= 0) combo = 0;
@@ -728,8 +863,20 @@ function tick(dt) {
     m.x += m.vx * dt; m.y += m.vy * dt; m.life -= dt;
     if (m.life <= 0) { missiles.splice(i, 1); continue; }
     if (Math.hypot(m.x - pug.x, m.y - pug.y) < form().r) {
+      // GHOST skin: phase through the first missile of the match (no damage).
+      const _activeSk = activeSkin();
+      if (_activeSk.perk === 'phaseFirstMissile' && !phaseUsed) {
+        phaseUsed = true;
+        missiles.splice(i, 1);
+        sfx.tone(880, 'sine', 0.12, 0.18);
+        addPopup(pug.x, pug.y - form().r - 4, 'PHASED!', '#cacad6');
+        continue;
+      }
       const rageDmgCut = (rage >= 80 || rampageT > 0) ? 0.5 : 1;
-      const dmg = Math.round(12 * rageDmgCut);
+      const hideCut = shopBuys.thickHide ? 0.7 : 1;
+      // CYBER skin: missiles deal 20% less damage
+      const skinCut = _activeSk.perk === 'missileResist-20' ? 0.8 : 1;
+      const dmg = Math.round(12 * rageDmgCut * hideCut * skinCut);
       hp -= dmg;
       missiles.splice(i, 1);
       sfx.tone(180, 'square', 0.1, 0.22);
@@ -931,13 +1078,18 @@ function render() {
     ctx.beginPath(); ctx.arc(pug.x, pug.y, r + 12, 0, Math.PI * 2); ctx.stroke();
   }
   // PUGZILLA — high-detail kaiju pug at scale (size scales with form radius r)
+  // Body / ear come from the chosen SKIN; GHOST skin renders translucent.
+  const _sk = activeSkin();
+  const _ghostAlpha = (_sk.id === 'ghost') ? 0.7 : 1;
+  if (_ghostAlpha < 1) ctx.globalAlpha = _ghostAlpha;
   drawPug(ctx, pug.x, pug.y, {
     size: r * 3.6,
-    body: form().color,
+    body: _sk.color,
     mask: '#1a0d05',
-    ear: '#8a5a2c',
+    ear: _sk.ear,
     tongueOut: true,
   });
+  if (_ghostAlpha < 1) ctx.globalAlpha = 1;
   // Smoke columns (drawn in world, rise upward from smash sites)
   for (const s of smokeColumns) {
     const t = s.t / s.life;
@@ -1099,10 +1251,62 @@ function end() {
     const b = current || { score };
     bestEl.innerHTML = `Best: <b>${b.score}</b>${isNewBest ? ' <span style="color:var(--neon-yellow)">★ NEW</span>' : ''}`;
   }
+  // === SKIN UNLOCK CHECK ===
+  // Run stats (rampages/buildings) were tracked into skinState live during play.
+  // Check skin unlock thresholds vs the final score + lifetime totals.
+  const newlyUnlocked = checkSkinUnlocks(score);
+  saveSkinState();
+  const newSkinsEl = document.getElementById('end-new-skins');
+  if (newSkinsEl) {
+    if (newlyUnlocked.length) {
+      newSkinsEl.innerHTML = newlyUnlocked
+        .map((s) => `<div class="pz-newskin-toast">UNLOCKED: ${s.name} PUG</div>`)
+        .join('');
+    } else {
+      newSkinsEl.innerHTML = '';
+    }
+  }
   document.getElementById('hud').hidden = true;
   document.getElementById('end-overlay').hidden = false;
   document.getElementById('end-overlay').classList.remove('is-hidden');
+  // Refresh the start-screen picker (locked → unlocked transitions) for next start.
+  renderSkinPicker();
 }
+
+// =============================================================================
+// SKIN PICKER (start-screen UI) — renders 8 cards inside the overlay.
+// =============================================================================
+function renderSkinPicker() {
+  const row = document.getElementById('pz-skin-row');
+  if (!row) return;
+  row.innerHTML = '';
+  for (const s of SKINS) {
+    const unlocked = skinState.unlocked.includes(s.id);
+    const selected = skinState.chosen === s.id;
+    const card = document.createElement('div');
+    card.className = 'pz-skin-card' + (selected ? ' is-selected' : '') + (unlocked ? '' : ' is-locked');
+    card.title = unlocked ? (s.name + ' — ' + s.desc) : ('LOCKED: ' + unlockLabel(s));
+    const swatchAlpha = s.id === 'ghost' ? 0.7 : 1;
+    card.innerHTML = `
+      <div class="pz-skin-card__swatch" style="background:${s.color};opacity:${swatchAlpha};"></div>
+      <div class="pz-skin-card__name">${s.name}</div>
+      ${unlocked ? '' : `<div class="pz-skin-card__lock">
+        <div class="pz-skin-card__lock-icon">🔒</div>
+        <div>${unlockLabel(s)}</div>
+      </div>`}
+    `;
+    if (unlocked) {
+      card.addEventListener('click', () => {
+        skinState.chosen = s.id;
+        saveSkinState();
+        renderSkinPicker();
+        sfx.tone(660, 'triangle', 0.06, 0.15);
+      });
+    }
+    row.appendChild(card);
+  }
+}
+renderSkinPicker();
 
 document.getElementById('start-btn').addEventListener('click', start);
 document.getElementById('end-restart').addEventListener('click', start);
@@ -1120,12 +1324,175 @@ let lastT = performance.now();
   requestAnimationFrame(loop);
 })(performance.now());
 
+// ===== EVOLUTION SHOP UI =====
+const SHOP_CSS = `
+.pz-shop-btn { position: fixed; top: calc(14px + env(safe-area-inset-top, 0)); right: 60px; z-index: 200;
+  background: linear-gradient(180deg, #b055ff, #6a2aa0); color: #fff;
+  border: 3px solid #e0b8ff; border-radius: 6px;
+  font-family: var(--font-display); font-size: 0.5rem; letter-spacing: 0.08em;
+  padding: 6px 10px; cursor: pointer; box-shadow: 0 4px 0 #3a0e60;
+  -webkit-tap-highlight-color: transparent; }
+.pz-shop-btn:hover { transform: translateY(-1px); }
+.pz-shop-chips { position: fixed; top: 60px; right: 60px; z-index: 50;
+  display: flex; gap: 4px; flex-wrap: wrap; max-width: 220px; justify-content: flex-end; }
+.pz-shop-chip { background: rgba(176,85,255,0.18); border: 1px solid var(--neon-purple);
+  color: var(--neon-purple); font-family: var(--font-display); font-size: 0.36rem;
+  letter-spacing: 0.05em; padding: 3px 5px; border-radius: 3px;
+  text-shadow: 0 0 4px var(--neon-purple); }
+.pz-shop-modal { position: fixed; inset: 0; z-index: 300; display: none;
+  align-items: center; justify-content: center; background: rgba(0,0,0,0.75); padding: 16px; }
+.pz-shop-modal.is-open { display: flex; }
+.pz-shop-modal__panel { background: linear-gradient(180deg, #1a0f2e, #0a0716);
+  border: 3px solid var(--neon-purple); border-radius: 10px; padding: 20px;
+  max-width: 440px; width: 100%; box-shadow: 0 0 40px rgba(176,85,255,0.5); }
+.pz-shop-modal__title { font-family: var(--font-display); font-size: 0.85rem;
+  letter-spacing: 0.1em; color: var(--neon-purple); text-align: center; margin: 0 0 14px;
+  text-shadow: 0 0 12px var(--neon-purple); }
+.pz-shop-modal__money { text-align: center; font-family: var(--font-display);
+  font-size: 0.6rem; color: var(--neon-yellow); margin-bottom: 12px; }
+.pz-shop-row { background: rgba(0,0,0,0.5); border: 2px solid var(--border);
+  border-radius: 6px; padding: 10px; margin-bottom: 8px; display: flex;
+  gap: 10px; align-items: center; }
+.pz-shop-row.maxed { border-color: var(--neon-green); background: rgba(94,243,140,0.08); }
+.pz-shop-row__icon { font-size: 26px; flex-shrink: 0; }
+.pz-shop-row__body { flex: 1; }
+.pz-shop-row__name { font-family: var(--font-display); font-size: 0.5rem;
+  color: var(--neon-cyan); letter-spacing: 0.05em; }
+.pz-shop-row__desc { font-size: 0.42rem; color: var(--text-soft); margin-top: 2px; }
+.pz-shop-row__stack { font-size: 0.38rem; color: var(--neon-yellow); margin-top: 2px; }
+.pz-shop-row__btn { background: linear-gradient(180deg, var(--neon-purple), #6a2aa0);
+  color: #fff; border: 2px solid #e0b8ff; border-radius: 4px;
+  font-family: var(--font-display); font-size: 0.45rem; letter-spacing: 0.05em;
+  padding: 6px 8px; cursor: pointer; min-width: 70px;
+  box-shadow: 0 3px 0 #3a0e60; -webkit-tap-highlight-color: transparent; }
+.pz-shop-row__btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.pz-shop-row__btn.maxed { background: var(--neon-green); color: #0a1018; box-shadow: 0 3px 0 #1a5a30; }
+.pz-shop-close { background: rgba(0,0,0,0.6); color: var(--text); border: 2px solid var(--border);
+  border-radius: 4px; font-family: var(--font-display); font-size: 0.5rem;
+  padding: 8px 14px; cursor: pointer; display: block; margin: 14px auto 0; }
+`;
+const _pzStyle = document.createElement('style'); _pzStyle.textContent = SHOP_CSS;
+document.head.appendChild(_pzStyle);
+
+const _pzShopBtn = document.createElement('button');
+_pzShopBtn.className = 'pz-shop-btn';
+_pzShopBtn.id = 'pz-shop-btn';
+_pzShopBtn.textContent = '🛒 EVOLVE $0';
+_pzShopBtn.style.display = 'none';
+document.body.appendChild(_pzShopBtn);
+
+const _pzShopChips = document.createElement('div');
+_pzShopChips.className = 'pz-shop-chips';
+_pzShopChips.id = 'pz-shop-chips';
+document.body.appendChild(_pzShopChips);
+
+const _pzShopModal = document.createElement('div');
+_pzShopModal.className = 'pz-shop-modal';
+_pzShopModal.id = 'pz-shop-modal';
+_pzShopModal.innerHTML = `
+  <div class="pz-shop-modal__panel">
+    <h2 class="pz-shop-modal__title">★ EVOLUTION SHOP ★</h2>
+    <div class="pz-shop-modal__money">SCORE: <span id="pz-shop-money">0</span></div>
+    <div id="pz-shop-list"></div>
+    <button class="pz-shop-close" id="pz-shop-close">RESUME RAMPAGE</button>
+  </div>
+`;
+document.body.appendChild(_pzShopModal);
+_pzShopBtn.addEventListener('click', openShop);
+document.getElementById('pz-shop-close').addEventListener('click', closeShop);
+_pzShopModal.addEventListener('click', (e) => { if (e.target === _pzShopModal) closeShop(); });
+
+function openShop() {
+  if (!running) return;
+  shopOpen = true;
+  _pzShopModal.classList.add('is-open');
+  renderShopList();
+}
+function closeShop() {
+  shopOpen = false;
+  _pzShopModal.classList.remove('is-open');
+}
+function renderShopList() {
+  const moneyEl = document.getElementById('pz-shop-money');
+  if (moneyEl) moneyEl.textContent = score;
+  const list = document.getElementById('pz-shop-list');
+  list.innerHTML = '';
+  for (const u of SHOP_DEFS) {
+    const stacks = shopBuys[u.id] || 0;
+    const maxed = stacks >= u.max;
+    const cost = shopCost(u);
+    const canBuy = !maxed && score >= cost;
+    const row = document.createElement('div');
+    row.className = 'pz-shop-row' + (maxed ? ' maxed' : '');
+    row.innerHTML = `
+      <div class="pz-shop-row__icon">${u.icon}</div>
+      <div class="pz-shop-row__body">
+        <div class="pz-shop-row__name">${u.name}</div>
+        <div class="pz-shop-row__desc">${u.desc}</div>
+        ${u.max > 1 ? `<div class="pz-shop-row__stack">stack ${stacks}/${u.max}</div>` : ''}
+      </div>
+      <button class="pz-shop-row__btn ${maxed ? 'maxed' : ''}" ${maxed || !canBuy ? 'disabled' : ''}>
+        ${maxed ? 'MAXED' : '$' + cost}
+      </button>
+    `;
+    if (!maxed && canBuy) {
+      row.querySelector('button').addEventListener('click', () => buyShop(u));
+    }
+    list.appendChild(row);
+  }
+}
+function buyShop(u) {
+  const cost = shopCost(u);
+  if (score < cost) return;
+  const stacks = shopBuys[u.id] || 0;
+  if (stacks >= u.max) return;
+  score -= cost;
+  shopBuys[u.id] = stacks + 1;
+  sfx.arp([523, 659, 880], 'triangle', 0.08, 0.22, 0.2);
+  addPopup(pug.x, pug.y - form().r - 28, `★ ${u.name} ★`, '#b055ff');
+  renderShopList();
+  renderShopChips();
+  updateHud();
+}
+function renderShopChips() {
+  if (!_pzShopChips) return;
+  _pzShopChips.innerHTML = '';
+  for (const u of SHOP_DEFS) {
+    const stacks = shopBuys[u.id] || 0;
+    if (!stacks) continue;
+    const c = document.createElement('div');
+    c.className = 'pz-shop-chip';
+    c.textContent = u.icon + ' ' + u.name + (u.max > 1 ? ` x${stacks}` : '');
+    _pzShopChips.appendChild(c);
+  }
+}
+// Update shop button visibility + cost label
+function updateShopBtn() {
+  if (!_pzShopBtn) return;
+  _pzShopBtn.style.display = running ? 'block' : 'none';
+  _pzShopBtn.textContent = `🛒 EVOLVE $${score}`;
+  if (_pzShopChips) _pzShopChips.style.display = running ? 'flex' : 'none';
+}
+// Poll the shop-btn label via rAF (avoids monkey-patching updateHud).
+function _shopBtnLoop() {
+  updateShopBtn();
+  requestAnimationFrame(_shopBtnLoop);
+}
+_shopBtnLoop();
+
+// Keyboard shortcut: B opens shop
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'b' || e.key === 'B') {
+    if (shopOpen) closeShop(); else if (running) openShop();
+  }
+});
+
 // Tutorial tip — shows briefly when the game starts (every match)
 const _startOv = document.getElementById('overlay');
 if (_startOv) {
   const _showOnHide = () => {
     if (_startOv.classList.contains('is-hidden') || _startOv.hidden) {
-      showTip('WASD walk · CLICK building to smash · SPACE = shockwave bork', 6000);
+      showTip('WASD walk · CLICK building to smash · SPACE = shockwave bork · 🛒 SHOP top-right (B)', 7000);
     }
   };
   new MutationObserver(_showOnHide).observe(_startOv, { attributes: true, attributeFilter: ['hidden', 'class'] });

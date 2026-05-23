@@ -17,7 +17,7 @@ const sfx = createSfx({ storageKey: 'backrooms:muted' });
 sfx.applyButton(document.getElementById('mute-btn'));
 
 let W = 0, H = 0, DPR = 1;
-const TILE = 64;
+const TILE = 84;
 function resize() {
   DPR = window.devicePixelRatio || 1;
   W = window.innerWidth; H = window.innerHeight;
@@ -127,6 +127,21 @@ let heartBeatT = 0;           // accumulator for heart-beat sfx
 let humOsc = null;            // persistent fluorescent buzz (web audio)
 let humGain = null;
 let humSilenceUntil = 0;      // time (performance.now/1000) until which hum is muted
+// JUMP SCARE state ----------------------------------------------------------
+let jumpScareT = 0;           // seconds remaining on current jump-scare overlay (full)
+let jumpScareLife = 0;        // total seconds the current jump-scare runs (for fade math)
+let jumpScareKind = null;     // 'monster' | 'hound' | 'smiler' | 'ambient'
+let jumpScareCooldown = 0;    // seconds remaining of "no real jumpscare" cooldown
+let redFlashT = 0;            // seconds remaining of red full-screen flash overlay
+let lastHoundSeenIds = new Set(); // hound entity refs that have triggered first-sight
+let firstHoundJump = false;   // first hound-jumpscare per match
+let lastSmilerJumpAt = -999;  // last time we fired smiler jump-scare (gameTime)
+let gameTime = 0;             // total seconds elapsed in current run
+let nextAmbientAt = 999999;   // scheduled time for next ambient fake scare
+let ambientEvent = null;      // { x, y, t, life } silhouette doorway
+let nextDoorSlamAt = 999999;  // scheduled time for next far-off door slam
+let nextWhisperAt = 999999;   // next whisper sfx time
+let breathT = 0;              // accumulator for pug breathing sfx
 
 function shake(mag, dur) { shakeMag = Math.max(shakeMag, mag); shakeT = Math.max(shakeT, dur); }
 function pop(x, y, text, color) {
@@ -135,6 +150,53 @@ function pop(x, y, text, color) {
 }
 function nowSec() { return performance.now() / 1000; }
 function silenceHum(durSec) { humSilenceUntil = Math.max(humSilenceUntil, nowSec() + durSec); }
+
+// ============================================================================
+// JUMP SCARE — full-screen face + scream + shake + silence + sanity hit.
+// `kind` ∈ 'monster' | 'hound' | 'smiler' | 'ambient'.
+// `ambient` is the fake scare (no damage, bypasses cooldown).
+// ============================================================================
+function jumpScare(kind) {
+  if (!running) return;
+  const ambient = kind === 'ambient';
+  if (!ambient && jumpScareCooldown > 0) return;
+  if (!ambient) jumpScareCooldown = 30;
+  jumpScareKind = kind;
+  jumpScareLife = ambient ? 0.45 : 1.0;     // total visible duration
+  jumpScareT = jumpScareLife;
+  redFlashT = ambient ? 0.0 : 0.2;          // ambient = no red flash
+  if (!ambient) {
+    shake(15, 0.35);
+    sanity = Math.max(0, sanity - 25);
+    silenceHum(1.0);
+    // Layered scream: pitch sweep + mid-noise burst + sub-bass thump
+    try {
+      sfx.sweep(900, 200, 'sawtooth', 0.3, 0.45);
+      sfx.tone(600, 'square', 0.18, 0.25);
+      sfx.noise(0.18, 0.30, 400);
+      sfx.tone(60, 'sine', 0.45, 0.50);     // sub-bass thump
+      // Second-layer detuned shriek for grit
+      setTimeout(() => running && sfx.sweep(720, 160, 'square', 0.22, 0.22), 40);
+    } catch {}
+  } else {
+    // Ambient = soft sting (single short tone), no damage
+    try {
+      sfx.tone(180, 'sine', 0.18, 0.20);
+      sfx.sweep(380, 220, 'sine', 0.18, 0.10);
+    } catch {}
+    shake(3, 0.12);
+  }
+}
+
+function scheduleAmbient() {
+  nextAmbientAt = gameTime + 90 + Math.random() * 90;
+}
+function scheduleDoorSlam() {
+  nextDoorSlamAt = gameTime + 30 + Math.random() * 30;
+}
+function scheduleWhisper() {
+  nextWhisperAt = gameTime + 6 + Math.random() * 9;
+}
 
 window.addEventListener('keydown', (e) => {
   const k = e.key.toLowerCase();
@@ -532,6 +594,10 @@ function updateHum(dt) {
 // ============================================================================
 function tick(dt) {
   if (!running) { updateHum(dt); return; }
+  gameTime += dt;
+  if (jumpScareCooldown > 0) jumpScareCooldown -= dt;
+  if (jumpScareT > 0) jumpScareT -= dt;
+  if (redFlashT > 0) redFlashT -= dt;
   let mx = 0, my = 0;
   if (keys.has('w') || keys.has('arrowup')) my -= 1;
   if (keys.has('s') || keys.has('arrowdown')) my += 1;
@@ -637,8 +703,13 @@ function tick(dt) {
     monster.lastSeenX = pug.x; monster.lastSeenY = pug.y;
     monsterChaseT = sees ? 5 : 2.5;
   }
+  const prevChase = monster.chase;
   monster.chase = monsterChaseT > 0;
   if (monsterChaseT > 0) monsterChaseT -= dt;
+  // JUMP SCARE TRIGGER — first transition into chase while monster is close.
+  if (monster.chase && !prevChase && distToPug < 280) {
+    jumpScare('monster');
+  }
 
   // Move main monster (speed scaled by archetype)
   const target = monster.chase ? { x: monster.lastSeenX, y: monster.lastSeenY } : null;
@@ -705,13 +776,79 @@ function tick(dt) {
     p.life += dt; p.y += p.vy * dt; p.vy += 22 * dt;
     if (p.life >= p.max) popups.splice(i, 1);
   }
-  lightFlicker += dt * (4 + Math.random() * 4);
+  // Light flicker accelerates when monster is close (< 200px = wild flicker)
+  const flickerBoost = (distToPug < 200) ? (1 - distToPug / 200) * 18 : 0;
+  lightFlicker += dt * (4 + Math.random() * 4 + flickerBoost);
   if (shakeT > 0) shakeT -= dt;
   if (hitFlashT > 0) hitFlashT -= dt;
   monsterWiggle += dt * 4;
 
   // Caught by main monster?
-  if (distToPug < 24) { hitFlashT = 0.4; shake(7, 0.4); return die('monster'); }
+  if (distToPug < 24) {
+    // Force jumpscare even if cooldown — death scare always plays.
+    jumpScareCooldown = 0;
+    jumpScare('monster');
+    hitFlashT = 0.4; shake(7, 0.4);
+    return die('monster');
+  }
+
+  // ============================================================
+  // AMBIENT DREAD — fake jumpscare, far-off door slams, whispers
+  // ============================================================
+  if (gameTime >= nextAmbientAt) {
+    // Place a silhouette in a doorway nearby (random tile around player).
+    let placed = false;
+    for (let tries = 0; tries < 20; tries++) {
+      const a = Math.random() * Math.PI * 2;
+      const r = 180 + Math.random() * 120;
+      const ax = pug.x + Math.cos(a) * r;
+      const ay = pug.y + Math.sin(a) * r;
+      if (!isWallAt(ax, ay)) {
+        ambientEvent = { x: ax, y: ay, t: 0, life: 0.15 };
+        placed = true; break;
+      }
+    }
+    if (placed) jumpScare('ambient');
+    scheduleAmbient();
+  }
+  if (ambientEvent) {
+    ambientEvent.t += dt;
+    if (ambientEvent.t >= ambientEvent.life) ambientEvent = null;
+  }
+  // Door slam — only when player is fairly still / not in active chase, every 30-60s
+  if (gameTime >= nextDoorSlamAt) {
+    if (!monster.chase) {
+      try {
+        sfx.sweep(200, 80, 'sawtooth', 0.15, 0.32);
+        sfx.tone(70, 'sine', 0.18, 0.22);
+      } catch {}
+    }
+    scheduleDoorSlam();
+  }
+  // Low-sanity whispers
+  if (sanity < 50 && gameTime >= nextWhisperAt) {
+    try {
+      const baseF = 280 + Math.random() * 240;
+      sfx.tone(baseF, 'sine', 0.4, 0.05);
+      setTimeout(() => running && sfx.tone(baseF * 0.78, 'triangle', 0.35, 0.04), 90);
+    } catch {}
+    scheduleWhisper();
+  } else if (sanity >= 50) {
+    // push next whisper out if sanity is healthy
+    if (nextWhisperAt < gameTime + 3) nextWhisperAt = gameTime + 6 + Math.random() * 9;
+  }
+
+  // Pug breathing — gets louder/faster in chase
+  if (monster.chase) {
+    breathT += dt;
+    const rate = Math.max(0.45, distToPug / 700);
+    if (breathT >= rate) {
+      breathT = 0;
+      try { sfx.tone(140 + Math.random() * 40, 'sine', 0.18, 0.05); } catch {}
+    }
+  } else {
+    breathT = Math.max(0, breathT - dt * 0.5);
+  }
 
   updateHum(dt);
   updateHud();
@@ -724,9 +861,15 @@ function tickHound(e, dt, hidden) {
   const detectable = !hidden && monsterDazedT <= 0;
   const sees = detectable && dist < 360 && lineClear(e.x, e.y, pug.x, pug.y);
   if (sees) {
+    const wasChase = e.state === 'chase';
     e.aggroT = 3.0;
     e.state = 'chase';
     if (e.t > 1.2) { e.t = 0; sfx.tone(380, 'sawtooth', 0.08, 0.12); }
+    // JUMP SCARE — first hound to enter chase this match.
+    if (!wasChase && !firstHoundJump) {
+      firstHoundJump = true;
+      jumpScare('hound');
+    }
   } else if (e.aggroT > 0) {
     e.aggroT -= dt;
     if (e.aggroT <= 0) e.state = 'idle';
@@ -761,6 +904,12 @@ function tickSmiler(e, dt, hidden) {
   // Visibility: only in dark areas
   const targetOp = lit ? 0.05 : 0.9;
   e.opacity += (targetOp - e.opacity) * Math.min(1, dt * 3);
+  // JUMP SCARE — smiler within 90px and flashlight OFF, once per 12s per smiler.
+  const dPug = Math.hypot(e.x - pug.x, e.y - pug.y);
+  if (!flashlightOn && dPug < 90 && (gameTime - (e.lastJumpAt || -999)) > 12) {
+    e.lastJumpAt = gameTime;
+    jumpScare('smiler');
+  }
   // If in flashlight beam, get pushed back & damaged-mood
   if (smilerInBeam(e)) {
     e.recoilT = 0.6;
@@ -802,8 +951,9 @@ function render() {
   ctx.fillStyle = LV.fog; ctx.fillRect(0, 0, W, H);
   ctx.save();
   ctx.translate(W / 2 - cam.x + sx, H / 2 - cam.y + sy);
-  // View radius — slightly larger when flashlight ON
-  const viewR = flashlightOn ? 380 : 240;
+  // View radius — slightly larger when flashlight ON.
+  // Tightened so visible area is ~7 tiles even with bigger TILE — more dread.
+  const viewR = flashlightOn ? 340 : 200;
   // FLOOR — archetype-specific
   for (let y = 0; y < rows; y++) {
     for (let x = 0; x < cols; x++) {
@@ -921,15 +1071,26 @@ function render() {
   }
   // Monster — main pug-monster
   drawMonster();
+  // Ambient silhouette (fake jumpscare) — a doorway-shaped shadow that vanishes
+  if (ambientEvent) {
+    const a = 1 - ambientEvent.t / ambientEvent.life;
+    ctx.save();
+    ctx.globalAlpha = a * 0.9;
+    ctx.fillStyle = '#000';
+    ctx.fillRect(ambientEvent.x - 16, ambientEvent.y - 36, 32, 70);
+    ctx.fillStyle = '#1a0a0a';
+    ctx.fillRect(ambientEvent.x - 6, ambientEvent.y - 24, 12, 8);
+    ctx.restore();
+  }
   // Flashlight cone (player) — narrow yellow wedge
   if (flashlightOn && battery > 0) drawFlashlightCone();
   // Pug player — high-detail sprite (with hit-flash overlay)
   if (hitFlashT > 0) {
     ctx.save(); ctx.filter = 'brightness(2.5)';
-    drawPug(ctx, pug.x, pug.y, { size: 28 });
+    drawPug(ctx, pug.x, pug.y, { size: 40 });
     ctx.filter = 'none'; ctx.restore();
   } else {
-    drawPug(ctx, pug.x, pug.y, { size: 28 });
+    drawPug(ctx, pug.x, pug.y, { size: 40 });
   }
   // Sound waves
   if (soundLevel > 0.05) {
@@ -949,10 +1110,12 @@ function render() {
   }
   ctx.restore();
   // SCREEN-SPACE post-fx
-  // Distance fog (tight radial gradient)
-  const grd = ctx.createRadialGradient(W / 2, H / 2, viewR * 0.4, W / 2, H / 2, viewR * 1.35);
+  // Distance fog (tight radial gradient) — pulled in by ~30% so the world feels
+  // claustrophobic; radius now ~7 tiles instead of ~9.
+  const grd = ctx.createRadialGradient(W / 2, H / 2, viewR * 0.3, W / 2, H / 2, viewR * 1.1);
   grd.addColorStop(0, 'rgba(0,0,0,0)');
-  grd.addColorStop(1, 'rgba(0,0,0,0.9)');
+  grd.addColorStop(0.75, 'rgba(0,0,0,0.55)');
+  grd.addColorStop(1, 'rgba(0,0,0,0.96)');
   ctx.fillStyle = grd; ctx.fillRect(0, 0, W, H);
   // Scanlines
   ctx.fillStyle = 'rgba(0,0,0,0.06)';
@@ -965,16 +1128,19 @@ function render() {
     ctx.fillStyle = `rgba(80,0,0,${0.18 * lo * (0.6 + 0.4 * pul)})`;
     ctx.fillRect(0, 0, W, H);
   }
-  // Red chase vignette pulse
+  // Compute monster distance up-front for heartbeat-paced vignette + film grain.
+  const distToPug = Math.hypot(monster.x - pug.x, monster.y - pug.y);
+  // Red chase vignette pulse — pulse rate scales with proximity (real heartbeat).
   if (chaseVignetteT > 0.05) {
-    const pulse = 0.5 + Math.sin(performance.now() / 110) * 0.5;
+    // Closer = faster pulse. At 400px ~ 180ms, at 50px ~ 70ms.
+    const pulseRate = Math.max(70, Math.min(220, distToPug * 0.5 + 60));
+    const pulse = 0.5 + Math.sin(performance.now() / pulseRate) * 0.5;
     const rgrd = ctx.createRadialGradient(W / 2, H / 2, viewR * 0.5, W / 2, H / 2, viewR * 1.3);
     rgrd.addColorStop(0, 'rgba(255,58,58,0)');
     rgrd.addColorStop(1, `rgba(255,58,58,${0.35 * chaseVignetteT * (0.6 + 0.4 * pulse)})`);
     ctx.fillStyle = rgrd; ctx.fillRect(0, 0, W, H);
   }
   // Film grain / static overlay when monster very close in chase
-  const distToPug = Math.hypot(monster.x - pug.x, monster.y - pug.y);
   if (monster.chase && distToPug < 220) {
     const intensity = 1 - (distToPug / 220);
     ctx.globalAlpha = 0.18 * intensity;
@@ -986,10 +1152,85 @@ function render() {
     for (let i = 0; i < count; i++) ctx.fillRect(Math.random() * W, Math.random() * H, 2, 2);
     ctx.globalAlpha = 1;
   }
+  // Sanity-based film grain — ramps up below 60 sanity, max at 0.
+  if (sanity < 60) {
+    const sint = (60 - sanity) / 60;          // 0..1
+    ctx.globalAlpha = 0.10 * sint;
+    ctx.fillStyle = '#fff';
+    const c = Math.floor(40 * sint);
+    for (let i = 0; i < c; i++) ctx.fillRect(Math.random() * W, Math.random() * H, 1, 1);
+    ctx.fillStyle = '#000';
+    for (let i = 0; i < c; i++) ctx.fillRect(Math.random() * W, Math.random() * H, 1, 1);
+    ctx.globalAlpha = 1;
+  }
   // Hit flash overlay
   if (hitFlashT > 0) {
     ctx.fillStyle = `rgba(255,58,58,${Math.min(0.55, hitFlashT * 1.5)})`;
     ctx.fillRect(0, 0, W, H);
+  }
+  // Red full-screen flash from a jump-scare (200ms decay)
+  if (redFlashT > 0) {
+    const a = Math.min(0.7, (redFlashT / 0.2) * 0.7);
+    ctx.fillStyle = `rgba(220,10,10,${a})`;
+    ctx.fillRect(0, 0, W, H);
+  }
+  // JUMP SCARE — huge face/sprite in center of screen
+  if (jumpScareT > 0 && jumpScareKind) {
+    const elapsed = jumpScareLife - jumpScareT;
+    // first 0.4s fully visible, then fade across remaining
+    let a = 1;
+    if (elapsed > 0.4) a = Math.max(0, 1 - (elapsed - 0.4) / 0.6);
+    // slight jitter
+    const jx = (Math.random() - 0.5) * 14 * a;
+    const jy = (Math.random() - 0.5) * 14 * a;
+    ctx.save();
+    ctx.globalAlpha = a;
+    const cx = W / 2 + jx, cy = H / 2 + jy;
+    if (jumpScareKind === 'monster') {
+      ctx.fillStyle = 'rgba(60,0,0,0.55)';
+      ctx.beginPath(); ctx.arc(cx, cy, 200, 0, Math.PI * 2); ctx.fill();
+      ctx.shadowColor = '#ff3a3a'; ctx.shadowBlur = 40;
+      drawMonsterPug(ctx, cx, cy, { size: 280, body: '#5a0d0d' });
+      ctx.shadowBlur = 0;
+    } else if (jumpScareKind === 'hound') {
+      ctx.fillStyle = 'rgba(20,0,0,0.6)';
+      ctx.beginPath(); ctx.arc(cx, cy, 200, 0, Math.PI * 2); ctx.fill();
+      // scale-up version of drawHound
+      ctx.save(); ctx.translate(cx, cy); ctx.scale(7, 7); ctx.translate(-cx / 7, -cy / 7);
+      // synthesize a hound at center
+      const fake = { x: cx / 7, y: cy / 7, state: 'chase' };
+      // draw simplified large hound directly
+      ctx.restore();
+      ctx.fillStyle = '#3a0a0a';
+      ctx.fillRect(cx - 130, cy - 30, 260, 90);
+      ctx.fillRect(cx + 80, cy - 50, 80, 70);
+      ctx.fillStyle = '#ff3a3a';
+      ctx.shadowColor = '#ff3a3a'; ctx.shadowBlur = 30;
+      ctx.fillRect(cx + 120, cy - 40, 18, 18);
+      ctx.fillRect(cx + 145, cy - 30, 18, 18);
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = '#fff';
+      for (let i = 0; i < 10; i++) {
+        ctx.fillRect(cx + 90 + i * 8, cy + 10, 5, 18);
+      }
+    } else if (jumpScareKind === 'smiler') {
+      ctx.fillStyle = 'rgba(0,0,0,0.9)';
+      ctx.beginPath(); ctx.arc(cx, cy, 200, 0, Math.PI * 2); ctx.fill();
+      // huge grin
+      ctx.fillStyle = '#ffd23f';
+      ctx.shadowColor = '#ffd23f'; ctx.shadowBlur = 40;
+      ctx.fillRect(cx - 80, cy - 40, 40, 40);
+      ctx.fillRect(cx + 40, cy - 40, 40, 40);
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = '#fff';
+      for (let i = -10; i <= 10; i++) {
+        const yy = cy + 60 + Math.abs(i) * 3;
+        ctx.fillRect(cx + i * 14, yy, 12, 22);
+      }
+    } else if (jumpScareKind === 'ambient') {
+      // ambient = no center face, only the in-world silhouette (drawn earlier)
+    }
+    ctx.restore();
   }
 }
 
@@ -1095,10 +1336,10 @@ function drawMonster() {
   // Dread aura beneath
   ctx.fillStyle = monster.chase ? 'rgba(120,0,0,0.45)' : 'rgba(40,20,8,0.4)';
   ctx.beginPath(); ctx.arc(monster.x, monster.y + wob, 44, 0, Math.PI * 2); ctx.fill();
-  drawMonsterPug(ctx, monster.x, monster.y + wob, { size: 70, body: bodyCol });
+  drawMonsterPug(ctx, monster.x, monster.y + wob, { size: 90, body: bodyCol });
   if (monster.chase) {
     ctx.shadowColor = '#ff3a3a'; ctx.shadowBlur = 16;
-    drawMonsterPug(ctx, monster.x, monster.y + wob, { size: 70, body: bodyCol, alpha: 0.5 });
+    drawMonsterPug(ctx, monster.x, monster.y + wob, { size: 90, body: bodyCol, alpha: 0.5 });
     ctx.shadowBlur = 0;
   }
 }
@@ -1244,6 +1485,13 @@ document.getElementById('end-restart').addEventListener('click', start);
 function start() {
   level = 1; running = true;
   sanity = 100; battery = 50; flashlightOn = false; smokeCount = 0;
+  // Reset jump-scare / ambient state
+  gameTime = 0;
+  jumpScareT = 0; jumpScareLife = 0; jumpScareKind = null;
+  jumpScareCooldown = 0; redFlashT = 0;
+  firstHoundJump = false; lastSmilerJumpAt = -999;
+  ambientEvent = null;
+  scheduleAmbient(); scheduleDoorSlam(); scheduleWhisper();
   genLevel(level);
   ensureHum();
   setHumTargetFor(archetype);

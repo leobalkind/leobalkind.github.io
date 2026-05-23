@@ -1,18 +1,31 @@
 // Shared localStorage-backed high-score store.
 // Each game records (kills, time, etc.) and the highest is shown on the
 // start/end overlays.
-const NS = 'wg:hs:';
+//
+// Profile-aware: if a profile is active (via src/shared/profile.js), keys are
+// scoped under `wg:p:<profileId>:hs:<gameId>`. Falls back to legacy `wg:hs:*`
+// when no profile is logged in (guest mode).
+
+function _key(gameId) {
+  let activeId = null;
+  try { activeId = localStorage.getItem('wg:profiles:active'); } catch {}
+  return activeId ? `wg:p:${activeId}:hs:${gameId}` : `wg:hs:${gameId}`;
+}
 
 export function loadBest(gameId) {
   try {
-    const raw = localStorage.getItem(NS + gameId);
-    return raw ? JSON.parse(raw) : null;
+    const raw = localStorage.getItem(_key(gameId));
+    if (raw) return JSON.parse(raw);
+    // Fallback: if profile-scoped key missing, try legacy un-prefixed (helps if
+    // a player created a profile after already playing as guest).
+    const legacy = localStorage.getItem('wg:hs:' + gameId);
+    return legacy ? JSON.parse(legacy) : null;
   } catch { return null; }
 }
 
 export function saveBest(gameId, payload) {
   try {
-    localStorage.setItem(NS + gameId, JSON.stringify({ ...payload, ts: Date.now() }));
+    localStorage.setItem(_key(gameId), JSON.stringify({ ...payload, ts: Date.now() }));
   } catch {}
 }
 

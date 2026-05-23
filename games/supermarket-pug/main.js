@@ -86,6 +86,17 @@ const ITEMS = [
 
 let pug, inCart, shelves, items, guards, exitZ, haul, bag, maxBag, heat, shelvesKnocked, running;
 let popups, aisles, lights, cameras, decorCarts, pallets, sceneRows, sceneCols, sceneGx, sceneGy;
+// BLACK MARKET MID-RUN BRIBES — one-time-per-run buys spent from haul.
+const BRIBE_DEFS = [
+  { id: 'guardBreak',  cost: 80,  name: 'GUARD BREAK',  icon: '💤', desc: 'Both guards freeze for 10 seconds' },
+  { id: 'cameraBlink', cost: 60,  name: 'CAMERA BLINK', icon: '📷', desc: 'Cameras + heat off for 8 seconds' },
+  { id: 'tipOff',      cost: 100, name: 'TIP-OFF',      icon: '⭐', desc: 'Reveal most valuable item with glow halo' },
+];
+let bribesBought = {};   // id -> true when used (one-time-per-run)
+let bribeOpen = false;
+let guardFreezeT = 0;    // seconds remaining
+let cameraBlinkT = 0;    // seconds remaining
+let highlightedItem = null; // tip-off target ref
 let shakeT = 0, shakeAmp = 0;
 // New map decor + alarm mechanic
 let saleSigns = [];     // {x, y, text, color, phase}
@@ -182,6 +193,13 @@ function reset() {
   };
   // CHECKOUT COUNTER along bottom — player must pass to exit
   counter = { x: 30, y: H - 60, w: W - 60, h: 18 };
+  // Black-market state
+  bribesBought = {};
+  bribeOpen = false;
+  guardFreezeT = 0;
+  cameraBlinkT = 0;
+  highlightedItem = null;
+  renderBribeChips();
 }
 
 const keys = new Set();
@@ -257,6 +275,10 @@ function toggleCart() {
 
 function tick(dt) {
   if (!running) return;
+  if (bribeOpen) return; // pause world during bribe panel
+  // Decrement bribe timers
+  if (guardFreezeT > 0) guardFreezeT -= dt;
+  if (cameraBlinkT > 0) cameraBlinkT -= dt;
   let mx = 0, my = 0;
   if (keys.has('w') || keys.has('arrowup')) my -= 1;
   if (keys.has('s') || keys.has('arrowdown')) my += 1;
@@ -319,7 +341,8 @@ function tick(dt) {
     cleanerBot.y = cleanerBot.cy + Math.sin(cleanerBot.ang) * cleanerBot.ry;
     cleanerBot.brushPhase += dt * 12;
     const d = Math.hypot(pug.x - cleanerBot.x, pug.y - cleanerBot.y);
-    if (d < 38) {
+    // CAMERA BLINK suppresses cleaner-bot spotting
+    if (d < 38 && cameraBlinkT <= 0) {
       heat = Math.min(1, heat + 0.6 * dt);
       // brief popup, throttled
       if (Math.random() < dt * 1.5) popup(cleanerBot.x, cleanerBot.y - 14, 'SPOTTED!', '#ff3a3a');
@@ -333,8 +356,14 @@ function tick(dt) {
     let diff = ang - g.ang;
     while (diff > Math.PI) diff -= Math.PI * 2;
     while (diff < -Math.PI) diff += Math.PI * 2;
+    // GUARD BREAK bribe: guards frozen + sleepy (don't see, don't move)
+    if (guardFreezeT > 0) {
+      g.alertT = 0;
+      continue;
+    }
     const sees = d < 200 && Math.abs(diff) < 0.5;
-    if (sees) { g.alertT = 3; heat = Math.min(1, heat + 0.4 * dt); }
+    // CAMERA BLINK suppresses sight-based heat gain too
+    if (sees) { g.alertT = 3; if (cameraBlinkT <= 0) heat = Math.min(1, heat + 0.4 * dt); }
     if (heat > 0.7) g.alertT = Math.max(g.alertT, 1.5);
     if (alarm.on) g.alertT = 5; // always know
     if (g.alertT > 0) {
@@ -564,6 +593,17 @@ function render() {
   // Items
   for (const it of items) {
     if (it.taken) continue;
+    // TIP-OFF halo on highlighted item
+    if (highlightedItem === it) {
+      const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 150);
+      ctx.save();
+      ctx.fillStyle = `rgba(255,210,63,${0.25 * pulse})`;
+      ctx.beginPath(); ctx.arc(it.x, it.y, 22, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = `rgba(255,210,63,${0.8 * pulse})`;
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(it.x, it.y, 18, 0, Math.PI * 2); ctx.stroke();
+      ctx.restore();
+    }
     if (it.item.drawIconFn) it.item.drawIconFn(ctx, it.x, it.y, 18);
   }
   // Security cameras at corners (decorative, animated pan)
@@ -580,19 +620,27 @@ function render() {
     ctx.fillStyle = 'rgba(76,201,240,0.07)';
     ctx.beginPath(); ctx.moveTo(0, 0); ctx.arc(0, 0, 60, -0.4, 0.4); ctx.closePath(); ctx.fill();
     ctx.restore();
-    // tiny red recording dot
-    ctx.fillStyle = (((tNow * 1.5 | 0) & 1) ? '#ff3a3a' : '#7a1a1a');
+    // tiny red recording dot — dim during CAMERA BLINK
+    ctx.fillStyle = cameraBlinkT > 0
+      ? '#2a1a1a'
+      : (((tNow * 1.5 | 0) & 1) ? '#ff3a3a' : '#7a1a1a');
     ctx.fillRect(cam.x - 2, cam.y + 2, 2, 2);
   }
   // Guards — vision cone + high-detail security pug
   for (const g of guards) {
-    ctx.fillStyle = `rgba(255,58,58,${g.alertT > 0 ? 0.3 : 0.15})`;
+    const frozen = guardFreezeT > 0;
+    ctx.fillStyle = frozen
+      ? 'rgba(120,120,180,0.12)'
+      : `rgba(255,58,58,${g.alertT > 0 ? 0.3 : 0.15})`;
     ctx.beginPath();
     ctx.moveTo(g.x, g.y);
     ctx.arc(g.x, g.y, 200, g.ang - 0.5, g.ang + 0.5);
     ctx.closePath(); ctx.fill();
-    drawPug(ctx, g.x, g.y, { size: 34, body: '#4cc9f0', mask: '#1a3a55', hat: true, hatColor: '#0a1a2a' });
-    if (g.alertT > 0) {
+    drawPug(ctx, g.x, g.y, { size: 34, body: frozen ? '#8a8aac' : '#4cc9f0', mask: '#1a3a55', hat: true, hatColor: '#0a1a2a' });
+    if (frozen) {
+      ctx.fillStyle = '#b0e0ff'; ctx.font = "bold 12px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
+      ctx.fillText('Zzz', g.x, g.y - 28);
+    } else if (g.alertT > 0) {
       ctx.fillStyle = '#ff3a3a'; ctx.font = "16px sans-serif"; ctx.textAlign = 'center';
       ctx.fillText('!', g.x, g.y - 28);
     }
@@ -789,12 +837,191 @@ let lastT = performance.now();
   requestAnimationFrame(loop);
 })(performance.now());
 
+// ===== BLACK MARKET BRIBE UI =====
+const BRIBE_CSS = `
+.bribe-btn { position: fixed; top: calc(14px + env(safe-area-inset-top, 0)); right: 60px; z-index: 200;
+  background: linear-gradient(180deg, #1a0d05, #3a2010); color: var(--neon-yellow);
+  border: 3px solid var(--neon-yellow); border-radius: 6px;
+  font-family: var(--font-display); font-size: 0.5rem; letter-spacing: 0.08em;
+  padding: 6px 10px; cursor: pointer; box-shadow: 0 4px 0 #0a0500;
+  -webkit-tap-highlight-color: transparent; }
+.bribe-btn:hover { transform: translateY(-1px); }
+.bribe-chips { position: fixed; top: 60px; right: 60px; z-index: 50;
+  display: flex; gap: 4px; flex-wrap: wrap; max-width: 240px; justify-content: flex-end; pointer-events: none; }
+.bribe-chip { background: rgba(255,210,63,0.18); border: 1px solid var(--neon-yellow);
+  color: var(--neon-yellow); font-family: var(--font-display); font-size: 0.36rem;
+  letter-spacing: 0.05em; padding: 3px 5px; border-radius: 3px;
+  text-shadow: 0 0 4px var(--neon-yellow); }
+.bribe-modal { position: fixed; inset: 0; z-index: 300; display: none;
+  align-items: center; justify-content: center; background: rgba(0,0,0,0.78); padding: 16px; }
+.bribe-modal.is-open { display: flex; }
+.bribe-modal__panel { background: linear-gradient(180deg, #1a0f2e, #0a0716);
+  border: 3px solid var(--neon-yellow); border-radius: 10px; padding: 20px;
+  max-width: 440px; width: 100%; box-shadow: 0 0 40px rgba(255,210,63,0.4); }
+.bribe-modal__title { font-family: var(--font-display); font-size: 0.8rem;
+  letter-spacing: 0.1em; color: var(--neon-yellow); text-align: center; margin: 0 0 6px;
+  text-shadow: 0 0 12px var(--neon-yellow); }
+.bribe-modal__sub { text-align: center; color: var(--text-soft);
+  font-family: var(--font-display); font-size: 0.42rem; margin-bottom: 12px; }
+.bribe-modal__money { text-align: center; font-family: var(--font-display);
+  font-size: 0.6rem; color: var(--neon-green); margin-bottom: 12px; }
+.bribe-row { background: rgba(0,0,0,0.5); border: 2px solid var(--border);
+  border-radius: 6px; padding: 10px; margin-bottom: 8px; display: flex;
+  gap: 10px; align-items: center; }
+.bribe-row.used { border-color: var(--text-soft); opacity: 0.55; }
+.bribe-row__icon { font-size: 26px; flex-shrink: 0; }
+.bribe-row__body { flex: 1; }
+.bribe-row__name { font-family: var(--font-display); font-size: 0.5rem;
+  color: var(--neon-cyan); letter-spacing: 0.05em; }
+.bribe-row__desc { font-size: 0.42rem; color: var(--text-soft); margin-top: 2px; }
+.bribe-row__btn { background: linear-gradient(180deg, var(--neon-yellow), #c89c20);
+  color: #1a0d05; border: 2px solid #fff0a0; border-radius: 4px;
+  font-family: var(--font-display); font-size: 0.45rem; letter-spacing: 0.05em;
+  padding: 6px 8px; cursor: pointer; min-width: 70px;
+  box-shadow: 0 3px 0 #6a4a0a; -webkit-tap-highlight-color: transparent; }
+.bribe-row__btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.bribe-row__btn.used { background: var(--text-soft); color: #1a0d05; box-shadow: 0 3px 0 #3a3a4a; }
+.bribe-close { background: rgba(0,0,0,0.6); color: var(--text); border: 2px solid var(--border);
+  border-radius: 4px; font-family: var(--font-display); font-size: 0.5rem;
+  padding: 8px 14px; cursor: pointer; display: block; margin: 14px auto 0; }
+`;
+const _bribeStyle = document.createElement('style'); _bribeStyle.textContent = BRIBE_CSS;
+document.head.appendChild(_bribeStyle);
+
+const _bribeBtn = document.createElement('button');
+_bribeBtn.className = 'bribe-btn';
+_bribeBtn.id = 'bribe-btn';
+_bribeBtn.textContent = '💰 BRIBE $0';
+_bribeBtn.style.display = 'none';
+document.body.appendChild(_bribeBtn);
+
+const _bribeChips = document.createElement('div');
+_bribeChips.className = 'bribe-chips';
+_bribeChips.id = 'bribe-chips';
+document.body.appendChild(_bribeChips);
+
+const _bribeModal = document.createElement('div');
+_bribeModal.className = 'bribe-modal';
+_bribeModal.id = 'bribe-modal';
+_bribeModal.innerHTML = `
+  <div class="bribe-modal__panel">
+    <h2 class="bribe-modal__title">★ BLACK MARKET ★</h2>
+    <div class="bribe-modal__sub">A shady cashier offers one-time deals.</div>
+    <div class="bribe-modal__money">HAUL: $<span id="bribe-money">0</span></div>
+    <div id="bribe-list"></div>
+    <button class="bribe-close" id="bribe-close">CLOSE</button>
+  </div>
+`;
+document.body.appendChild(_bribeModal);
+_bribeBtn.addEventListener('click', () => openBribe());
+document.getElementById('bribe-close').addEventListener('click', () => closeBribe());
+_bribeModal.addEventListener('click', (e) => { if (e.target === _bribeModal) closeBribe(); });
+
+function openBribe() {
+  if (!running) return;
+  bribeOpen = true;
+  _bribeModal.classList.add('is-open');
+  renderBribeList();
+}
+function closeBribe() {
+  bribeOpen = false;
+  _bribeModal.classList.remove('is-open');
+}
+function renderBribeList() {
+  document.getElementById('bribe-money').textContent = haul;
+  const list = document.getElementById('bribe-list');
+  list.innerHTML = '';
+  for (const b of BRIBE_DEFS) {
+    const used = !!bribesBought[b.id];
+    const canBuy = !used && haul >= b.cost;
+    const row = document.createElement('div');
+    row.className = 'bribe-row' + (used ? ' used' : '');
+    row.innerHTML = `
+      <div class="bribe-row__icon">${b.icon}</div>
+      <div class="bribe-row__body">
+        <div class="bribe-row__name">${b.name}</div>
+        <div class="bribe-row__desc">${b.desc}</div>
+      </div>
+      <button class="bribe-row__btn ${used ? 'used' : ''}" ${used || !canBuy ? 'disabled' : ''}>
+        ${used ? 'USED' : '$' + b.cost}
+      </button>
+    `;
+    if (!used && canBuy) {
+      row.querySelector('button').addEventListener('click', () => buyBribe(b));
+    }
+    list.appendChild(row);
+  }
+}
+function buyBribe(b) {
+  if (bribesBought[b.id] || haul < b.cost) return;
+  haul -= b.cost;
+  bribesBought[b.id] = true;
+  sfx.arp([523, 659, 880], 'triangle', 0.08, 0.22, 0.2);
+  // Apply effect
+  if (b.id === 'guardBreak') {
+    guardFreezeT = 10;
+    popup(pug.x, pug.y - 24, '💤 GUARDS NAPPING', '#b0e0ff');
+  } else if (b.id === 'cameraBlink') {
+    cameraBlinkT = 8;
+    heat = 0; // immediate calm
+    popup(pug.x, pug.y - 24, '📷 CAMERAS OFF', '#4cc9f0');
+  } else if (b.id === 'tipOff') {
+    // Find the highest-value untaken item
+    let best = null, bestVal = -1;
+    for (const it of items) {
+      if (it.taken) continue;
+      if (it.item.val > bestVal) { bestVal = it.item.val; best = it; }
+    }
+    highlightedItem = best;
+    if (best) popup(best.x, best.y - 16, '⭐ JACKPOT!', '#ffd23f');
+  }
+  renderBribeList();
+  renderBribeChips();
+  updateHud();
+}
+function renderBribeChips() {
+  if (!_bribeChips) return;
+  _bribeChips.innerHTML = '';
+  if (guardFreezeT > 0) {
+    const c = document.createElement('div'); c.className = 'bribe-chip';
+    c.textContent = '💤 ' + guardFreezeT.toFixed(1) + 's';
+    _bribeChips.appendChild(c);
+  }
+  if (cameraBlinkT > 0) {
+    const c = document.createElement('div'); c.className = 'bribe-chip';
+    c.textContent = '📷 ' + cameraBlinkT.toFixed(1) + 's';
+    _bribeChips.appendChild(c);
+  }
+  if (highlightedItem && !highlightedItem.taken) {
+    const c = document.createElement('div'); c.className = 'bribe-chip';
+    c.textContent = '⭐ JACKPOT MARKED';
+    _bribeChips.appendChild(c);
+  }
+}
+// Keep bribe button label fresh + chips ticking
+function _bribeBtnLoop() {
+  if (_bribeBtn) {
+    _bribeBtn.style.display = running ? 'block' : 'none';
+    _bribeBtn.textContent = `💰 BRIBE $${haul}`;
+  }
+  if (_bribeChips) _bribeChips.style.display = running ? 'flex' : 'none';
+  renderBribeChips();
+  requestAnimationFrame(_bribeBtnLoop);
+}
+_bribeBtnLoop();
+
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'b' || e.key === 'B') {
+    if (bribeOpen) closeBribe(); else if (running) openBribe();
+  }
+});
+
 // Tutorial tip — shows briefly when the game starts (every match)
 const _startOv = document.getElementById('overlay');
 if (_startOv) {
   const _showOnHide = () => {
     if (_startOv.classList.contains('is-hidden') || _startOv.hidden) {
-      showTip('WASD move · E grab · SPACE ram · C cart · EXIT bottom-right · heat>95% = ALARM!', 6500);
+      showTip('WASD move · E grab · SPACE ram · C cart · 💰 BRIBE top-right (B) · EXIT bottom-right', 7000);
     }
   };
   new MutationObserver(_showOnHide).observe(_startOv, { attributes: true, attributeFilter: ['hidden', 'class'] });

@@ -2142,6 +2142,54 @@ export class Game {
     }
   }
 
+  // ===== MID-MATCH ARMOURY SHOP =====
+  // In-match purchases: spend player.money on instant buffs/heals.
+  // Buys can be repeated; resets at match end naturally (player.money does).
+  static SHOP_BUYS = [
+    { id: 'heal',    cost: 30, icon: '❤️', name: 'EMERGENCY HEAL', desc: 'Heal to full HP' },
+    { id: 'ammo',    cost: 25, icon: '📦', name: 'AMMO REFILL',    desc: 'Reload + 50% bonus ammo' },
+    { id: 'dmg',     cost: 60, icon: '💥', name: 'DAMAGE BOOST',   desc: '+50% damage for 15s' },
+    { id: 'spd',     cost: 40, icon: '⚡', name: 'SPEED BOOST',    desc: '+35% speed for 20s' },
+  ];
+
+  buyShopItem(id) {
+    const p = this.player;
+    if (!p || !p.alive || !this.running) return false;
+    const def = Game.SHOP_BUYS.find((d) => d.id === id);
+    if (!def) return false;
+    if ((p.money || 0) < def.cost) return false;
+    p.money -= def.cost;
+    if (id === 'heal') {
+      p.heal(p.maxHp);
+      this.hud.toastMessage(`❤️ HEALED to FULL`, 'kill');
+    } else if (id === 'ammo') {
+      const w = p.weapon || defaultWeapon();
+      // Refill + 50% bonus = magSize * 1.5
+      p.ammo = Math.floor(w.magSize * 1.5);
+      p.reloading = false;
+      p.reloadT = 0;
+      this.hud.toastMessage(`📦 AMMO +50%`, 'kill');
+    } else if (id === 'dmg') {
+      // Push a synthetic buff with same schema as power-up buffs
+      const buffDef = { id: 'shop_dmg', name: 'DAMAGE BOOST', icon: '💥', mult: { dmgMult: 1.5 }, duration: 15 };
+      // Stack: replace any existing shop_dmg with fresh timer
+      const idx = p.buffs.findIndex((b) => b.def.id === 'shop_dmg');
+      if (idx >= 0) p.buffs.splice(idx, 1);
+      p.buffs.push({ def: buffDef, timeLeft: 15 });
+      this.hud.toastMessage(`💥 +50% DMG 15s`, 'kill');
+    } else if (id === 'spd') {
+      const buffDef = { id: 'shop_spd', name: 'SPEED BOOST', icon: '⚡', mult: { spdMult: 1.35 }, duration: 20 };
+      const idx = p.buffs.findIndex((b) => b.def.id === 'shop_spd');
+      if (idx >= 0) p.buffs.splice(idx, 1);
+      p.buffs.push({ def: buffDef, timeLeft: 20 });
+      this.hud.toastMessage(`⚡ +35% SPEED 20s`, 'kill');
+    }
+    Sfx.pickup?.();
+    this.hud.updatePlayer(p);
+    this.hud.updateMoney(p.money || 0);
+    return true;
+  }
+
   _endMatch(won) {
     if (!this.running) return; // guard against double-call
     this.running = false;

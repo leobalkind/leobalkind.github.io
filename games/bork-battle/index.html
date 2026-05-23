@@ -60,6 +60,16 @@
     </div>
 
     <button id="pause-btn" class="mute-btn" type="button" title="Pause (Esc)" aria-label="Pause" style="right:62px;font-size:14px;">⏸</button>
+    <button id="bork-shop-btn" class="bork-shop-btn" type="button" title="Armoury (B)" aria-label="Armoury" hidden>🛒 SHOP $0</button>
+
+    <div id="bork-shop-modal" class="bork-shop-modal" hidden>
+      <div class="bork-shop-modal__panel">
+        <h2 class="bork-shop-modal__title">★ MID-MATCH ARMOURY ★</h2>
+        <div class="bork-shop-modal__money">$<span id="bork-shop-money">0</span></div>
+        <div id="bork-shop-list"></div>
+        <button class="bork-shop-close" id="bork-shop-close" type="button">RESUME</button>
+      </div>
+    </div>
 
     <div id="pause-overlay" class="pause-overlay" hidden>
       <div class="pause-panel">

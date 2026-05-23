@@ -50,6 +50,16 @@ let lootStolen = 0;
 let totalLootValue = 0;
 let lootValueThisFloor = 0;
 let floorStartTime = 0;
+// BETWEEN-FLOOR SHOP — bought upgrades persist for the rest of the run.
+const HEIST_SHOP = [
+  { id: 'quietPaws',  cost: 150, name: 'QUIETER PAWS', icon: '🐾', desc: 'Sound radius halved (humans react slower)' },
+  { id: 'eagleEye',   cost: 200, name: 'EAGLE EYE',    icon: '👁️', desc: 'See humans through walls (HUD dots)' },
+  { id: 'pockets',    cost: 120, name: 'POCKETS+',     icon: '🎒', desc: '+2 throw vases per floor' },
+  { id: 'luckyCharm', cost: 250, name: 'LUCKY CHARM',  icon: '🍀', desc: '25% chance loot drops 2x value' },
+];
+let runUpgrades = {}; // id -> true when owned
+let shopPending = false; // shows shop overlay before next floor
+let pendingFloor = 0;    // floor number to load after closing shop
 let achievementsSeen = new Set();
 let cats = [];
 // Map upgrade: room types + furniture per cell, central staircase, TV light pools.
@@ -158,8 +168,9 @@ function genFloor(level) {
   alertedThisFloor = false;
   lootValueThisFloor = 0;
   floorStartTime = performance.now();
-  // Throw distraction: 2 vases per floor, no cooldown to start
-  throwsLeft = 2; throwCd = 0; vases = []; noiseRings = [];
+  // Throw distraction: 2 vases per floor (+2 with POCKETS+ upgrade)
+  throwsLeft = 2 + (runUpgrades.pockets ? 2 : 0);
+  throwCd = 0; vases = []; noiseRings = [];
   // Assign a room "type" per cell (deterministic per floor)
   const ROOM_TYPES = ['bedroom', 'kitchen', 'living', 'office', 'vault'];
   roomTypes = [];
@@ -331,12 +342,16 @@ function doTongue() {
   }
   if (near) {
     near.taken = true;
-    lootValueThisFloor += near.val;
-    totalLootValue += near.val;
+    // LUCKY CHARM: 25% chance loot drops 2x value
+    const mult = (runUpgrades.luckyCharm && Math.random() < 0.25) ? 2 : 1;
+    const val = near.val * mult;
+    lootValueThisFloor += val;
+    totalLootValue += val;
     lootStolen++;
     tongueCd = 4;
     sfx.tone(880, 'triangle', 0.1, 0.22);
-    spawnParticles(near.x, near.y, '#ff5a82');
+    spawnParticles(near.x, near.y, mult > 1 ? '#ffd23f' : '#ff5a82');
+    if (mult > 1) addPopup(near.x, near.y - 6, 'LUCKY! +$' + val, '#ffd23f');
   } else {
     tongueCd = 1; // short cooldown on whiff
     sfx.tone(220, 'sawtooth', 0.08, 0.16);
@@ -457,6 +472,7 @@ function doFart() {
 
 function tick(dt) {
   if (!running) return;
+  if (shopPending) return; // pause world while shop overlay is open
   barkCd = Math.max(0, barkCd - dt);
   fartCd = Math.max(0, fartCd - dt);
   pug.fartT = Math.max(0, pug.fartT - dt);
@@ -484,13 +500,16 @@ function tick(dt) {
     if (lt.taken) continue;
     if (Math.hypot(lt.x - pug.x, lt.y - pug.y) < 20) {
       lt.taken = true;
-      lootValueThisFloor += lt.val;
-      totalLootValue += lt.val;
+      // LUCKY CHARM: 25% chance loot drops 2x value
+      const mult = (runUpgrades.luckyCharm && Math.random() < 0.25) ? 2 : 1;
+      const val = lt.val * mult;
+      lootValueThisFloor += val;
+      totalLootValue += val;
       lootStolen++;
       sfx.tone(lt.rare ? 1320 : 880, 'triangle', 0.1, 0.22);
-      spawnParticles(lt.x, lt.y, lt.rare ? '#ffd23f' : '#5ef38c');
-      addPopup(lt.x, lt.y - 6, '+$' + lt.val, lt.rare ? '#ffd23f' : '#5ef38c');
-      if (lt.rare) addShake(3, 0.15);
+      spawnParticles(lt.x, lt.y, lt.rare || mult > 1 ? '#ffd23f' : '#5ef38c');
+      addPopup(lt.x, lt.y - 6, (mult > 1 ? 'LUCKY! +$' : '+$') + val, lt.rare || mult > 1 ? '#ffd23f' : '#5ef38c');
+      if (lt.rare || mult > 1) addShake(3, 0.15);
     }
   }
   // Gadget cooldown decay
@@ -594,8 +613,10 @@ function tick(dt) {
   // Exit check
   if (loot.every((l) => l.taken)) {
     if (Math.hypot(exitZ.x - pug.x, exitZ.y - pug.y) < exitZ.r) {
-      floor++;
-      genFloor(floor);
+      // Trigger BETWEEN-FLOOR SHOP overlay before advancing
+      pendingFloor = floor + 1;
+      shopPending = true;
+      openHeistShop();
       sfx.arp([523, 659, 784], 'triangle', 0.08, 0.22, 0.2);
       return;
     }
@@ -656,8 +677,9 @@ function tick(dt) {
     // Cone-color escalation: mark suspicion based on closeness
     if (inCone && d < 240) h._closeT = (h._closeT || 0) + dt; else h._closeT = Math.max(0, (h._closeT || 0) - dt);
     if (inCone && !blocked) { alertedThisFloor = true; caught(); }
-    // Sound detection
-    if (pug.sound > 0.6 && d < 240) {
+    // Sound detection (QUIETER PAWS: halve effective sound radius)
+    const soundReach = runUpgrades.quietPaws ? 120 : 240;
+    if (pug.sound > 0.6 && d < soundReach) {
       // turn toward sound
       h.ang = ang;
       h.state = 'distracted';
@@ -993,6 +1015,16 @@ function render() {
   vg.addColorStop(0, 'rgba(0,0,0,0)');
   vg.addColorStop(1, 'rgba(0,0,0,0.6)');
   ctx.fillStyle = vg; ctx.fillRect(0, 0, W, H);
+  // EAGLE EYE upgrade — overlay glowing red dots above each human (visible through walls)
+  if (runUpgrades.eagleEye) {
+    for (const h of humans) {
+      const pulse = 0.6 + 0.4 * Math.sin(performance.now() / 200);
+      ctx.fillStyle = `rgba(255,60,60,${pulse})`;
+      ctx.beginPath(); ctx.arc(h.x, h.y - 18, 4, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = `rgba(255,255,255,${pulse * 0.8})`; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.arc(h.x, h.y - 18, 5, 0, Math.PI * 2); ctx.stroke();
+    }
+  }
   drawGadgetHud();
 }
 
@@ -1205,6 +1237,9 @@ document.getElementById('end-restart').addEventListener('click', start);
 function start() {
   floor = 1; running = true;
   lootStolen = 0; totalLootValue = 0; achievementsSeen = new Set();
+  runUpgrades = {}; shopPending = false; pendingFloor = 0;
+  closeHeistShop();
+  renderHeistShopChips();
   genFloor(floor);
   document.getElementById('overlay').hidden = true; document.getElementById('overlay').classList.add('is-hidden');
   document.getElementById('end-overlay').hidden = true; document.getElementById('end-overlay').classList.add('is-hidden');
@@ -1218,12 +1253,141 @@ let lastT = performance.now();
   requestAnimationFrame(loop);
 })(performance.now());
 
+// ===== BETWEEN-FLOOR SHOP UI =====
+const HEIST_SHOP_CSS = `
+.heist-shop-chips { position: fixed; top: 12px; right: 60px; z-index: 50;
+  display: flex; gap: 4px; flex-wrap: wrap; max-width: 280px; justify-content: flex-end; pointer-events: none; }
+.heist-shop-chip { background: rgba(94,243,140,0.18); border: 1px solid var(--neon-green);
+  color: var(--neon-green); font-family: var(--font-display); font-size: 0.36rem;
+  letter-spacing: 0.05em; padding: 3px 5px; border-radius: 3px;
+  text-shadow: 0 0 4px var(--neon-green); }
+.heist-shop-modal { position: fixed; inset: 0; z-index: 300; display: none;
+  align-items: center; justify-content: center; background: rgba(0,0,0,0.75); padding: 16px; }
+.heist-shop-modal.is-open { display: flex; }
+.heist-shop-modal__panel { background: linear-gradient(180deg, #1a0f2e, #0a0716);
+  border: 3px solid var(--neon-green); border-radius: 10px; padding: 20px;
+  max-width: 460px; width: 100%; box-shadow: 0 0 40px rgba(94,243,140,0.4); }
+.heist-shop-modal__title { font-family: var(--font-display); font-size: 0.85rem;
+  letter-spacing: 0.1em; color: var(--neon-green); text-align: center; margin: 0 0 6px;
+  text-shadow: 0 0 12px var(--neon-green); }
+.heist-shop-modal__sub { text-align: center; color: var(--text-soft);
+  font-family: var(--font-display); font-size: 0.42rem; margin-bottom: 12px; }
+.heist-shop-modal__money { text-align: center; font-family: var(--font-display);
+  font-size: 0.6rem; color: var(--neon-yellow); margin-bottom: 12px; }
+.heist-shop-row { background: rgba(0,0,0,0.5); border: 2px solid var(--border);
+  border-radius: 6px; padding: 10px; margin-bottom: 8px; display: flex;
+  gap: 10px; align-items: center; }
+.heist-shop-row.owned { border-color: var(--neon-green); background: rgba(94,243,140,0.08); }
+.heist-shop-row__icon { font-size: 26px; flex-shrink: 0; }
+.heist-shop-row__body { flex: 1; }
+.heist-shop-row__name { font-family: var(--font-display); font-size: 0.5rem;
+  color: var(--neon-cyan); letter-spacing: 0.05em; }
+.heist-shop-row__desc { font-size: 0.42rem; color: var(--text-soft); margin-top: 2px; }
+.heist-shop-row__btn { background: linear-gradient(180deg, var(--neon-green), #1a8a40);
+  color: #0a1018; border: 2px solid #b8ffd0; border-radius: 4px;
+  font-family: var(--font-display); font-size: 0.45rem; letter-spacing: 0.05em;
+  padding: 6px 8px; cursor: pointer; min-width: 70px;
+  box-shadow: 0 3px 0 #0a4a20; -webkit-tap-highlight-color: transparent; }
+.heist-shop-row__btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.heist-shop-row__btn.owned { background: var(--neon-yellow); color: #1a0d05; box-shadow: 0 3px 0 #6a4a0a; }
+.heist-shop-skip { background: linear-gradient(180deg, var(--neon-cyan), #2a8aac); color: #0a1018;
+  border: 2px solid #b8e8ff; border-radius: 4px;
+  font-family: var(--font-display); font-size: 0.55rem; letter-spacing: 0.05em;
+  padding: 10px 16px; cursor: pointer; display: block; margin: 14px auto 0;
+  box-shadow: 0 3px 0 #0a3a4a; -webkit-tap-highlight-color: transparent; }
+`;
+const _heistStyle = document.createElement('style'); _heistStyle.textContent = HEIST_SHOP_CSS;
+document.head.appendChild(_heistStyle);
+
+const _heistShopChips = document.createElement('div');
+_heistShopChips.className = 'heist-shop-chips';
+_heistShopChips.id = 'heist-shop-chips';
+document.body.appendChild(_heistShopChips);
+
+const _heistShopModal = document.createElement('div');
+_heistShopModal.className = 'heist-shop-modal';
+_heistShopModal.id = 'heist-shop-modal';
+_heistShopModal.innerHTML = `
+  <div class="heist-shop-modal__panel">
+    <h2 class="heist-shop-modal__title">★ FENCE'S BLACK MARKET ★</h2>
+    <div class="heist-shop-modal__sub" id="heist-shop-sub">Floor cleared. Spend your haul.</div>
+    <div class="heist-shop-modal__money">HAUL: $<span id="heist-shop-money">0</span></div>
+    <div id="heist-shop-list"></div>
+    <button class="heist-shop-skip" id="heist-shop-skip">NEXT FLOOR →</button>
+  </div>
+`;
+document.body.appendChild(_heistShopModal);
+document.getElementById('heist-shop-skip').addEventListener('click', advancePendingFloor);
+
+function openHeistShop() {
+  renderHeistShopList();
+  _heistShopModal.classList.add('is-open');
+}
+function closeHeistShop() {
+  _heistShopModal.classList.remove('is-open');
+}
+function renderHeistShopList() {
+  document.getElementById('heist-shop-money').textContent = totalLootValue;
+  const subEl = document.getElementById('heist-shop-sub');
+  if (subEl) subEl.textContent = `Floor ${floor} cleared. Next: floor ${pendingFloor}.`;
+  const list = document.getElementById('heist-shop-list');
+  list.innerHTML = '';
+  for (const u of HEIST_SHOP) {
+    const owned = !!runUpgrades[u.id];
+    const canBuy = !owned && totalLootValue >= u.cost;
+    const row = document.createElement('div');
+    row.className = 'heist-shop-row' + (owned ? ' owned' : '');
+    row.innerHTML = `
+      <div class="heist-shop-row__icon">${u.icon}</div>
+      <div class="heist-shop-row__body">
+        <div class="heist-shop-row__name">${u.name}</div>
+        <div class="heist-shop-row__desc">${u.desc}</div>
+      </div>
+      <button class="heist-shop-row__btn ${owned ? 'owned' : ''}" ${owned || !canBuy ? 'disabled' : ''}>
+        ${owned ? 'OWNED' : '$' + u.cost}
+      </button>
+    `;
+    if (!owned && canBuy) {
+      row.querySelector('button').addEventListener('click', () => buyHeistShop(u));
+    }
+    list.appendChild(row);
+  }
+}
+function buyHeistShop(u) {
+  if (runUpgrades[u.id] || totalLootValue < u.cost) return;
+  totalLootValue -= u.cost;
+  runUpgrades[u.id] = true;
+  sfx.arp([523, 659, 880], 'triangle', 0.08, 0.22, 0.2);
+  renderHeistShopList();
+  renderHeistShopChips();
+}
+function renderHeistShopChips() {
+  if (!_heistShopChips) return;
+  _heistShopChips.innerHTML = '';
+  for (const u of HEIST_SHOP) {
+    if (!runUpgrades[u.id]) continue;
+    const c = document.createElement('div');
+    c.className = 'heist-shop-chip';
+    c.textContent = u.icon + ' ' + u.name;
+    _heistShopChips.appendChild(c);
+  }
+}
+function advancePendingFloor() {
+  closeHeistShop();
+  shopPending = false;
+  if (pendingFloor > 0) {
+    floor = pendingFloor;
+    pendingFloor = 0;
+    genFloor(floor);
+  }
+}
+
 // Tutorial tip — shows briefly when the game starts (every match)
 const _startOv = document.getElementById('overlay');
 if (_startOv) {
   const _showOnHide = () => {
     if (_startOv.classList.contains('is-hidden') || _startOv.hidden) {
-      showTip('WASD sneak · Q smoke · G tongue · T decoy · X throw vase (distract!)', 6000);
+      showTip('WASD sneak · Q smoke · G tongue · T decoy · X throw vase · spend $$ between floors!', 6500);
     }
   };
   new MutationObserver(_showOnHide).observe(_startOv, { attributes: true, attributeFilter: ['hidden', 'class'] });

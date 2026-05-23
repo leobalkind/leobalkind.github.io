@@ -2735,7 +2735,9 @@
         <button id="settings-btn" type="button" class="hub__icon-btn" title="Settings" aria-label="Settings">⚙</button>
         <button id="changelog-btn" type="button" class="hub__icon-btn" title="What's new" aria-label="What's new">★</button>
         <button id="stats-btn" type="button" class="hub__icon-btn" title="Your stats" aria-label="Your stats">📊</button>
+        <button id="profile-btn" type="button" class="hub__icon-btn" title="Profile / account" aria-label="Profile">👤</button>
         <button id="random-btn" type="button" class="hub__icon-btn" title="Play a random game" aria-label="Play a random game">🎲</button>
+        <span id="profile-chip" class="hub__chip" title="Active profile" style="margin-left:8px;font-size:0.45rem;">👤 GUEST</span>
       </footer>
     </main>
 
@@ -2815,6 +2817,30 @@
       </div>
     </div>
 
+    <!-- Profile modal — switch / create / delete local profiles -->
+    <div id="profile-modal" class="hub-modal" hidden>
+      <div class="hub-modal__panel hub-modal__panel--wide">
+        <h2>YOUR PROFILE</h2>
+        <p class="onboard-body" style="margin-bottom:14px;">Profiles are saved locally on this device — no account, no email. Switch profiles to keep separate save data per player.</p>
+        <div id="profile-active" class="profile-active"></div>
+        <h3 class="profile-h3">SWITCH PROFILE</h3>
+        <ul id="profile-list" class="profile-list"></ul>
+        <h3 class="profile-h3">CREATE NEW</h3>
+        <div class="profile-form">
+          <input id="profile-new-name" type="text" maxlength="24" placeholder="Player name" />
+          <input id="profile-new-pin" type="password" maxlength="6" placeholder="PIN (optional)" />
+          <button id="profile-create" type="button" class="profile-btn">CREATE</button>
+        </div>
+        <div id="profile-error" class="profile-error" hidden></div>
+        <div class="profile-extras">
+          <button id="profile-export" type="button" class="profile-btn profile-btn--ghost">EXPORT</button>
+          <button id="profile-import" type="button" class="profile-btn profile-btn--ghost">IMPORT</button>
+          <button id="profile-logout" type="button" class="profile-btn profile-btn--ghost">LOG OUT</button>
+        </div>
+        <button id="profile-close" type="button" class="hub-modal__close">DONE</button>
+      </div>
+    </div>
+
     <!-- Stats modal — per-game best scores from localStorage -->
     <div id="stats-modal" class="hub-modal" hidden>
       <div class="hub-modal__panel hub-modal__panel--wide">
@@ -2830,6 +2856,11 @@
     </div>
 
     <script type="module">
+      import {
+        listProfiles, getActive, setActive, createProfile, deleteProfile,
+        verifyPin, exportProfile, importProfile, activeLabel, onChange,
+      } from './src/shared/profile.js';
+
       // Register service worker (offline cache) — only in production
       if ('serviceWorker' in navigator && location.hostname !== 'localhost') {
         navigator.serviceWorker.register('sw.js').catch(() => {});
@@ -2882,6 +2913,112 @@
       $('changelog-close')?.addEventListener('click', () => closeModal('changelog-modal'));
       $('stats-btn')?.addEventListener('click', () => { renderStats(); openModal('stats-modal'); });
       $('stats-close')?.addEventListener('click', () => closeModal('stats-modal'));
+      $('profile-btn')?.addEventListener('click', () => { renderProfileModal(); openModal('profile-modal'); });
+      $('profile-close')?.addEventListener('click', () => closeModal('profile-modal'));
+      $('profile-modal')?.addEventListener('click', (e) => { if (e.target.id === 'profile-modal') closeModal('profile-modal'); });
+
+      // Profile management
+      const profErr = (msg) => {
+        const el = $('profile-error'); if (!el) return;
+        el.textContent = msg; el.hidden = !msg;
+      };
+      function syncProfileChip() {
+        const chip = $('profile-chip');
+        if (chip) chip.textContent = '👤 ' + activeLabel();
+      }
+      function renderProfileModal() {
+        profErr('');
+        const active = getActive();
+        const activeEl = $('profile-active');
+        if (activeEl) {
+          activeEl.innerHTML = active
+            ? `<b>Logged in as:</b> <span class="profile-name">${escapeHtml(active.name)}</span>${active.pin ? ' 🔒' : ''}`
+            : '<i>Not logged in — playing as GUEST. Create a profile to save runs.</i>';
+        }
+        const listEl = $('profile-list');
+        if (listEl) {
+          const profiles = listProfiles();
+          if (!profiles.length) {
+            listEl.innerHTML = '<li class="profile-empty">No profiles yet.</li>';
+          } else {
+            listEl.innerHTML = profiles.map((p) => `
+              <li class="profile-item${active && active.id === p.id ? ' is-active' : ''}" data-id="${p.id}">
+                <span class="profile-item__name">${escapeHtml(p.name)}${p.pin ? ' 🔒' : ''}</span>
+                <span class="profile-item__actions">
+                  <button type="button" data-act="switch" data-id="${p.id}">SWITCH</button>
+                  <button type="button" data-act="delete" data-id="${p.id}">×</button>
+                </span>
+              </li>
+            `).join('');
+          }
+        }
+      }
+      function escapeHtml(s) {
+        return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+      }
+      $('profile-create')?.addEventListener('click', () => {
+        const name = $('profile-new-name')?.value || '';
+        const pin = $('profile-new-pin')?.value || '';
+        try {
+          createProfile(name, pin || null);
+          $('profile-new-name').value = '';
+          $('profile-new-pin').value = '';
+          syncProfileChip();
+          renderProfileModal();
+        } catch (e) { profErr(e.message || 'Could not create profile'); }
+      });
+      $('profile-list')?.addEventListener('click', (e) => {
+        const btn = e.target.closest('button');
+        if (!btn) return;
+        const id = btn.dataset.id;
+        const act = btn.dataset.act;
+        if (act === 'switch') {
+          const p = listProfiles().find((x) => x.id === id);
+          if (p && p.pin) {
+            const entered = prompt('PIN for ' + p.name + ':');
+            if (!verifyPin(id, entered || '')) { profErr('Wrong PIN'); return; }
+          }
+          try { setActive(id); syncProfileChip(); renderProfileModal(); }
+          catch (er) { profErr(er.message); }
+        } else if (act === 'delete') {
+          const p = listProfiles().find((x) => x.id === id);
+          if (!p) return;
+          if (!confirm(`Delete profile "${p.name}" and ALL its save data? This cannot be undone.`)) return;
+          if (p.pin) {
+            const entered = prompt('PIN required to delete ' + p.name + ':');
+            if (!verifyPin(id, entered || '')) { profErr('Wrong PIN'); return; }
+          }
+          deleteProfile(id); syncProfileChip(); renderProfileModal();
+        }
+      });
+      $('profile-logout')?.addEventListener('click', () => {
+        setActive(null); syncProfileChip(); renderProfileModal();
+      });
+      $('profile-export')?.addEventListener('click', () => {
+        const a = getActive(); if (!a) { profErr('Log in first to export.'); return; }
+        const json = exportProfile(a.id);
+        const blob = new Blob([json], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url; link.download = `webgames-${a.name}.json`; link.click();
+        setTimeout(() => URL.revokeObjectURL(url), 500);
+      });
+      $('profile-import')?.addEventListener('click', () => {
+        const input = document.createElement('input');
+        input.type = 'file'; input.accept = 'application/json,.json';
+        input.addEventListener('change', () => {
+          const file = input.files?.[0]; if (!file) return;
+          const reader = new FileReader();
+          reader.onload = () => {
+            try { importProfile(reader.result); syncProfileChip(); renderProfileModal(); }
+            catch (e) { profErr(e.message || 'Import failed'); }
+          };
+          reader.readAsText(file);
+        });
+        input.click();
+      });
+      onChange(syncProfileChip);
+      syncProfileChip();
       function renderStats() {
         const cards = [...document.querySelectorAll('.hub__grid .card[href*="/games/"]')];
         const rows = [];
@@ -2942,7 +3079,7 @@
       });
       // ESC closes any open modal
       window.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape') ['settings-modal','changelog-modal','onboard-modal','stats-modal'].forEach(closeModal);
+        if (e.key === 'Escape') ['settings-modal','changelog-modal','onboard-modal','stats-modal','profile-modal'].forEach(closeModal);
       });
       // Add stats-modal to backdrop-click closers too
       $('stats-modal')?.addEventListener('click', (e) => { if (e.target.id === 'stats-modal') closeModal('stats-modal'); });
