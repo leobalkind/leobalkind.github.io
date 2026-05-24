@@ -27,6 +27,7 @@ export default defineConfig(({ command }) => ({
         pugzilla: resolve(__dirname, 'games/pugzilla/index.html'),
         backroomsPug: resolve(__dirname, 'games/backrooms-pug/index.html'),
         backrooms3d: resolve(__dirname, 'games/backrooms-3d/index.html'),
+        clownForest: resolve(__dirname, 'games/clown-forest/index.html'),
         floorLava: resolve(__dirname, 'games/floor-lava/index.html'),
         supermarketPug: resolve(__dirname, 'games/supermarket-pug/index.html'),
         pugTd: resolve(__dirname, 'games/pug-td/index.html'),

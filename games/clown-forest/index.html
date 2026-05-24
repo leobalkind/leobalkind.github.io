@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="theme-color" content="#06080d" />
+  <title>The Clown in the Forest · Web Games</title>
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../../src/shared/gameBase.css">
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <!-- Three.js renderer mounts here. The shared gameBase.css targets
+       #game-canvas only, so this avoids the pixelated CSS rule. -->
+  <div id="three-root" aria-hidden="true"></div>
+
+  <!-- Vignette (heavy, dark — sells the "barely-can-see" mood). -->
+  <div id="vignette" aria-hidden="true"></div>
+
+  <!-- Lightning flash layer + global death/win fade. -->
+  <div id="flash" aria-hidden="true"></div>
+
+  <!-- KILL CINEMATIC: zoomed clown face fills the screen, then fades. -->
+  <div id="kill-cam" aria-hidden="true">
+    <canvas id="kill-canvas" width="512" height="512"></canvas>
+  </div>
+
+  <button id="mute-btn" class="mute-btn" aria-label="Toggle mute">🔊</button>
+
+  <!-- =====================================================================
+       HUD: minimal by design — we want the player to feel alone in the dark.
+       Items badge fades in on pickup. Stamina bar only shows while sprinting.
+       Battery readout only while flashlight is on.
+       ===================================================================== -->
+  <div id="hud" hidden>
+    <!-- Items (top-right) — fades in on pickup, fades out after 3s. -->
+    <div id="hud-items" class="hud-items">
+      ITEMS <span id="hud-items-n">0</span>/5
+    </div>
+    <!-- Stamina (bottom-left) — only opaque while sprinting / drained. -->
+    <div id="hud-stamina" class="hud-stamina">
+      <div class="hud-stamina__bar"><i id="hud-stamina-fill"></i></div>
+    </div>
+    <!-- Battery (bottom-center) — only visible while flashlight ON. -->
+    <div id="hud-battery" class="hud-battery">BATTERY <span id="hud-battery-n">100</span>%</div>
+    <!-- Subtitle line (top-center) used for proximity hints + escape prompt. -->
+    <div id="hud-subtitle" class="hud-subtitle"></div>
+  </div>
+
+  <!-- =====================================================================
+       START OVERLAY — black, bare, dread-soaked. No animation noise. The
+       tagline does the heavy lifting.
+       ===================================================================== -->
+  <div id="start-overlay" class="overlay">
+    <div class="overlay__panel overlay__panel--clown">
+      <div class="overlay__tag">HORROR · REALISTIC · FIRST-PERSON</div>
+      <h1 class="overlay__title overlay__title--clown">THE CLOWN<br>IN THE FOREST</h1>
+      <p class="overlay__sub overlay__sub--clown">
+        Find 5 lost items.<br>Escape before dawn.<br>You are not alone.
+      </p>
+      <ul class="overlay__controls overlay__controls--clown">
+        <li><b>WASD</b> walk · <b>MOUSE</b> look · <b>SHIFT</b> sprint</li>
+        <li><b>C</b> crouch · <b>F</b> flashlight · <b>ESC</b> pause</li>
+        <li>On mobile: <b>JOYSTICK</b> walk · <b>DRAG</b> look</li>
+      </ul>
+      <p class="overlay__sub overlay__sub--clown" style="font-size:0.5rem;color:#7a5a30;">
+        Last escape: <span id="start-best">never</span>
+      </p>
+      <button id="start-btn" class="overlay__btn overlay__btn--clown">[ CLICK TO ENTER ]</button>
+      <a class="overlay__back" href="../../index.html">← BACK TO HUB</a>
+    </div>
+  </div>
+
+  <!-- =====================================================================
+       END OVERLAY — fork between DEATH and ESCAPE. Same panel, different
+       title/sub/aux.
+       ===================================================================== -->
+  <div id="end-overlay" class="overlay" hidden>
+    <div class="overlay__panel overlay__panel--clown">
+      <h2 class="overlay__title overlay__title--clown" id="end-title">YOU DIDN'T MAKE IT</h2>
+      <p class="overlay__sub overlay__sub--clown" id="end-sub">The smile reached you.</p>
+      <ul class="end-stats end-stats--clown">
+        <li>Items found: <b id="end-items">0</b> / 5</li>
+        <li>Time alive: <b id="end-time">0:00</b></li>
+        <li id="end-best">Best escape: <b>—</b></li>
+      </ul>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin-top:14px;">
+        <button id="end-restart" class="overlay__btn overlay__btn--clown">TRY AGAIN</button>
+        <a class="overlay__btn overlay__btn--ghost" href="../../index.html">← HUB</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- =====================================================================
+       PAUSE OVERLAY (ESC). Resume re-acquires pointer-lock.
+       ===================================================================== -->
+  <div id="pause-overlay" class="overlay" hidden>
+    <div class="overlay__panel overlay__panel--clown">
+      <div class="overlay__tag">PAUSED</div>
+      <h2 class="overlay__title overlay__title--clown">PAUSED</h2>
+      <p class="overlay__sub overlay__sub--clown">The forest waits.</p>
+      <div style="display:flex;flex-direction:column;gap:10px;align-items:stretch;max-width:240px;margin:0 auto;">
+        <button id="pause-resume" class="overlay__btn overlay__btn--clown">RESUME</button>
+        <button id="pause-restart" class="overlay__btn overlay__btn--ghost">RESTART</button>
+        <a class="overlay__btn overlay__btn--ghost" href="../../index.html">← QUIT TO HUB</a>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="./main.js"></script>
+</body>
+</html>
