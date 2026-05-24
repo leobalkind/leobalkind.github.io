@@ -2878,3 +2878,64 @@ _renderMapPicker();
     setTimeout(() => { if (endOv.hidden) peak = 0; }, 500);
   }).observe(endOv, { attributes: true, attributeFilter: ['hidden', 'class'] });
 })();
+
+// ============================================================================
+// v2.7 MART-018: Hire decoy pug — adds a "🐕 HIRE DECOY ($150)" button on the
+// start overlay. Persists `mart:decoyHired` so game code can spawn the decoy
+// next run; otherwise just shows the affordance and confirms the spend.
+// ============================================================================
+(function _r7MartDecoy() {
+  const start = document.getElementById('overlay-start') || document.getElementById('overlay');
+  if (!start) return;
+  function inject() {
+    if (start.hidden) return;
+    if (document.getElementById('r7-mart-decoy')) return;
+    const b = document.createElement('button');
+    b.id = 'r7-mart-decoy';
+    const hired = localStorage.getItem('mart:decoyHired') === '1';
+    b.textContent = hired ? '🐕 DECOY READY (will spawn)' : '🐕 HIRE DECOY ($150)';
+    b.style.cssText = 'background:rgba(20,8,32,0.94);color:' + (hired ? '#5ef38c' : '#ffd23f') + ';border:2px solid ' + (hired ? '#5ef38c' : '#ffd23f') + ';font-family:"Press Start 2P",monospace;font-size:8px;padding:6px 12px;border-radius:4px;letter-spacing:1px;cursor:pointer;margin:8px auto;display:block;';
+    b.addEventListener('click', () => {
+      try { localStorage.setItem('mart:decoyHired', hired ? '0' : '1'); } catch {}
+      b.remove();
+      inject();
+    });
+    const box = start.querySelector('.overlay__panel') || start.querySelector('.overlay__inner') || start;
+    box.appendChild(b);
+  }
+  new MutationObserver(inject).observe(start, { attributes: true, attributeFilter: ['hidden', 'class'] });
+  inject();
+})();
+
+// ============================================================================
+// v2.7 MART-extra: Total items stolen across runs — small bottom-right META
+// counter that ticks up when end overlay shows "ESCAPED" + a bag count.
+// Persists `mart:lifetimeBag`.
+// ============================================================================
+(function _r7MartLifetimeBag() {
+  const endOv = document.getElementById('overlay-end');
+  const bag = document.getElementById('hud-bag');
+  if (!endOv || !bag) return;
+  let peak = 0;
+  let lifetime = parseInt(localStorage.getItem('mart:lifetimeBag') || '0', 10) || 0;
+  setInterval(() => {
+    const m = (bag.textContent || '').match(/(\d+)/);
+    if (m) peak = Math.max(peak, parseInt(m[1], 10));
+  }, 400);
+  new MutationObserver(() => {
+    if (endOv.hidden) { peak = 0; return; }
+    const title = (document.getElementById('end-title')?.textContent || '').toUpperCase();
+    if (peak >= 1 && /ESCAP|FREE|WIN|HAUL/.test(title) && !/CAUGHT|BUSTED/.test(title)) {
+      lifetime += peak;
+      try { localStorage.setItem('mart:lifetimeBag', String(lifetime)); } catch {}
+      refresh();
+      peak = 0;
+    }
+  }).observe(endOv, { attributes: true, attributeFilter: ['hidden', 'class'] });
+  const chip = document.createElement('div');
+  chip.id = 'r7-mart-lifetime';
+  chip.style.cssText = 'position:fixed;bottom:14px;right:14px;background:rgba(20,8,32,0.92);color:#9b5de5;border:1px solid #9b5de5;font-family:"Press Start 2P",monospace;font-size:7px;padding:4px 8px;border-radius:3px;z-index:50;letter-spacing:1px;pointer-events:none;';
+  function refresh() { chip.textContent = '📦 LIFETIME: ' + lifetime; }
+  refresh();
+  document.body.appendChild(chip);
+})();

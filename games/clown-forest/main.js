@@ -81,6 +81,9 @@ const setSurface       = (s)   => { try { audio?.setSurface?.(s); } catch {} };
 const setChaseDepth        = (d)    => { try { audio?.setChaseDepth?.(d); } catch {} };
 const playLandmarkAmbient  = (n, v) => { try { audio?.playLandmarkAmbient?.(n, v); } catch {} };
 const stopAllLandmarkAmbient = ()   => { try { audio?.stopAllLandmarkAmbient?.(); } catch {} };
+// Round-7 — splash for puddles + crow caw for the bird-flock event.
+const playSplash           = ()      => { try { audio?.playSplash?.(); } catch {} };
+const playCrowCaw          = (p, d)  => { try { audio?.playCrowCaw?.(p, d); } catch {} };
 
 // ---------------------------------------------------------------------------
 // ROUND-5 — clown laugh variants. The audio module exposes a single
@@ -328,6 +331,34 @@ function _updatePB(snapshot) {
   _savePB(pb);
   return pb;
 }
+
+// =============================================================================
+// ROUND-7: BIRDS + PUDDLES + HINTS + STATS PIE + MOTION BLUR + TAKEN ENDING
+// =============================================================================
+// Bird flock — occasional crow flock that flies across the sky. Spawn timing
+// is similar to the owl event but uses a flock of sprites instead of a single
+// owl, and the audio fires 2-4 staggered caws as the flock crosses.
+const BIRD_FLOCK_MIN_GAP   = 110;
+const BIRD_FLOCK_MAX_GAP   = 280;
+const BIRD_FLOCK_DURATION  = 6.0;       // seconds for the flock to cross the sky
+const BIRD_FLOCK_SIZE_MIN  = 4;
+const BIRD_FLOCK_SIZE_MAX  = 7;
+// Puddle field — placed at run-start. Stepping into one triggers a splash.
+// Densities low enough that the player only hits one every few minutes.
+const PUDDLE_COUNT_MIN     = 14;
+const PUDDLE_COUNT_MAX     = 24;
+const PUDDLE_RADIUS_MIN    = 0.6;
+const PUDDLE_RADIUS_MAX    = 1.4;
+const PUDDLE_SPLASH_COOLDOWN = 0.7;  // per-puddle, so dragging a foot doesn't re-trigger
+// Sprint motion-blur edge effect — engaged after ~0.4s of continuous sprint
+// so brief Shift taps don't pulse it. Decays smoothly when sprint releases.
+const SPRINT_BLUR_ENGAGE_S = 0.4;
+const SPRINT_BLUR_FADE_S   = 0.6;
+// Hint system — show a brief subtle hint when a milestone is hit. Cooldown
+// avoids a chain of hints during a busy spell.
+const HINT_COOLDOWN_S      = 25;
+// TAKEN ending — caught while crouching/listening triggers a special ending
+// in place of the default "YOU WERE FOUND" caption.
 
 // =============================================================================
 // ROUND-4: DIFFICULTY + ACHIEVEMENT + STATS + ENDINGS + EXTRAS
@@ -2595,6 +2626,207 @@ function tickOwlFlight(dt) {
 }
 
 // =============================================================================
+// ROUND-7: BIRD FLOCK — occasionally a flock of crows flies high across the
+// sky. Procedural sprite texture (small dark V-shape that resembles a bird in
+// flight), one Sprite per bird, all sharing the same texture. Audio is 2-4
+// staggered caw calls panned to follow the flock as it crosses.
+// =============================================================================
+const birdSpriteTex = (() => {
+  const c = document.createElement('canvas'); c.width = 48; c.height = 24;
+  const g = c.getContext('2d');
+  g.clearRect(0, 0, 48, 24);
+  // V-shape silhouette of a bird mid-flap. Two wings angled up from a small body.
+  g.fillStyle = '#0d0d12';
+  // Body
+  g.beginPath(); g.ellipse(24, 14, 4, 3, 0, 0, Math.PI * 2); g.fill();
+  // Left wing
+  g.beginPath();
+  g.moveTo(24, 12);
+  g.lineTo(2, 4);
+  g.lineTo(8, 12);
+  g.lineTo(22, 14);
+  g.closePath(); g.fill();
+  // Right wing
+  g.beginPath();
+  g.moveTo(24, 12);
+  g.lineTo(46, 4);
+  g.lineTo(40, 12);
+  g.lineTo(26, 14);
+  g.closePath(); g.fill();
+  // Subtle wing-edge highlight (cool greyish — sits over the dawn-paling sky)
+  g.fillStyle = 'rgba(70, 70, 90, 0.4)';
+  g.fillRect(8, 8, 4, 1);
+  g.fillRect(36, 8, 4, 1);
+  return new THREE.CanvasTexture(c);
+})();
+const FLOCK_MAX = BIRD_FLOCK_SIZE_MAX;
+const birdSprites = [];
+for (let i = 0; i < FLOCK_MAX; i++) {
+  const mat = new THREE.SpriteMaterial({ map: birdSpriteTex, transparent: true, depthWrite: false, fog: true, opacity: 0 });
+  const s = new THREE.Sprite(mat);
+  s.scale.set(2.6, 1.3, 1); s.visible = false;
+  scene.add(s);
+  birdSprites.push(s);
+}
+const flockState = {
+  active: false, startAt: 0, endAt: 0, nextAt: 0,
+  count: 0,
+  // Path: starts at originX,originZ at altitude Y; flies toward dirX,dirZ
+  originX: 0, originZ: 0, dirX: 0, dirZ: 0, altitude: 0,
+  speed: 0,
+  // Per-bird offsets — formed loosely in a wedge
+  offsets: [], // [{dx, dz, dy, phase, bob}]
+  // Caw schedule
+  cawAt: [], cawIdx: 0,
+};
+function _scheduleNextFlock() {
+  flockState.nextAt = now() + BIRD_FLOCK_MIN_GAP + Math.random() * (BIRD_FLOCK_MAX_GAP - BIRD_FLOCK_MIN_GAP);
+}
+function _maybeTriggerFlock() {
+  if (flockState.active) return;
+  if (!flockState.nextAt) { _scheduleNextFlock(); return; }
+  if (now() < flockState.nextAt) return;
+  // Don't spawn during CHASE (would be tonally off) or in the very first 90s.
+  if (clownState.phase === 'chase' || totalElapsed < CURVE_QUIET_UNTIL) {
+    flockState.nextAt = now() + 60; return;
+  }
+  // Pick a random direction the flock flies in (full circle), starting from a
+  // point 80m back from the player along that direction.
+  const ang = Math.random() * Math.PI * 2;
+  flockState.dirX = Math.cos(ang);
+  flockState.dirZ = Math.sin(ang);
+  flockState.originX = player.pos.x - flockState.dirX * 80;
+  flockState.originZ = player.pos.z - flockState.dirZ * 80;
+  flockState.altitude = 26 + Math.random() * 8; // high enough to be sky-only
+  flockState.speed = 26 / BIRD_FLOCK_DURATION;  // covers ~160m total path
+  flockState.count = BIRD_FLOCK_SIZE_MIN + Math.floor(Math.random() * (BIRD_FLOCK_SIZE_MAX - BIRD_FLOCK_SIZE_MIN + 1));
+  // Build per-bird wedge offsets
+  flockState.offsets.length = 0;
+  for (let i = 0; i < flockState.count; i++) {
+    const row = Math.floor(i / 2);
+    const side = (i % 2 === 0) ? -1 : 1;
+    flockState.offsets.push({
+      dx: -row * 3 - Math.random() * 1.5,                       // trail behind by row
+      dz: side * (row * 1.4 + 1 + Math.random() * 1.2),         // splay sideways
+      dy: (Math.random() - 0.5) * 1.5,
+      phase: Math.random() * Math.PI * 2,                       // wing bob phase
+      bob: 0.18 + Math.random() * 0.18,
+    });
+  }
+  // Schedule 2-4 caws spread across the crossing
+  flockState.cawAt.length = 0;
+  flockState.cawIdx = 0;
+  const cawN = 2 + Math.floor(Math.random() * 3);
+  for (let i = 0; i < cawN; i++) {
+    flockState.cawAt.push(now() + (0.4 + Math.random() * (BIRD_FLOCK_DURATION - 0.8)) * (i + 1) / cawN);
+  }
+  flockState.active = true;
+  flockState.startAt = now();
+  flockState.endAt = now() + BIRD_FLOCK_DURATION + 1.0;
+  // Reveal sprites
+  for (let i = 0; i < flockState.count; i++) {
+    const s = birdSprites[i];
+    s.visible = true;
+    s.material.opacity = 0;
+  }
+  for (let i = flockState.count; i < FLOCK_MAX; i++) birdSprites[i].visible = false;
+  try { wgCaption?.('CROWS PASS OVERHEAD', 1400); } catch {}
+  // Soft hint via subtitle the first time a flock appears
+  if (!flockState._firstSeen) {
+    flockState._firstSeen = true;
+    try { showSubtitle('A flock of crows passes overhead.', 2.5); } catch {}
+  }
+}
+function tickBirdFlock(dt) {
+  if (!flockState.active) { _maybeTriggerFlock(); return; }
+  const t = now();
+  const elapsed = t - flockState.startAt;
+  const total = flockState.endAt - flockState.startAt;
+  // Lead-bird position
+  const leadX = flockState.originX + flockState.dirX * flockState.speed * elapsed;
+  const leadZ = flockState.originZ + flockState.dirZ * flockState.speed * elapsed;
+  // Right-vector for the wedge (perpendicular to flight)
+  const rx = -flockState.dirZ;
+  const rz = flockState.dirX;
+  let alpha = 0.7;
+  if (elapsed < 0.6)            alpha *= elapsed / 0.6;
+  if (elapsed > total - 0.8)    alpha *= Math.max(0, (total - elapsed) / 0.8);
+  for (let i = 0; i < flockState.count; i++) {
+    const o = flockState.offsets[i];
+    // Position = lead + forward*offsetX + right*offsetZ
+    const x = leadX + flockState.dirX * o.dx + rx * o.dz;
+    const z = leadZ + flockState.dirZ * o.dx + rz * o.dz;
+    const y = flockState.altitude + o.dy + Math.sin(t * 5 + o.phase) * o.bob;
+    const s = birdSprites[i];
+    s.position.set(x, y, z);
+    s.material.opacity = alpha;
+  }
+  // Schedule caws — fire any caw whose time has come
+  while (flockState.cawIdx < flockState.cawAt.length && t >= flockState.cawAt[flockState.cawIdx]) {
+    // Pan based on flock position relative to player look
+    const dx = leadX - player.pos.x;
+    const dz = leadZ - player.pos.z;
+    const ang = Math.atan2(dx, -dz) - player.yaw;
+    const panX = Math.sin(ang); // -1..1 approx
+    const dist = Math.hypot(dx, dz) + Math.abs(flockState.altitude);
+    playCrowCaw(panX, dist);
+    flockState.cawIdx++;
+  }
+  if (t > flockState.endAt) {
+    flockState.active = false;
+    for (const s of birdSprites) { s.visible = false; s.material.opacity = 0; }
+    _scheduleNextFlock();
+  }
+}
+
+// =============================================================================
+// ROUND-7: PUDDLES — small invisible-but-positioned wet patches scattered
+// across the map. Texture has visual puddles painted in; these are the *audio*
+// trigger zones (we don't perfectly match the texture splats, but it reads as
+// "stepping in water" all the same). Per-puddle cooldown stops a dragged foot
+// from re-triggering. State is rebuilt at run-start in resetPuddlesForRun().
+// =============================================================================
+const puddles = []; // { x, z, r, lastSplashAt }
+function resetPuddlesForRun() {
+  puddles.length = 0;
+  const n = PUDDLE_COUNT_MIN + Math.floor(Math.random() * (PUDDLE_COUNT_MAX - PUDDLE_COUNT_MIN + 1));
+  const lim = WORLD_SIZE * 0.45;
+  for (let i = 0; i < n; i++) {
+    // Avoid spawning right on the player spawn or paths.
+    let tries = 0, px = 0, pz = 0;
+    while (tries < 24) {
+      px = (Math.random() - 0.5) * 2 * lim;
+      pz = (Math.random() - 0.5) * 2 * lim;
+      let ok = (Math.hypot(px, pz) > 8);
+      try { if (ok && distToPath(px, pz) < 1.2) ok = false; } catch {}
+      if (ok) break;
+      tries++;
+    }
+    puddles.push({
+      x: px, z: pz,
+      r: PUDDLE_RADIUS_MIN + Math.random() * (PUDDLE_RADIUS_MAX - PUDDLE_RADIUS_MIN),
+      lastSplashAt: -1e9,
+    });
+  }
+}
+function _checkPuddleStep() {
+  // Called each footstep tick. If player is inside a puddle AND that puddle
+  // hasn't been triggered recently, play splash + update its cooldown.
+  for (const p of puddles) {
+    const d = Math.hypot(p.x - player.pos.x, p.z - player.pos.z);
+    if (d <= p.r) {
+      if (now() - p.lastSplashAt >= PUDDLE_SPLASH_COOLDOWN) {
+        p.lastSplashAt = now();
+        playSplash();
+        // Soft caption so hearing-impaired players also get the cue.
+        try { wgCaption?.('SPLASH', 700); } catch {}
+      }
+      return;
+    }
+  }
+}
+
+// =============================================================================
 // ROUND-5: STEALTH METER — only visible while clown is HUNT or CHASE. Tracks
 // "awareness" 0..100. Rises with sprint / flashlight-on / line-of-sight,
 // decays passively. Exposed for HUD via window.clownForestAware so the rest
@@ -2693,6 +2925,45 @@ function tickDawnBirds() {
     try { wgCaption?.('DISTANT BIRDS', 900); } catch {}
   }
   dawnBirdsState.nextAt = now() + DAWN_BIRDS_MIN_GAP + Math.random() * (DAWN_BIRDS_MAX_GAP - DAWN_BIRDS_MIN_GAP);
+}
+
+// =============================================================================
+// ROUND-7: HINT SYSTEM — brief, subtle hints that pop up when a milestone is
+// hit. We piggy-back on showPopup() to avoid building another DOM layer. Each
+// hint has an ID so we never show it twice in a single run; a global cooldown
+// prevents hint-spam when multiple milestones land close together.
+// =============================================================================
+const hintsState = { fired: new Set(), lastShownAt: -1e9 };
+function _showHint(id, html, duration = 4.0) {
+  if (hintsState.fired.has(id)) return false;
+  if (now() - hintsState.lastShownAt < HINT_COOLDOWN_S) return false;
+  hintsState.fired.add(id);
+  hintsState.lastShownAt = now();
+  try { showPopup(`<span style="opacity:.75">HINT</span> &middot; ${html}`, duration); } catch {}
+  return true;
+}
+function tickHints() {
+  // Milestone: 50% of night reached
+  if (player.nightPercent >= 50) {
+    _showHint('halfway', 'Halfway through the night. The sky will pale soon.');
+  }
+  // Milestone: all required items collected
+  const reqI = (diffCfg && diffCfg.itemsRequired) || ITEMS_TO_ESCAPE;
+  if (player.itemsFound >= reqI) {
+    _showHint('all_items', 'All items gathered. Find the red beacon at the map edge.');
+  }
+  // Milestone: battery falling dangerously (first warning is a hint, not nag)
+  if (player.flashlightOn && player.flashlightBattery <= 35 && player.flashlightBattery > 20) {
+    _showHint('low_batt', 'Battery is low. Press F to conserve it.');
+  }
+  // Milestone: clown sighted for the first time
+  if (clownState.isVisible && clownState.lastSeenDist < 30) {
+    _showHint('first_sight', 'Crouch (C) to drop your noise. Avoid line of sight.');
+  }
+  // Milestone: HUNT phase begins
+  if (clownState.phase === 'hunt' || clownState.phase === 'chase') {
+    _showHint('hunt_begin', 'He is hunting now. Keep moving, but quietly.');
+  }
 }
 
 // =============================================================================
@@ -3323,24 +3594,48 @@ function hideNpcOverlay(instant) { _toggleOverlay(npcOverlayEl, false, instant ?
 // ground-level visual). When active, tickAtmosphere clamps density up to
 // FOG_ROLL_DENSITY_PEAK, cutting visibility ~40% from the base distance.
 // =============================================================================
-const fogRollState = { active: false, startAt: 0, peakUntil: 0, fadeOutUntil: 0, nextAt: 0 };
+// Round-7 — fog event now has two variants: the original 18s "fog bank" (used
+// most often) and a longer 30s THICK FOG EVENT (~25% of fog rolls) where the
+// visibility is markedly worse and the player gets a unique caption.
+const FOG_THICK_CHANCE   = 0.25;
+const FOG_THICK_DURATION = 30;
+const FOG_THICK_DENSITY  = 0.105; // markedly thicker than FOG_ROLL_DENSITY_PEAK
+const fogRollState = { active: false, thick: false, startAt: 0, peakUntil: 0, fadeOutUntil: 0, nextAt: 0 };
 function maybeTriggerFogRoll(t) {
   if (fogRollState.active || t < fogRollState.nextAt) return;
   fogRollState.active = true;
+  fogRollState.thick = Math.random() < FOG_THICK_CHANCE;
+  const dur = fogRollState.thick ? FOG_THICK_DURATION : FOG_ROLL_DURATION;
   fogRollState.startAt = t;
-  fogRollState.peakUntil = t + FOG_ROLL_DURATION;
-  fogRollState.fadeOutUntil = t + FOG_ROLL_DURATION + 8;
-  fogRollState.nextAt = t + FOG_ROLL_DURATION + 25 + FOG_ROLL_MIN_GAP + Math.random() * (FOG_ROLL_MAX_GAP - FOG_ROLL_MIN_GAP);
-  showSubtitle('Fog rolls in...', 3);
-  try { wgCaption?.('FOG BANK', 1500); } catch {}
+  fogRollState.peakUntil = t + dur;
+  fogRollState.fadeOutUntil = t + dur + (fogRollState.thick ? 12 : 8);
+  fogRollState.nextAt = t + dur + 25 + FOG_ROLL_MIN_GAP + Math.random() * (FOG_ROLL_MAX_GAP - FOG_ROLL_MIN_GAP);
+  if (fogRollState.thick) {
+    showSubtitle('A wall of fog rolls in. You can barely see.', 4);
+    try { wgCaption?.('THICK FOG', 2000); } catch {}
+    // Dramatic visual pulse via the existing screen-flash (white-dim) so the
+    // arrival reads kinaesthetically rather than just as a density change.
+    try { if (screenFlashEl) {
+      screenFlashEl.classList.add('is-white');
+      setTimeout(() => { try { screenFlashEl.classList.remove('is-white'); } catch {} }, 600);
+    }} catch {}
+  } else {
+    showSubtitle('Fog rolls in...', 3);
+    try { wgCaption?.('FOG BANK', 1500); } catch {}
+  }
 }
 function tickFogRoll(t) {
   if (!fogRollState.active) return 0;
+  const dur = fogRollState.thick ? FOG_THICK_DURATION : FOG_ROLL_DURATION;
+  const fadeOut = fogRollState.thick ? 12 : 8;
   let k = 1;
-  if (t < fogRollState.peakUntil - (FOG_ROLL_DURATION - 4)) k = Math.min(1, (t - fogRollState.startAt) / 4);
-  else if (t > fogRollState.peakUntil) k = Math.max(0, 1 - (t - fogRollState.peakUntil) / 8);
+  if (t < fogRollState.peakUntil - (dur - 4)) k = Math.min(1, (t - fogRollState.startAt) / 4);
+  else if (t > fogRollState.peakUntil) k = Math.max(0, 1 - (t - fogRollState.peakUntil) / fadeOut);
   if (t > fogRollState.fadeOutUntil) fogRollState.active = false;
   return k;
+}
+function getFogRollPeakDensity() {
+  return fogRollState.thick ? FOG_THICK_DENSITY : FOG_ROLL_DENSITY_PEAK;
 }
 
 // =============================================================================
@@ -3472,6 +3767,16 @@ const player = {
   sprintedThisRun: false,     // for PACIFIST achievement
   caffeineConsumed: false,    // limit one mug per run
   mapUsed: false,             // map item only paid the time-cost once
+  // ---- Round-7 additions ----
+  timeSneaking: 0,            // seconds: walking + crouching (slow walk)
+  timeSprinting: 0,           // seconds: actively sprinting
+  timeStanding: 0,            // seconds: not moving, not crouched
+  timeCrouching: 0,           // seconds: crouched (any speed)
+  timeWalking: 0,             // seconds: standard walking
+  sprintBlurEngaged: 0,       // seconds of continuous sprint (drives motion blur)
+  sprintBlurAlpha: 0,         // 0..1 — current motion-blur alpha (eased)
+  isMoving: false,            // displacement flag for trackers
+  takenWhileCrouching: false, // set in tickClown if killed mid-crouch
 };
 
 // =============================================================================
@@ -3785,6 +4090,9 @@ const vfxBatStatic   = document.getElementById('vfx-battery-static');
 const vfxHitFlash    = document.getElementById('vfx-hit-flash');
 const vfxHeartBreath = document.getElementById('vfx-heart-breath');
 const screenFlashEl  = document.getElementById('screen-flash');
+// Round-7 — sprint motion-blur edges + crouch indicator badge.
+const vfxSprintBlur  = document.getElementById('vfx-sprint-blur');
+const crouchBadge    = document.getElementById('hud-crouch');
 
 const endTitle    = document.getElementById('end-title');
 const endSub      = document.getElementById('end-sub');
@@ -3891,6 +4199,75 @@ function formatTime(secs) {
   const m = Math.floor(secs / 60);
   const s = Math.floor(secs % 60);
   return `${m}:${String(s).padStart(2, '0')}`;
+}
+
+// ROUND-7 — RUN STATISTICS PIE CHART. Renders a small canvas inside the end
+// overlay panel showing the proportion of run-time spent in each stance:
+// STANDING / WALKING / SPRINTING / CROUCHING.  Built lazily and injected once.
+let _statsPieEl = null;
+let _statsPieCanvas = null;
+function _ensureStatsPie() {
+  if (_statsPieEl) return _statsPieEl;
+  const panel = endOverlay?.querySelector('.end-panel');
+  if (!panel) return null;
+  const wrap = document.createElement('div');
+  wrap.className = 'cf-stats-pie';
+  wrap.innerHTML = `
+    <div class="cf-stats-pie__title">TIME SPENT</div>
+    <div class="cf-stats-pie__row">
+      <canvas class="cf-stats-pie__canvas" width="120" height="120"></canvas>
+      <ul class="cf-stats-pie__legend"></ul>
+    </div>
+  `;
+  const beforeEl = panel.querySelector('.end-buttons') || panel.lastElementChild;
+  panel.insertBefore(wrap, beforeEl);
+  _statsPieEl = wrap;
+  _statsPieCanvas = wrap.querySelector('canvas');
+  return wrap;
+}
+function renderRunStatsPie() {
+  const wrap = _ensureStatsPie();
+  if (!wrap || !_statsPieCanvas) return;
+  const segments = [
+    { key: 'Standing',  v: player.timeStanding  || 0, color: '#5a7088' },
+    { key: 'Walking',   v: player.timeWalking   || 0, color: '#c8a070' },
+    { key: 'Sprinting', v: player.timeSprinting || 0, color: '#c83a3a' },
+    { key: 'Crouching', v: player.timeCrouching || 0, color: '#487058' },
+  ];
+  const total = segments.reduce((acc, s) => acc + s.v, 0);
+  const ctx = _statsPieCanvas.getContext('2d');
+  const W = _statsPieCanvas.width, H = _statsPieCanvas.height;
+  ctx.clearRect(0, 0, W, H);
+  // If no time recorded (e.g. instant death), paint a flat ring.
+  if (total < 0.01) {
+    ctx.fillStyle = '#222';
+    ctx.beginPath(); ctx.arc(W / 2, H / 2, W * 0.4, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#1a1408';
+    ctx.beginPath(); ctx.arc(W / 2, H / 2, W * 0.22, 0, Math.PI * 2); ctx.fill();
+  } else {
+    let ang = -Math.PI / 2;
+    for (const s of segments) {
+      if (s.v <= 0.001) continue;
+      const sweep = (s.v / total) * Math.PI * 2;
+      ctx.beginPath();
+      ctx.moveTo(W / 2, H / 2);
+      ctx.arc(W / 2, H / 2, W * 0.42, ang, ang + sweep);
+      ctx.closePath();
+      ctx.fillStyle = s.color;
+      ctx.fill();
+      ang += sweep;
+    }
+    // Dark inner punch — donut effect for a richer read.
+    ctx.fillStyle = 'rgba(8, 6, 4, 0.85)';
+    ctx.beginPath(); ctx.arc(W / 2, H / 2, W * 0.18, 0, Math.PI * 2); ctx.fill();
+  }
+  const ul = wrap.querySelector('.cf-stats-pie__legend');
+  if (ul) {
+    ul.innerHTML = segments.map((s) => {
+      const pct = total > 0.01 ? Math.round((s.v / total) * 100) : 0;
+      return `<li><i style="background:${s.color}"></i><span>${s.key}</span><b>${pct}%</b></li>`;
+    }).join('');
+  }
 }
 
 // =============================================================================
@@ -4603,6 +4980,8 @@ function startGame() {
   endOverlay.classList.remove('is-escape');
   hideMapOverlay(true);
   hideNpcOverlay(true);
+  // Round-7 — clear TAKEN ending styling from previous run.
+  if (endTitle) endTitle.classList.remove('is-taken');
 
   // ROUND-4: snapshot the active difficulty preset so this run reads a stable
   // config even if the player flips the setting elsewhere (impossible from
@@ -4628,6 +5007,23 @@ function startGame() {
   player.sprintedThisRun = false;
   player.caffeineConsumed = false;
   player.mapUsed = false;
+  // ROUND-7 trackers.
+  player.timeSneaking = 0;
+  player.timeSprinting = 0;
+  player.timeStanding = 0;
+  player.timeCrouching = 0;
+  player.timeWalking = 0;
+  player.sprintBlurEngaged = 0;
+  player.sprintBlurAlpha = 0;
+  player.isMoving = false;
+  player.takenWhileCrouching = false;
+  // ROUND-7 — reset bird flock, puddles, hints.
+  flockState.active = false;
+  flockState.nextAt = now() + BIRD_FLOCK_MIN_GAP + Math.random() * (BIRD_FLOCK_MAX_GAP - BIRD_FLOCK_MIN_GAP);
+  for (const s of birdSprites) { s.visible = false; s.material.opacity = 0; }
+  resetPuddlesForRun();
+  hintsState.fired = new Set();
+  hintsState.lastShownAt = -1e9;
   // Randomise wind direction per run (cosmetic — drives leaves + rain skew).
   {
     const a = Math.random() * Math.PI * 2;
@@ -4791,6 +5187,12 @@ function startGame() {
   if (itemsBadge) itemsBadge.classList.remove('is-shown');
   if (itemsN)     itemsN.textContent = '0';
   itemsBadgeHideTo = 0;
+  // Round-7 — clear sprint-blur + crouch indicator before the run starts.
+  if (vfxSprintBlur) {
+    vfxSprintBlur.classList.remove('is-on');
+    vfxSprintBlur.style.setProperty('--blur-alpha', '0');
+  }
+  if (crouchBadge) crouchBadge.classList.remove('is-shown', 'is-listening');
   // Heart-rate state is module-scope and persists across runs without this.
   heartRate = 0.9; heartPhase = 0;
   for (let i = 0; i < heartBuf.length; i++) heartBuf[i] = HEART_H / 2;
@@ -4858,6 +5260,10 @@ function endGame(reason) {
   // 'true' if the player also found all 3 cassette tapes this run.
   let ending = reason;
   if (reason === 'escape' && player.tapesFound >= TAPE_COUNT) ending = 'true';
+  // Round-7 — TAKEN ending. If the kill happened while the player was crouching
+  // or listening, route the death into a softer "TAKEN" branding instead of
+  // the default "YOU WERE FOUND". Plays out as a subtle, sad ending.
+  if (reason === 'caught' && player.takenWhileCrouching) ending = 'taken';
   // NIGHTMARE requires the true ending to count as a true escape — otherwise
   // it stays as the basic escape branding even though they reached the beacon.
   // (We just keep the branding logic below honest by reading `ending`.)
@@ -4876,10 +5282,13 @@ function endGame(reason) {
     'escape':  ['DAWN BREAKS',     'He stayed in the woods.'],
     'tragic':  ['YOU SURVIVED',    "...but he's still out there."],
     'defiant': ['YOU KILLED HIM',  'The forest is quiet for once.'],
+    'taken':   ['TAKEN',           '"You were trying so hard to be quiet..."'],
   };
   const cp = ENDING_COPY[ending];
   endTitle.textContent = cp ? cp[0] : 'YOU WERE FOUND';
   endSub.textContent   = cp ? cp[1] : (player.deathLandmark || pickDeathLandmark());
+  // Round-7 — special-case the TAKEN ending styling on the title.
+  if (endTitle) endTitle.classList.toggle('is-taken', ending === 'taken');
   endItems.textContent = String(player.itemsFound);
   endTime.textContent  = formatTime(elapsed);
   if (endDistance) endDistance.textContent = `${Math.round(player.distanceWalked)} m`;
@@ -4925,6 +5334,8 @@ function endGame(reason) {
     });
     renderPersonalBests(pb);
   } catch {}
+  // ---- ROUND-7: render the time-segment pie chart on the end screen.
+  try { renderRunStatsPie(); } catch {}
 
   // Show the overlay AFTER the kill / sunrise cinematic completes.
   // The kill cinematic already fades to black for ~0.85s before calling here;
@@ -5062,6 +5473,13 @@ function triggerKillCinematic() {
   drawKillFace(ctx);
   killCamEl.classList.add('is-on');
   playKill();
+  // Round-7 — TAKEN: when the player was crouched/listening at capture, layer
+  // a close whispered laugh on top of the kill scream so the ending lands as
+  // intimate ("right by your ear") rather than violent.
+  if (player.takenWhileCrouching) {
+    try { audio?.playClownBreath?.(1); } catch {}
+    setTimeout(() => { try { audio?.playClownLaugh?.(0, 3); } catch {} }, 220);
+  }
   // Agent C VFX: red hit-flash and caption — caption fires regardless of
   // sound state so deaf players still get a kill cue.
   triggerHitFlash();
@@ -5322,6 +5740,9 @@ function tickPlay(dt) {
   // ---- Movement + tree collision ----
   const [nx, nz] = collideMove(player.pos.x, player.pos.z, vx * dt, vz * dt);
   const moved = Math.hypot(nx - player.pos.x, nz - player.pos.z);
+  // Round-7 — expose to behavior trackers so the pie-chart accumulator can
+  // distinguish standing-still from walking. Threshold matches the bob trigger.
+  player.isMoving = moved > 0.001;
   player.pos.x = nx; player.pos.z = nz;
   // Soft clamp to playable area (with margin from world edge).
   const lim = WORLD_SIZE * 0.48;
@@ -5341,6 +5762,9 @@ function tickPlay(dt) {
       const intensity = player.isSprinting ? 1.0 : player.isCrouching ? 0.35 : 0.65;
       playFootstep(intensity);
       player.lastFootstep = now();
+      // Round-7 — wet-feet check on each footstep beat. The puddle's own
+      // cooldown stops a single puddle from re-triggering on every step.
+      try { _checkPuddleStep(); } catch {}
     }
     // Occasional twig snap — sounds genuinely scary in headphones.
     player.twigSnapCooldown -= dt;
@@ -5611,6 +6035,10 @@ function tickPlay(dt) {
   tickLandmarkAmbients(dt);
   tickSanityJitter(dt);
   tickChaseAudioDepth(dt);
+  // ---- ROUND-7: depth ticks ----
+  tickBirdFlock(dt);
+  tickHints();
+  tickSprintBlur(dt);
 
   // ---- HUD ticking (Agent C) ----
   tickHUD(dt);
@@ -5666,6 +6094,32 @@ function tickSanityJitter(dt) {
 // Round-6 — pipe a 0..1 "chase depth" into audio.js so the heartbeat layer
 // fires a 36Hz sub-bass thump on top of the regular 58Hz tone. Depth peaks
 // when the clown is close AND in CHASE phase; eases back to 0 otherwise.
+// =============================================================================
+// ROUND-7 — Sprint motion-blur. Continuous-sprint duration ramps the blur up
+// (after a 0.4s engage delay so quick Shift taps don't visibly pulse it). When
+// the player stops sprinting, the alpha decays smoothly. The actual blur is
+// rendered by the #vfx-sprint-blur CSS layer; we only set --blur-alpha.
+// =============================================================================
+function tickSprintBlur(dt) {
+  if (player.isSprinting) {
+    player.sprintBlurEngaged = Math.min(SPRINT_BLUR_ENGAGE_S + 0.5, player.sprintBlurEngaged + dt);
+  } else {
+    player.sprintBlurEngaged = Math.max(0, player.sprintBlurEngaged - dt * 2);
+  }
+  // Target alpha: 0 below engage threshold, ramping to ~0.7 above it.
+  const eng = player.sprintBlurEngaged - SPRINT_BLUR_ENGAGE_S;
+  const target = eng > 0 ? Math.min(0.65, eng * 1.4) : 0;
+  // Ease toward target — slow attack/decay for a smooth peripheral haze.
+  const ease = target > player.sprintBlurAlpha ? Math.min(1, dt / 0.25) : Math.min(1, dt / SPRINT_BLUR_FADE_S);
+  player.sprintBlurAlpha += (target - player.sprintBlurAlpha) * ease;
+  try {
+    if (vfxSprintBlur) {
+      vfxSprintBlur.style.setProperty('--blur-alpha', player.sprintBlurAlpha.toFixed(3));
+      vfxSprintBlur.classList.toggle('is-on', player.sprintBlurAlpha > 0.02);
+    }
+  } catch {}
+}
+
 function tickChaseAudioDepth(dt) {
   let depth = 0;
   if (clownState.phase === 'chase') {
@@ -5916,6 +6370,20 @@ function tickPlayerBehaviorTrackers(dt) {
   if (player.playerCrouchTime > 5) target = Math.min(1, (player.playerCrouchTime - 5) / 12);
   if (player.flashlightOffTime > 8) target = Math.max(target, Math.min(1, (player.flashlightOffTime - 8) / 15));
   clownState.searchInterest += (target - clownState.searchInterest) * Math.min(1, dt * 0.5);
+
+  // Round-7 — accumulate stance/motion segments for the end-screen pie chart.
+  // player.isMoving is written by tickPlay each frame after collision so the
+  // segments reflect actual displacement, not just input intent.
+  const moving = !!player.isMoving;
+  if (player.isCrouching) {
+    player.timeCrouching += dt;
+  } else if (player.isSprinting && moving) {
+    player.timeSprinting += dt;
+  } else if (moving) {
+    player.timeWalking += dt;
+  } else {
+    player.timeStanding += dt;
+  }
 }
 
 // =============================================================================
@@ -6013,6 +6481,9 @@ function tickClown(dt) {
 
   // ---- KILL ----
   if (dist < CLOWN_KILL_DIST && clownState.isVisible) {
+    // Round-7 — record whether the player was crouched / listening at the
+    // moment of capture. endGame uses this to fork into the TAKEN ending.
+    player.takenWhileCrouching = player.isCrouching || player.isListening;
     triggerKillCinematic();
     return;
   }
@@ -6449,10 +6920,12 @@ function tickAtmosphere(dt) {
   if (t < lightningState.fogOverrideUntil) {
     targetDensity = lightningState.fogOverrideDensity;
   }
-  // ROUND-4: fog rolls increase target density during the roll.
+  // ROUND-4: fog rolls increase target density during the roll. ROUND-7 — the
+  // thick-fog variant scales toward FOG_THICK_DENSITY rather than the base peak.
   const rollK = tickFogRoll(t);
   if (rollK > 0) {
-    targetDensity = Math.max(targetDensity, FOG_DENSITY_BASE + (FOG_ROLL_DENSITY_PEAK - FOG_DENSITY_BASE) * rollK);
+    const peak = getFogRollPeakDensity();
+    targetDensity = Math.max(targetDensity, FOG_DENSITY_BASE + (peak - FOG_DENSITY_BASE) * rollK);
   }
   maybeTriggerFogRoll(t);
   // Smooth toward target so density changes don't pop.
@@ -6637,6 +7110,13 @@ function tickHUD(dt) {
   // Crosshair + compass.
   tickCrosshair();
   tickCompass();
+
+  // ROUND-7: crouch indicator — small icon while crouching or listening.
+  if (crouchBadge) {
+    const crouchOn = player.isCrouching || player.isListening;
+    crouchBadge.classList.toggle('is-shown', !!crouchOn);
+    crouchBadge.classList.toggle('is-listening', !!player.isListening && !player.isCrouching);
+  }
 
   // ROUND-5: stealth-awareness meter — show only while in HUNT or CHASE.
   if (stealthEl) {

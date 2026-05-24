@@ -37,6 +37,8 @@
     <div id="vfx-heart-breath"></div>
     <!-- Screen-flash target for lightning (Agent B writes .is-lightning here). -->
     <div id="screen-flash"></div>
+    <!-- ROUND-7: Sprint motion-blur — peripheral haze when sprinting. -->
+    <div id="vfx-sprint-blur"></div>
   </div>
 
   <!-- Lightning flash layer + global death/win fade. -->
@@ -105,6 +107,12 @@
     <div id="hud-compass" class="hud-compass" aria-hidden="true">
       <div id="hud-compass-arrow" class="hud-compass__arrow"></div>
       <div class="hud-compass__label">BEACON</div>
+    </div>
+
+    <!-- ROUND-7: Crouch indicator — small icon shows when crouched / listening. -->
+    <div id="hud-crouch" class="hud-crouch" aria-hidden="true">
+      <span class="hud-crouch__icon"></span>
+      <span class="hud-crouch__label">CROUCH</span>
     </div>
 
     <!-- ROUND-5: Stealth-awareness meter — only shown during HUNT / CHASE. -->

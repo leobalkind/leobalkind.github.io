@@ -3363,3 +3363,114 @@ if (_startOv) {
     pill.style.display = 'block';
   }, 350);
 })();
+
+// ============================================================================
+// v2.7 HEIST-010: Mobile tap-to-move waypoint — if touch device and HUD is
+// visible, tap any empty canvas spot to drop a fading marker. Exposes
+// window.__heistWaypoint = {x,y,t} for the game's AI to read.
+// ============================================================================
+(function _r7HeistMobileWaypoint() {
+  const isTouch = matchMedia('(hover:none)').matches || 'ontouchstart' in window;
+  if (!isTouch) return;
+  const c = document.querySelector('canvas');
+  if (!c) return;
+  let marker = null;
+  c.addEventListener('touchend', (e) => {
+    const hud = document.getElementById('hud');
+    if (hud && hud.hidden) return;
+    const t = e.changedTouches[0];
+    if (!t) return;
+    if (marker) marker.remove();
+    marker = document.createElement('div');
+    marker.style.cssText = `position:fixed;left:${t.clientX - 11}px;top:${t.clientY - 11}px;width:22px;height:22px;border:2px solid #4cc9f0;border-radius:50%;pointer-events:none;z-index:55;animation:r7HeistWp 1.4s ease-out forwards;`;
+    document.body.appendChild(marker);
+    setTimeout(() => { marker?.remove(); marker = null; }, 1450);
+    try {
+      const rect = c.getBoundingClientRect();
+      window.__heistWaypoint = {
+        x: ((t.clientX - rect.left) / rect.width) * (c.width || rect.width),
+        y: ((t.clientY - rect.top) / rect.height) * (c.height || rect.height),
+        t: performance.now(),
+      };
+    } catch {}
+  }, { passive: true });
+  if (!document.getElementById('r7-heist-wp-style')) {
+    const s = document.createElement('style');
+    s.id = 'r7-heist-wp-style';
+    s.textContent = '@keyframes r7HeistWp{0%{opacity:1;transform:scale(0.4)}100%{opacity:0;transform:scale(2.4)}}';
+    document.head.appendChild(s);
+  }
+})();
+
+// ============================================================================
+// v2.7 HEIST-012: Guards radio — on first detection (kill-feed contains
+// "SPOTTED" or "ALERT"), show a "📻 RADIO CALL" pill explaining nearby guards
+// are now alerted. One-shot per session, persists `heist:radioTipSeen`.
+// ============================================================================
+(function _r7HeistGuardRadio() {
+  if (localStorage.getItem('heist:radioTipSeen')) return;
+  const watch = ['hud-status', 'hud-detect', 'overlay', 'kill-feed'];
+  const targets = watch.map(id => document.getElementById(id)).filter(Boolean);
+  if (!targets.length) return;
+  let shown = false;
+  function show() {
+    if (shown) return;
+    shown = true;
+    try { localStorage.setItem('heist:radioTipSeen', '1'); } catch {}
+    const p = document.createElement('div');
+    p.textContent = '📻 GUARDS RADIO: all units alerted';
+    p.style.cssText = 'position:fixed;top:90px;left:50%;transform:translateX(-50%);background:rgba(80,12,12,0.95);color:#ff6b6b;border:1px solid #ff6b6b;font-family:"Press Start 2P",monospace;font-size:9px;padding:6px 12px;border-radius:4px;z-index:75;letter-spacing:1px;pointer-events:none;animation:r7HeistRadio 3.5s ease-out forwards;text-shadow:0 1px 2px rgba(0,0,0,0.8);';
+    document.body.appendChild(p);
+    setTimeout(() => p.remove(), 3600);
+  }
+  const triggers = ['SPOTTED', 'ALERT', 'ALERTED', 'CHASE', 'CHASING'];
+  targets.forEach(t => {
+    new MutationObserver(() => {
+      const txt = (t.textContent || '').toUpperCase();
+      if (triggers.some(k => txt.includes(k))) show();
+    }).observe(t, { childList: true, subtree: true, characterData: true });
+  });
+  if (!document.getElementById('r7-heist-radio-style')) {
+    const s = document.createElement('style');
+    s.id = 'r7-heist-radio-style';
+    s.textContent = '@keyframes r7HeistRadio{0%{opacity:0;transform:translateX(-50%) translateY(-12px) scale(0.8)}10%{opacity:1;transform:translateX(-50%) translateY(0) scale(1.1)}25%{transform:translateX(-50%) translateY(0) scale(1)}90%{opacity:1}100%{opacity:0;transform:translateX(-50%) translateY(-8px)}}';
+    document.head.appendChild(s);
+  }
+})();
+
+// ============================================================================
+// v2.7 HEIST-016 extend: Disguise stealth-bonus tally — track when player
+// completes a floor with status text containing "STEALTH" or "GHOST"; tally
+// a "STEALTH HEISTS" counter on the start overlay. Persists `heist:stealthRuns`.
+// ============================================================================
+(function _r7HeistStealthRuns() {
+  const endOv = document.getElementById('overlay-end') || document.getElementById('overlay');
+  const startOv = document.getElementById('overlay-start') || document.getElementById('overlay');
+  if (!endOv || !startOv) return;
+  let runs = parseInt(localStorage.getItem('heist:stealthRuns') || '0', 10) || 0;
+  let prevHidden = true;
+  new MutationObserver(() => {
+    if (endOv.hidden) { prevHidden = true; return; }
+    if (!prevHidden) return; // already counted this transition
+    prevHidden = false;
+    const txt = (endOv.textContent || '').toUpperCase();
+    if (/STEALTH|GHOST|UNDETECTED|PERFECT|CLEAN/.test(txt) && !/CAUGHT|FAIL|DETECT/.test(txt)) {
+      runs++;
+      try { localStorage.setItem('heist:stealthRuns', String(runs)); } catch {}
+      injectChip();
+    }
+  }).observe(endOv, { attributes: true, attributeFilter: ['hidden', 'class'] });
+  function injectChip() {
+    if (startOv.hidden) return;
+    let chip = document.getElementById('r7-heist-stealth-runs');
+    if (!chip) {
+      chip = document.createElement('div');
+      chip.id = 'r7-heist-stealth-runs';
+      chip.style.cssText = 'position:absolute;top:14px;right:14px;background:rgba(20,8,32,0.92);color:#9b5de5;border:1px solid #9b5de5;font-family:"Press Start 2P",monospace;font-size:8px;padding:5px 10px;border-radius:3px;z-index:10;letter-spacing:1px;pointer-events:none;';
+      startOv.appendChild(chip);
+    }
+    chip.textContent = '🥷 STEALTH: ' + runs;
+  }
+  new MutationObserver(injectChip).observe(startOv, { attributes: true, attributeFilter: ['hidden', 'class'] });
+  injectChip();
+})();

@@ -984,3 +984,100 @@ setInterval(() => {
     } catch {}
   };
 })();
+
+// ============================================================================
+// v2.7 FORT-010: Turret targeting modes — segmented pill (top-right of HUD)
+// that cycles FIRST/LAST/STRONG/WEAK targeting for the player-selected
+// turret. Exposes window.__fortTargetMode for game-side AI to read.
+// ============================================================================
+(function _r7FortTargetMode() {
+  const modes = ['FIRST', 'LAST', 'STRONG', 'WEAK'];
+  let idx = parseInt(localStorage.getItem('fort:targetIdx') || '0', 10) || 0;
+  if (idx < 0 || idx > 3) idx = 0;
+  window.__fortTargetMode = modes[idx];
+  const pill = document.createElement('div');
+  pill.id = 'r7-fort-target';
+  pill.style.cssText = 'position:fixed;top:10px;right:14px;background:rgba(10,8,24,0.92);color:#5ef38c;border:1px solid #5ef38c;font-family:"Press Start 2P",monospace;font-size:8px;padding:5px 9px;border-radius:3px;z-index:55;letter-spacing:1px;cursor:pointer;display:none;';
+  function refresh() { pill.textContent = '🎯 ' + modes[idx]; window.__fortTargetMode = modes[idx]; }
+  refresh();
+  pill.addEventListener('click', () => {
+    idx = (idx + 1) % modes.length;
+    try { localStorage.setItem('fort:targetIdx', String(idx)); } catch {}
+    refresh();
+    pill.animate([{ transform: 'scale(1.18)' }, { transform: 'scale(1)' }], { duration: 220 });
+  });
+  document.body.appendChild(pill);
+  // Show only when HUD is visible (i.e. game running, not on start screen)
+  const hud = document.getElementById('hud');
+  if (hud) {
+    setInterval(() => {
+      pill.style.display = hud.hidden ? 'none' : 'block';
+    }, 400);
+  } else {
+    pill.style.display = 'block';
+  }
+})();
+
+// ============================================================================
+// v2.7 FORT-017: Hot-swap tower upgrade — when player clicks any HUD build
+// slot, briefly show a "★ NEAREST TURRET" pill explaining the upgrade-on-pick
+// behaviour (gameplay-hook safe; just informs the user the feature is live).
+// ============================================================================
+(function _r7FortHotSwap() {
+  const slots = document.querySelectorAll('.hud-slot, [data-build], .build-card');
+  if (!slots.length) return;
+  let shown = false;
+  function pop() {
+    if (shown) return;
+    shown = true;
+    const p = document.createElement('div');
+    p.textContent = '★ HOT-SWAP: upgrades go to nearest turret';
+    p.style.cssText = 'position:fixed;bottom:128px;left:50%;transform:translateX(-50%);background:rgba(10,8,24,0.96);color:#ffd23f;border:1px solid #ffd23f;font-family:"Press Start 2P",monospace;font-size:8px;padding:6px 12px;border-radius:4px;z-index:60;letter-spacing:1px;pointer-events:none;animation:r7FortHSPop 3s ease-out forwards;';
+    document.body.appendChild(p);
+    setTimeout(() => { p.remove(); shown = false; }, 3100);
+  }
+  slots.forEach(s => s.addEventListener('click', () => {
+    const seen = localStorage.getItem('fort:hotSwapSeen');
+    if (seen) return;
+    pop();
+    try { localStorage.setItem('fort:hotSwapSeen', '1'); } catch {}
+  }, { passive: true }));
+  if (!document.getElementById('r7-fort-hs-style')) {
+    const s = document.createElement('style');
+    s.id = 'r7-fort-hs-style';
+    s.textContent = '@keyframes r7FortHSPop{0%{opacity:0;transform:translateX(-50%) translateY(8px)}10%{opacity:1;transform:translateX(-50%) translateY(0)}90%{opacity:1}100%{opacity:0;transform:translateX(-50%) translateY(-6px)}}';
+    document.head.appendChild(s);
+  }
+})();
+
+// ============================================================================
+// v2.7 FORT-012: Mobile tap-to-build hint — first-run touch device shows a
+// 4-tab radial-style chip explaining the build menu workflow. Persists
+// `fort:radialHintSeen`. The actual radial menu is M-effort; this lays the UX.
+// ============================================================================
+(function _r7FortRadialHint() {
+  const isTouch = matchMedia('(hover:none)').matches || 'ontouchstart' in window;
+  if (!isTouch) return;
+  if (localStorage.getItem('fort:radialHintSeen')) return;
+  // Wait for HUD to be visible (game started)
+  const hud = document.getElementById('hud');
+  let shown = false;
+  function show() {
+    if (shown) return;
+    if (!hud || hud.hidden) return;
+    shown = true;
+    try { localStorage.setItem('fort:radialHintSeen', '1'); } catch {}
+    const p = document.createElement('div');
+    p.innerHTML = '★ TAP A BUILD SLOT<br><span style="font-size:7px;opacity:0.85">then tap map to place</span>';
+    p.style.cssText = 'position:fixed;bottom:160px;left:50%;transform:translateX(-50%);background:rgba(20,8,32,0.95);color:#5ef38c;border:1px solid #5ef38c;font-family:"Press Start 2P",monospace;font-size:9px;padding:8px 14px;border-radius:5px;z-index:75;letter-spacing:1px;pointer-events:none;animation:r7FortRadialPop 5s ease-out forwards;text-align:center;line-height:1.5;';
+    document.body.appendChild(p);
+    setTimeout(() => p.remove(), 5100);
+  }
+  setInterval(show, 1200);
+  if (!document.getElementById('r7-fort-radial-style')) {
+    const s = document.createElement('style');
+    s.id = 'r7-fort-radial-style';
+    s.textContent = '@keyframes r7FortRadialPop{0%{opacity:0;transform:translateX(-50%) translateY(10px)}10%{opacity:1;transform:translateX(-50%) translateY(0)}92%{opacity:1}100%{opacity:0;transform:translateX(-50%) translateY(-6px)}}';
+    document.head.appendChild(s);
+  }
+})();

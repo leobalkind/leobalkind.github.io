@@ -3028,3 +3028,62 @@ if (_startOv) {
     document.head.appendChild(s);
   }
 })();
+
+// ============================================================================
+// v2.7 DIG-019: Auto-save resume — snapshot the player's last reported depth +
+// gold from the HUD every 6s into `dig:resume`. On boot, if a snapshot
+// exists, show a chip with the saved progress (player can manually start over
+// to clear). Hooks via `#hud-depth` / `#hud-gold` text — no game-state changes.
+// ============================================================================
+(function _r7DigAutoSaveResume() {
+  const depth = document.getElementById('hud-depth') || document.getElementById('hud-row-depth');
+  const gold = document.getElementById('hud-gold') || document.getElementById('hud-coins');
+  const KEY = 'dig:resume';
+  // Show chip if previous snapshot exists
+  try {
+    const prev = JSON.parse(localStorage.getItem(KEY) || 'null');
+    if (prev && prev.depth >= 5) {
+      const chip = document.createElement('div');
+      chip.textContent = '↩ LAST RUN: ' + prev.depth + 'm · ' + (prev.gold || 0) + 'g';
+      chip.style.cssText = 'position:fixed;bottom:14px;left:14px;background:rgba(20,8,32,0.94);color:#ffd23f;border:1px solid #ffd23f;font-family:"Press Start 2P",monospace;font-size:7px;padding:5px 9px;border-radius:3px;z-index:50;letter-spacing:1px;pointer-events:auto;cursor:pointer;';
+      chip.title = 'Saved snapshot from your last run. Click to dismiss.';
+      chip.addEventListener('click', () => { chip.remove(); try { localStorage.removeItem(KEY); } catch {} });
+      document.body.appendChild(chip);
+      setTimeout(() => chip.remove(), 12000);
+    }
+  } catch {}
+  // Save snapshot every 6s if HUD is visible
+  setInterval(() => {
+    if (!depth || !gold) return;
+    const d = parseInt((depth.textContent || '').replace(/\D/g, ''), 10) || 0;
+    const g = parseInt((gold.textContent || '').replace(/\D/g, ''), 10) || 0;
+    if (d < 5) return;
+    try { localStorage.setItem(KEY, JSON.stringify({ depth: d, gold: g, t: Date.now() })); } catch {}
+  }, 6000);
+})();
+
+// ============================================================================
+// v2.7 DIG-extra (DIG-020 extension): Mineral codex tally — top-right META
+// chip ticking lifetime-best depth across all runs. Persists `dig:bestDepth`.
+// Distinct from session-best because dig:lastRunTiles already covers session.
+// ============================================================================
+(function _r7DigBestDepth() {
+  const depth = document.getElementById('hud-depth') || document.getElementById('hud-row-depth');
+  if (!depth) return;
+  let best = parseInt(localStorage.getItem('dig:bestDepth') || '0', 10) || 0;
+  const chip = document.createElement('div');
+  chip.id = 'r7-dig-bestdepth';
+  chip.style.cssText = 'position:fixed;top:14px;left:14px;background:rgba(20,8,32,0.92);color:#9b5de5;border:1px solid #9b5de5;font-family:"Press Start 2P",monospace;font-size:7px;padding:4px 8px;border-radius:3px;z-index:50;letter-spacing:1px;pointer-events:none;';
+  function refresh() { chip.textContent = '⛏ BEST: ' + best + 'm'; chip.style.color = best > 0 ? '#9b5de5' : '#666'; }
+  refresh();
+  document.body.appendChild(chip);
+  setInterval(() => {
+    const d = parseInt((depth.textContent || '').replace(/\D/g, ''), 10) || 0;
+    if (d > best) {
+      best = d;
+      try { localStorage.setItem('dig:bestDepth', String(best)); } catch {}
+      refresh();
+      chip.animate([{ transform: 'scale(1.35)', color: '#ffd23f', borderColor: '#ffd23f' }, { transform: 'scale(1)', color: '#9b5de5', borderColor: '#9b5de5' }], { duration: 600 });
+    }
+  }, 1200);
+})();

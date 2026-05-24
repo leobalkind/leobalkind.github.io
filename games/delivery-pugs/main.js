@@ -3185,3 +3185,94 @@ if (_startOv) {
     new MutationObserver(() => { if (!sov.hidden) streak = 0; }).observe(sov, { attributes: true, attributeFilter: ['hidden', 'class'] });
   }
 })();
+
+// ============================================================================
+// v2.7 DELIV-011: Gyro steering option — top-left "🧭 GYRO" toggle pill;
+// when ON requests devicemotion permission (iOS) and exposes
+// window.__deliveryGyro = {tilt} for game-side steering hook. Persisted.
+// ============================================================================
+(function _r7DelivGyro() {
+  const isTouch = matchMedia('(hover:none)').matches || 'ontouchstart' in window;
+  if (!isTouch) return;
+  let on = localStorage.getItem('delivery:gyro') === '1';
+  const pill = document.createElement('div');
+  pill.id = 'r7-deliv-gyro';
+  pill.style.cssText = 'position:fixed;top:14px;left:14px;background:rgba(20,8,32,0.94);color:#4cc9f0;border:1px solid #4cc9f0;font-family:"Press Start 2P",monospace;font-size:8px;padding:5px 10px;border-radius:3px;z-index:55;letter-spacing:1px;cursor:pointer;display:none;';
+  function refresh() {
+    pill.textContent = '🧭 GYRO: ' + (on ? 'ON' : 'OFF');
+    pill.style.color = on ? '#5ef38c' : '#4cc9f0';
+    pill.style.borderColor = pill.style.color;
+  }
+  refresh();
+  let handler = null;
+  function start() {
+    handler = (e) => {
+      const tilt = (e.gamma || 0) / 45; // -1..1
+      window.__deliveryGyro = { tilt: Math.max(-1, Math.min(1, tilt)), t: performance.now() };
+    };
+    window.addEventListener('deviceorientation', handler);
+  }
+  function stop() {
+    if (handler) window.removeEventListener('deviceorientation', handler);
+    handler = null;
+    window.__deliveryGyro = null;
+  }
+  pill.addEventListener('click', async () => {
+    on = !on;
+    try { localStorage.setItem('delivery:gyro', on ? '1' : '0'); } catch {}
+    refresh();
+    if (on) {
+      try {
+        if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+          const r = await DeviceOrientationEvent.requestPermission();
+          if (r !== 'granted') { on = false; refresh(); return; }
+        }
+        start();
+      } catch {}
+    } else stop();
+  });
+  document.body.appendChild(pill);
+  // Show only when HUD visible
+  const hud = document.getElementById('hud');
+  setInterval(() => {
+    pill.style.display = (hud && hud.hidden) ? 'none' : 'block';
+  }, 400);
+  if (on) start();
+})();
+
+// ============================================================================
+// v2.7 DELIV-extra (DELIV-005 extension): Favorite vehicle stat tracker —
+// records which vehicle the player most-used and displays it on the start
+// overlay. Reads `window.__deliveryVehicle` or falls back to HUD text.
+// Persists `delivery:vehicleStats` keyed by vehicle name.
+// ============================================================================
+(function _r7DelivFavVehicle() {
+  const start = document.getElementById('overlay-start') || document.getElementById('overlay');
+  const hud = document.getElementById('hud');
+  if (!start) return;
+  let stats = {};
+  try { stats = JSON.parse(localStorage.getItem('delivery:vehicleStats') || '{}') || {}; } catch {}
+  function track() {
+    if (hud && hud.hidden) return;
+    const v = (window.__deliveryVehicle || '').toString().toUpperCase()
+      || (document.getElementById('hud-vehicle')?.textContent || '').trim().toUpperCase()
+      || 'SCOOTER';
+    if (!v || v === '—' || v === '-') return;
+    stats[v] = (stats[v] || 0) + 1;
+    try { localStorage.setItem('delivery:vehicleStats', JSON.stringify(stats)); } catch {}
+  }
+  setInterval(track, 5000);
+  function injectChip() {
+    if (start.hidden) return;
+    if (document.getElementById('r7-deliv-fav')) return;
+    const top = Object.entries(stats).sort((a, b) => b[1] - a[1])[0];
+    if (!top) return;
+    const chip = document.createElement('div');
+    chip.id = 'r7-deliv-fav';
+    chip.textContent = '🏆 FAVORITE: ' + top[0];
+    chip.style.cssText = 'position:absolute;top:14px;right:14px;background:rgba(20,8,32,0.92);color:#ffd23f;border:1px solid #ffd23f;font-family:"Press Start 2P",monospace;font-size:8px;padding:5px 10px;border-radius:3px;letter-spacing:1px;pointer-events:none;z-index:10;';
+    start.appendChild(chip);
+  }
+  new MutationObserver(injectChip).observe(start, { attributes: true, attributeFilter: ['hidden', 'class'] });
+  injectChip();
+})();

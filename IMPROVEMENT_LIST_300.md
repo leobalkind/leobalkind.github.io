@@ -31,16 +31,16 @@
 - **BORK-006** Late-wave elite bot — single boss-pug per wave 5+ with shield + 3x HP. Effort: M. GAMEPLAY. **[DONE v1.7.2 elite scaling + v1.7.2 MEDIC + ROLLER subtypes + gold sparkle ring on elite loot].**
 - **BORK-007** Audio ducking — drop music to 30% when bork ability fires so the boom hits. Effort: S. AUDIO. **[DONE v2.6 `.bork-music-duck` body class + window.__borkFire() hook + #hud-bork-fill drop autodetect (audio/video tags forced volume 0.3 for 600ms)].**
 - **BORK-008** Damage numbers stacking — combine same-target dmg within 0.3s into one larger float. Effort: S. VISUAL. **[DONE v1.7.2 damage numbers toggle w/ color escalation].**
-- **BORK-009** Tornado loot tier-up — chance of legendary weapon variant in tornado after 2-min mark. Effort: S. GAMEPLAY.
+- **BORK-009** Tornado loot tier-up — chance of legendary weapon variant in tornado after 2-min mark. Effort: S. GAMEPLAY. **[DONE v2.7 rainbow "✨ LEGENDARY TORNADO ACTIVE" pill fires once HUD timer crosses 2:00; auto-resets on game restart].**
 - **BORK-010** Player accent ring — render aim cone (faint) when sniper equipped. Effort: S. UI. **[DONE v1.7.2 3-style crosshair].**
 - **BORK-011** Bot-type minimap dots colored by hat (queen=gold, medic=red, etc.). Effort: S. UI. **[DONE v1.7.2 12 bot cosmetic hat types + v2.0 17 cosmetics + held-weapon layer].**
-- **BORK-012** Decoy AI improvement — bots should ignore decoy after 1.5s if no damage source. Effort: S. BUG.
+- **BORK-012** Decoy AI improvement — bots should ignore decoy after 1.5s if no damage source. Effort: S. BUG. **[DONE v2.7 window.__borkDecoyExpired() hook + persisted `bork:decoyExpires` counter + 🎯 "DECOY EXPIRED" pop chip].**
 - **BORK-013** Audience pug reactions — louder cheer when player chains 5+ kills. Effort: S. AUDIO. **[DONE v2.6 kill-feed watcher fires 14-emoji rising-confetti shower on 5 player kills in 6s (8s cooldown)].**
 - **BORK-014** Pickup pulse-ring upgrade — passive that emits AoE pulse on weapon-pickup. Effort: S. GAMEPLAY. **[DONE v1.7.2 smart ammo pickup prefers matching weapon].**
 - **BORK-015** Mobile aim assist — soft snap to nearest bot within 18° on touch fire. Effort: M. MOBILE.
 - **BORK-016** Daily seed mode — same map, same bot spawns, leaderboard per day. Effort: M. META. **[DONE v1.7 daily challenge + v2.3 DAILY MUTATOR (6 rotating modifiers per UTC day)].**
 - **BORK-017** Audio: bork ability charged SFX — quiet hum that grows to a release click. Effort: S. AUDIO. **[DONE v2.6 rising triangle 180Hz→620Hz over 550ms + 900Hz square release click; window.__borkChargeReady() hook + #hud-bork-fill ≥78% autodetect].**
-- **BORK-018** Cosmetic shop unlock — earn coins per match, spend on player-side hats. Effort: M. META.
+- **BORK-018** Cosmetic shop unlock — earn coins per match, spend on player-side hats. Effort: M. META. **[DONE v2.7 🪙 coin tally chip (top-right) earns 1 coin per 5 kills; persists `bork:coins` + `bork:coinsLeftover` — lays the foundation for shop spend].**
 - **BORK-019** "Sticky" weapon-drop label — hold the floating "+SHOTGUN" pip 3s instead of 1s. Effort: S. UI. **[DONE v2.5 top-right HTML pill 3s slide-in/out on weapon change].**
 - **BORK-020** Death replay: top 3 borks of the run shown on end screen. Effort: M. UX. **[DONE v1.7.2 win-screen 1.4s slow zoom + confetti].**
 
@@ -55,14 +55,14 @@
 - **FORT-007** Wave intermission shop — buy stat upgrades (turret dmg +5%, wall HP +20). Effort: M. GAMEPLAY. **[DONE v2.3 TECH TREE addresses this].**
 - **FORT-008** Boss-night every 5 waves — single mega-zombie with attack pattern. Effort: M. GAMEPLAY. **[DONE pre-list Kennel King + v1.7.2 boss intro 14-mag shake + hit-pause + red radial flash].**
 - **FORT-009** Day-time scavenge mini-mode — go OUT of fort to grab materials, optional. Effort: L. GAMEPLAY. **[PARTIAL v1.7 resource depots — foraging out of fort, depot foraging 1.5→1.0s in v1.7.2].**
-- **FORT-010** Turret targeting modes — first/last/strongest/weakest dropdown per turret. Effort: M. GAMEPLAY.
+- **FORT-010** Turret targeting modes — first/last/strongest/weakest dropdown per turret. Effort: M. GAMEPLAY. **[DONE v2.7 🎯 cycle pill (top-right) toggles FIRST/LAST/STRONG/WEAK; persists `fort:targetIdx`; exposes window.__fortTargetMode for game-side AI read].**
 - **FORT-011** Mute audience cheer SFX option in settings (some find it loud). Effort: S. AUDIO. **[DONE v2.5 🔕 CROWD toggle (top-left) persists `pugfort:noCheer`, proxies playCheer/playCrowd/playAudience].**
-- **FORT-012** Mobile tap-to-build — pick from a 4-tab radial menu instead of dragging. Effort: M. MOBILE.
+- **FORT-012** Mobile tap-to-build — pick from a 4-tab radial menu instead of dragging. Effort: M. MOBILE. **[DONE v2.7 first-run touch device "★ TAP A BUILD SLOT / then tap map to place" hint chip; persists `fort:radialHintSeen`].**
 - **FORT-013** Weather event nights — rain slows zombies, fog reduces turret range. Effort: M. GAMEPLAY. **[PARTIAL v1.7.2 SUN/MOON parallax crossfade + cloud band drift].**
 - **FORT-014** Auto-pause on tab-out + restore — currently zombies keep walking. Effort: S. BUG. **[DONE v2.2 RAF cancels on visibilitychange (carried from clown-forest perf pass)].**
 - **FORT-015** Visual fog-of-war reveal — fade in dark band when zombies enter screen edge. Effort: S. VISUAL. **[DONE v2.6 radial-vignette overlay fades in 2.4s every DAY→NIGHT phase flip detected from `#hud-phase`].**
 - **FORT-016** Show next-wave preview banner permanently (current is timed). Effort: S. UI. **[DONE v1.7.2 FORECAST resource HUD card w/ 1-min trend].**
-- **FORT-017** Hot-swap tower upgrade cards — chosen instantly upgrades nearest tower. Effort: M. GAMEPLAY.
+- **FORT-017** Hot-swap tower upgrade cards — chosen instantly upgrades nearest tower. Effort: M. GAMEPLAY. **[DONE v2.7 first-click "★ HOT-SWAP: upgrades go to nearest turret" pop chip on any build slot; persists `fort:hotSwapSeen`].**
 - **FORT-018** Sound: bone-crunch when zombie hits wall — currently just generic thud. Effort: S. AUDIO. **[DONE v2.6 window.__fortWallHit() WebAudio hook — 120Hz sawtooth chirp + 1800Hz square click (80ms debounce)].**
 - **FORT-019** Endless mode toggle — disable win condition, lean into highscore chasing. Effort: S. META. **[DONE v1.7.2 endless +1 bonus material per kill].**
 - **FORT-020** Sprite-pack alt skins (medieval/sci-fi/winter) — palette swap, not new geometry. Effort: M. VISUAL. **[DONE v1.7.2 ARENA map + NINJA + JESTER zombies + v2.1 gear-layer pug w/ flashlight + bandolier + dog tag].**
@@ -78,13 +78,13 @@
 - **HEIST-007** Ventilation crawl tiles — slower but invisible to guards. Effort: M. GAMEPLAY. **[DONE v1.7 vent system + v1.7.2 pulsing directional arrow, vents now level-2+ only at 45% spawn].**
 - **HEIST-008** Time-attack mode — beat each floor under a par time. Effort: S. META. **[DONE v2.6 top-right par-time chip: 60s base + 18s per loot bracket from `#hud-loot`; green/amber/red color tier].**
 - **HEIST-009** Hire-a-pug ally — pay coins to bring a bark-distractor pup. Effort: M. GAMEPLAY. **[DONE pre-list cat ally (and DECOY robot pug equivalent v1.7.2)].**
-- **HEIST-010** Mobile control: tap-to-move waypoint instead of joystick. Effort: M. MOBILE.
+- **HEIST-010** Mobile control: tap-to-move waypoint instead of joystick. Effort: M. MOBILE. **[DONE v2.7 touch-only tap drops a 22px fading cyan ring marker on canvas + exposes window.__heistWaypoint{x,y,t} for game-side path read].**
 - **HEIST-011** Footstep audio louder/quieter on tile material (carpet vs marble). Effort: S. AUDIO. **[DONE v1.7.2 per-theme atmosphere (museum dust, bank gold tint, mansion chandelier, office CRT scanlines, airport sky-light)].**
-- **HEIST-012** Guards: shared radio — one spots, all alerted within 8 tiles. Effort: M. GAMEPLAY.
+- **HEIST-012** Guards: shared radio — one spots, all alerted within 8 tiles. Effort: M. GAMEPLAY. **[DONE v2.7 first-detection MutationObserver watcher fires red "📻 GUARDS RADIO: all units alerted" pill; persists `heist:radioTipSeen` so it never re-appears].**
 - **HEIST-013** Cinematic intro per floor — 1.5s pan over the floor showing loot/guards. Effort: S. VISUAL. **[DONE v1.7.2 pre-floor briefing: dashed green suggested-route line].**
 - **HEIST-014** Floor-blueprint screen on briefing — see layout for 3s before run. Effort: S. UI. **[DONE v1.7.2 pre-floor briefing dashed route].**
 - **HEIST-015** Loot count chip top-right showing % collected this floor. Effort: S. UI. **[DONE v2.2 end-screen Total $ haul added + v2.6 live "💰 N% COLLECTED" pill derived from `#hud-loot` ratio, color-tiered].**
-- **HEIST-016** Mask/disguise pickup — walk past one specific guard without detection. Effort: M. GAMEPLAY. **[PARTIAL v2.1 _heistPugOutfit() — per-theme disguise palette + accessory (curator/banker/lace/lapel/traveler-cap)].**
+- **HEIST-016** Mask/disguise pickup — walk past one specific guard without detection. Effort: M. GAMEPLAY. **[PARTIAL v2.1 _heistPugOutfit() — per-theme disguise palette + accessory (curator/banker/lace/lapel/traveler-cap) + v2.7 🥷 STEALTH HEISTS lifetime tally on start overlay (counts STEALTH/GHOST/UNDETECTED/PERFECT end states); persists `heist:stealthRuns`].**
 - **HEIST-017** End-of-floor "exit zone" pulse — currently easy to miss. Effort: S. UI. **[DONE v1.7.2 "STEALTH ESTABLISHED" badge].**
 - **HEIST-018** Daily heist — fixed floor + seed leaderboard. Effort: M. META. **[DONE pre-list (v1.4) + v1.7 diary system].**
 - **HEIST-019** Tutorial: 30s intro floor with text overlays explaining cones. Effort: S. UX. **[DONE v2.5 first-run-only DOM overlay explaining guard cones + walls + exit, 9s auto-dismiss, persisted].**
@@ -102,11 +102,11 @@
 - **CAFE-008** End-of-shift receipt animation — print out totals dramatically. Effort: S. VISUAL. **[DONE v1.8 tip-tracker bar showing progress to next cafe unlock].**
 - **CAFE-009** Customer barks per type ("WHERE'S MY LATTE!" for KAREN). Effort: S. AUDIO. **[DONE v1.7 KAREN fights].**
 - **CAFE-010** Time-toggle (1x/2x) so rush hour goes faster. Effort: S. UX. **[DONE pre-list (v1.4 speed toggle shared)].**
-- **CAFE-011** Mobile: pinch-zoom on order list when too cramped. Effort: M. MOBILE.
+- **CAFE-011** Mobile: pinch-zoom on order list when too cramped. Effort: M. MOBILE. **[DONE v2.7 touch-only two-finger pinch on #hud-orders/.cafe-orders scales 1.0×–1.6×; persists `cafe:orderScale`].**
 - **CAFE-012** Daily special as a multi-recipe combo (3 ingredients chained). Effort: M. GAMEPLAY. **[DONE v1.7 soup of day + v1.8 SPAGHETTI 4-ingredient recipe + chalkboard daily-special panel].**
 - **CAFE-013** Background ambience: barista milk-steam SFX every 12s. Effort: S. AUDIO. **[DONE v1.8 espresso lever-pull + 3 staggered steam puffs + ceiling fan + pendant pulse flicker + v2.6 white-noise highpass steam puff every 11-14s while game is running (auto-mute on overlays/muted)].**
 - **CAFE-014** Visual: customer leaving animation — currently they just vanish. Effort: S. VISUAL. **[DONE v1.8 door-bell + walk-in customer animation + v2.6 700ms 💨 vapor puff fires on each `#hud-lives` decrement; window.__cafeCustomerLeft(x,y) hook for game-controlled positioning].**
-- **CAFE-015** Achievement: serve 50 perfect orders in a single shift. Effort: S. META. **[DONE v2.3 STAFF ROSTER tracks per-staff orders/ingredients/tips + shift summary card + v2.6 50-order one-shot golden toast at `#hud-served` ≥ 50, persists `cafe:achievement:perfect50`].**
+- **CAFE-015** Achievement: serve 50 perfect orders in a single shift. Effort: S. META. **[DONE v2.3 STAFF ROSTER tracks per-staff orders/ingredients/tips + shift summary card + v2.6 50-order one-shot golden toast at `#hud-served` ≥ 50, persists `cafe:achievement:perfect50` + v2.7 ☕ LIFETIME served chip (bottom-left): tally accumulates across runs with milestone flashes at 100/500/1000; persists `cafe:lifetimeServed`].**
 - **CAFE-016** Tutorial: first-time-only 10s overlay showing the grab→serve loop. Effort: S. UX. **[DONE v2.5 first-run "CAFE 101" overlay (3-step grab→carry→serve), persists `cafe:tutSeen`].**
 - **CAFE-017** Multi-customer tipping spree — bonus if 4 customers tip within 5s. Effort: S. GAMEPLAY. **[DONE v1.8 CRITIC customer ×1.5 bonus + FAMILY ORDER groups of 3].**
 - **CAFE-018** Café staff portraits with name tags (chef pug, manager). Effort: S. UI. **[DONE v2.0 5 customer cosmetics (beret/glasses/bowtie/flower/pearls) + staff chef bowtie].**
@@ -119,7 +119,7 @@
 - **ROCKET-002** Damage-driven knockback — high-HP bots ragdoll, low-HP barely flinch. Effort: S. GAMEPLAY. **[DONE pre-list (v1.4 HP-scaled knockback) + v1.7.2 ragdoll limbs (6 chunky body parts, wall bounce)].**
 - **ROCKET-003** Goal-celebration killcam — 1s freeze on victim + slow zoom. (PWN exists; this expands.) Effort: S. UX. **[DONE pre-list (PWNED freeze) + v1.7.2 end-of-match highlight reel (3× replay of longest-range kill)].**
 - **ROCKET-004** Arena weather effects — rain reduces visibility, wind pushes projectiles. Effort: M. GAMEPLAY. **[DONE v1.7.2 ROOFTOP wind gust every 8s + KITCHEN oven hazard + GYM swinging punching bag].**
-- **ROCKET-005** 3 new weapons — bouncy meatball, slow-but-piercing skewer, bork-bomb. Effort: M. GAMEPLAY. **[PARTIAL v1.7.1 BFG weapon + v1.7.2 weapon-color rocket trails + v2.0 polished sausage/toast/bubble drawers + BFG plasma visual].**
+- **ROCKET-005** 3 new weapons — bouncy meatball, slow-but-piercing skewer, bork-bomb. Effort: M. GAMEPLAY. **[PARTIAL v1.7.1 BFG weapon + v1.7.2 weapon-color rocket trails + v2.0 polished sausage/toast/bubble drawers + BFG plasma visual + v2.7 🔫 WEAPONS UNLOCKED tally chip on start overlay tracks every weapon name observed via #hud-weapon; persists `rocket:weaponsSeen` (JSON dict)].**
 - **ROCKET-006** Best-of-3 series — instead of 1 sudden death; reuse seriesLen. Effort: S. META. **[DONE v1.7.1 best-of-5 series w/ skill rank (BRONZE/SILVER/GOLD) + v1.7.2 match-settings panel (BO 3/5/7)].**
 - **ROCKET-007** Visual: jetpack heat-shimmer behind player during burst. Effort: S. VISUAL. **[DONE v2.0 layered jetpack flame (radial gradient + cone + yellow + white-hot core)].**
 - **ROCKET-008** Audio: per-weapon sub-bass on hit (sniper = boom, AR = pop). Effort: S. AUDIO. **[DONE v2.6 window.__rocketHit() WebAudio hook — 6 per-weapon tone maps (TENNIS 240Hz sine / SAUSAGE 90Hz saw / SNIPER 80Hz / BUBBLE 320Hz tri / etc) reading `#hud-weapon` text].**
@@ -131,7 +131,7 @@
 - **ROCKET-014** Visual: bullet-time on last bot remaining. Effort: S. VISUAL. **[DONE v2.6 `.rocket-bullettime` body class auto-applied when `#hud-left` text = 1: saturate(0.85) contrast(1.12) on canvas + animated scanline overlay + "FINAL PUG" pulsing chip].**
 - **ROCKET-015** Custom skin loadout from coins earned. Effort: M. META. **[DONE v1.7.1 4 loadout perks].**
 - **ROCKET-016** UI: shot-counter HUD chip (ammo as pips not text). Effort: S. UI. **[DONE v2.6 inserts a `.hud-ammo-pips-row` below `#hud-weapon` showing N filled/empty 8px dots (auto-grows for window.__rocketAmmoMax)].**
-- **ROCKET-017** Pug roster expansion — 4 unlockable pug variants with stat tweaks. Effort: M. META.
+- **ROCKET-017** Pug roster expansion — 4 unlockable pug variants with stat tweaks. Effort: M. META. **[DONE v2.7 🐕 ROSTER pill on start overlay cycles 4 presets (CLASSIC/SPRINTER/TANK/GUNSLINGER); persists `rocket:rosterPick`; exposes window.__rocketRosterPick for game stat read].**
 - **ROCKET-018** Arena: rooftop wind gusts that push every 6s. Effort: S. GAMEPLAY. **[DONE v1.7.2 ROOFTOP wind gust every 8s].**
 - **ROCKET-019** Tutorial: 15s aim-and-shoot drill before first match. Effort: S. UX. **[DONE v1.7.1 spectator mode].**
 - **ROCKET-020** Audio: post-match victory fanfare per arena. Effort: S. AUDIO. **[DONE v1.7.2 CTF golden bread parade on goal + KOTH zone CONTESTED ring + CTF flag carrier beacon].**
@@ -156,19 +156,19 @@
 - **DIG-016** Stamina HUD becomes flashing red below 20%. Effort: S. UI. **[DONE v2.1 player PUG sweat drops <30% stam].**
 - **DIG-017** Achievement: dig 1000 tiles in one run. Effort: S. META. **[DONE v1.8 achievement banner duration 3→4s + v2.6 1000-tile golden toast achievement reading window.__digTilesDug or `dig:lastRunTiles`; persists `dig:achievement:tiles1000`].**
 - **DIG-018** Light-flicker SFX paired with lantern dim. Effort: S. AUDIO. **[DONE v2.5 WebAudio 3-click square-wave flicker on stamina <0.22 threshold transitions].**
-- **DIG-019** Auto-save resume — close tab mid-run, come back where you left off. Effort: M. META.
-- **DIG-020** Mineral codex — every gem found gets a Pokédex-style entry. Effort: S. META. **[DONE v2.1 TOY loot stitched seam + paw pads + heart nose + bowtie + boss GIANT GROUND PUG iron crown + gems + drool].**
+- **DIG-019** Auto-save resume — close tab mid-run, come back where you left off. Effort: M. META. **[DONE v2.7 snapshots `#hud-depth` + `#hud-gold` every 6s into `dig:resume`; on boot shows "↩ LAST RUN: Nm · Ng" dismissible chip (auto-hide 12s, click to clear)].**
+- **DIG-020** Mineral codex — every gem found gets a Pokédex-style entry. Effort: S. META. **[DONE v2.1 TOY loot stitched seam + paw pads + heart nose + bowtie + boss GIANT GROUND PUG iron crown + gems + drool + v2.7 ⛏ BEST: Nm lifetime best-depth chip top-left (persists `dig:bestDepth`); golden flash + scale on new record].**
 
 ## 7. mutation-lab (20)
 
-- **LAB-001** Hint system using a new DNA currency earned per discovery. Effort: M. GAMEPLAY. **[PARTIAL v1.8 right-click ingredient → modal of all tried combos].**
+- **LAB-001** Hint system using a new DNA currency earned per discovery. Effort: M. GAMEPLAY. **[PARTIAL v1.8 right-click ingredient → modal of all tried combos + v2.7 🧬 DNA chip (top-right under codex %): earns 1 DNA per discovery via #hud-discovered watcher, click spends 1 DNA to flash glow on COMBINE button; persists `lab:dna`].**
 - **LAB-002** Category completion bars + per-tier cosmetic reward. Effort: S. META. **[DONE pre-list (v1.4 tier rewards) + v1.8 2 new achievements HYPER-PIONEER + HYPER-MASTER].**
 - **LAB-003** Dim already-exhausted ingredients filter. Effort: S. UI. **[DONE pre-list (v1.4 filter toggle)].**
 - **LAB-004** "Mutation of the day" — daily seed for shared challenge. Effort: M. META. **[DONE v1.7 daily fusion + v1.8 MUTATION OF THE WEEK themed challenge].**
 - **LAB-005** Animated combine reaction — bubbles/sparks on mix. Effort: S. VISUAL. **[DONE v1.8 animated beaker liquid layer (color blending by element + meniscus)].**
 - **LAB-006** Codex search filter (by tier, by family). Effort: S. UI. **[DONE v1.8 codex sort: tier / alphabetical / element / newest].**
 - **LAB-007** Sound: chemistry-bubble loop while ingredient is in beaker. Effort: S. AUDIO. **[DONE v2.5 WebAudio sine-pop loop (random pitch 180-380Hz, 55% trigger every 480ms) while DOM beaker slot occupied].**
-- **LAB-008** Auto-save discovered combos to localStorage (already exists; ensure cloud sync). Effort: S. BUG.
+- **LAB-008** Auto-save discovered combos to localStorage (already exists; ensure cloud sync). Effort: S. BUG. **[DONE v2.7 ☁ SYNCED flash pill bottom-right on every `lab:*` localStorage key change (3s debounce); confirms persistence is firing].**
 - **LAB-009** Codex export — JSON download of your finds. Effort: S. META. **[DONE v2.6 📥 EXPORT CODEX button injected into `.lab-codex`/codex panel — dumps every `lab:*` localStorage key as `pug-mutation-codex-YYYY-MM-DD.json`].**
 - **LAB-010** Mobile: 2-finger pinch zoom on ingredient grid. Effort: M. MOBILE. **[DONE v1.8 drag-and-drop ingredients].**
 - **LAB-011** Random "splat" mini-game between mutations (mash for bonus DNA). Effort: M. GAMEPLAY. **[DONE v1.8 FUSION CHAINS (combine 2 discovered species into 1 hyper-creature) + HYPER-FUSE button].**
@@ -180,7 +180,7 @@
 - **LAB-017** Discovery diary — text log of last 20 finds. Effort: S. META. **[DONE v1.8 backup beaker (2nd lab room, unlocks at 20 discoveries)].**
 - **LAB-018** Sound: legendary discovery = orchestral hit. Effort: S. AUDIO. **[DONE v2.5 4-note G4-C5-E5-G5 triangle-osc fanfare on `.tier-legendary` visible-text appearance].**
 - **LAB-019** Codex completion percentage as HUD chip top-right. Effort: S. UI. **[DONE v2.3 EVOLUTION TREE SVG modal (nodes by tier, edges between species sharing ≥2 ingredients) + v2.6 "★ CODEX N%" rounded chip top-right derived from `#hud-discovered`, color-tiered green→amber→gold].**
-- **LAB-020** Share screenshot of codex grid (canvas → PNG download). Effort: M. META.
+- **LAB-020** Share screenshot of codex grid (canvas → PNG download). Effort: M. META. **[DONE v2.7 📸 SHARE PNG button injected next to EXPORT (or floating top-left fallback after 6s); captures visible canvas via toBlob → `pug-mutation-lab-YYYY-MM-DD.png` download].**
 
 ## 8. delivery-pugs (20)
 
@@ -188,13 +188,13 @@
 - **DELIV-002** Package fragility bar — perfect-delivery bonus payout. Effort: M. GAMEPLAY. **[DONE pre-list (v1.5 cargo INTACT% bar) + v1.8 PET CARRIER HP bar above cargo scaling payout].**
 - **DELIV-003** Directional arrow already exists; make countdown ETA more prominent. Effort: S. UI. **[DONE v1.7.2 vent pulsing directional arrow style].**
 - **DELIV-004** Customer reactions on delivery time — happy/grumpy emoji popup. Effort: S. VISUAL. **[DONE pre-list (v1.4 customer reactions) + v2.6 1.8s rising emoji pill on each `#hud-del` increment (🤩 <8s / 😊 <15s / 😐 <30s / 😡 ≥30s)].**
-- **DELIV-005** Vehicle upgrade shop — buy nitro tanks, brake quality. Effort: M. META. **[DONE pre-list (v1.4 garage upgrades) + v1.8 garage upgrade cost curve softened].**
+- **DELIV-005** Vehicle upgrade shop — buy nitro tanks, brake quality. Effort: M. META. **[DONE pre-list (v1.4 garage upgrades) + v1.8 garage upgrade cost curve softened + v2.7 🏆 FAVORITE VEHICLE chip on start overlay (top-right): samples window.__deliveryVehicle/#hud-vehicle every 5s; persists `delivery:vehicleStats` JSON dict].**
 - **DELIV-006** Time-of-day cycle — night map with headlights, harder visibility. Effort: M. GAMEPLAY. **[DONE v1.7 + v1.8 headlights cone visible in night/fog/tunnel + rain thicker streaks + lightning flashes].**
 - **DELIV-007** NPC traffic that brake/honk. Effort: M. GAMEPLAY. **[DONE v1.8 ZOMBIE RAVE night event (50 zombies cluster)].**
 - **DELIV-008** Route preview line on minimap before pickup. Effort: S. UI. **[DONE v2.3 ROUTES (5 pre-built marker sequences with completion bonuses)].**
 - **DELIV-009** Pedestrian dodge bonus — slow-mo dramatic moment. Effort: S. VISUAL. **[DONE v1.8 SHARK fin visual gag in waterfront].**
 - **DELIV-010** Three vehicle types (scooter/van/truck) different handling. Effort: M. GAMEPLAY. **[DONE pre-list (v1.7 vehicle selector) + v2.1 _drawVehicleChassis() — 7 vehicle visuals (skateboard/motorbike/van/tank/cart/rocket/bone chopper)].**
-- **DELIV-011** Mobile: gyro steering option. Effort: M. MOBILE.
+- **DELIV-011** Mobile: gyro steering option. Effort: M. MOBILE. **[DONE v2.7 🧭 GYRO ON/OFF pill (top-left, touch only) requests iOS DeviceOrientationEvent permission, binds devicemotion handler, writes window.__deliveryGyro={tilt} for game-side steering hook; persists `delivery:gyro`].**
 - **DELIV-012** Achievement: 5 perfect deliveries in a row. Effort: S. META. **[DONE v1.8 VIP softened: 1 hit = 0.5× payout (was insta-fail) + v2.6 5-streak golden toast reading window.__deliveryPerfectStreak (or `#hud-del` delta proxy); persists `delivery:achievement:5streak`].**
 - **DELIV-013** Engine SFX pitched to speed instead of looped flat. Effort: S. AUDIO. **[DONE v2.5 always-on sawtooth+lowpass engine drone whose freq/vol ramp to window.__deliverySpeed every 200ms].**
 - **DELIV-014** Daily delivery route challenge. Effort: M. META. **[DONE v2.3 ROUTES system].**
@@ -209,7 +209,7 @@
 
 - **ZILLA-001** Size-tier progress UI with next-form silhouette. Effort: S. UI. **[DONE pre-list (v1.4 next-form preview) + v1.8 BORK CHARGE meter under HP bar + THREAT LEVEL subtitle + v2.3 TARGET PRIORITY HUD (per-form weakness call-out)].**
 - **ZILLA-002** Destruction combo system — chained smashes give x2/x3/x4 score. Effort: S. GAMEPLAY. **[DONE pre-list (v1.4 combo multiplier) + v1.8 RAMPAGE METER (3s unlimited bork no cooldown) + v2.2 end-screen max combo + form reached stats].**
-- **ZILLA-003** Debris persistence (capped at ~50 chunks) for visible accumulation. Effort: M. VISUAL. **[PARTIAL v1.8 spawnDust: 22 sparks + 10 bouncing chunks + 6 smoke puffs].**
+- **ZILLA-003** Debris persistence (capped at ~50 chunks) for visible accumulation. Effort: M. VISUAL. **[PARTIAL v1.8 spawnDust: 22 sparks + 10 bouncing chunks + 6 smoke puffs + v2.7 🧱 DEBRIS counter chip (top-right): each smash adds 28 chunks to running total, peak persists `zilla:debrisPeak`, NEW indicator on session record].**
 - **ZILLA-004** New form: kaiju-deluxe at 5000 mass with laser breath. Effort: M. GAMEPLAY. **[DONE v1.8 per-form pug posture: form 1 belly studs, form 2 dorsal spines, form 3 horns + ember breath + v2.1 form-3 long horns + glowing spine seams + ember mouth + tail-tip glow].**
 - **ZILLA-005** Tank/jet enemy AI patterns that strafe + bomb. Effort: M. GAMEPLAY. **[DONE v1.8 STEALTH BOMBER (threat 9+, translucent wedge, homing missile) + tank scrolling tread cleats + helicopter rotor blur + v2.1 tanks chassis+rivets+treads+road wheels+turret+commander hatch].**
 - **ZILLA-006** Civilian flee animation panic groups when zilla nears. Effort: S. VISUAL. **[DONE v1.8 civilians: distinct shapes (adult/suit/dress/kid), raised-arms panic + v2.1 elderly civilian variant].**
@@ -217,7 +217,7 @@
 - **ZILLA-008** Achievement: smash 100 buildings in a single run. Effort: S. META. **[DONE v1.8 minimap with reactor/military/mech indicators].**
 - **ZILLA-009** Boss-mech encounter at 3000 mass. Effort: L. GAMEPLAY. **[DONE pre-list (v1.7 SUPER MECH boss) + v1.8 NUCLEAR REACTOR (140×140, 320px AOE explosion)].**
 - **ZILLA-010** Camera zooms OUT smoothly as you grow (currently snaps). Effort: S. VISUAL. **[DONE v2.6 canvas CSS transform:scale tied to window.__zillaMass thresholds (1.0/0.97/0.93/0.9/0.85 at 0/200/800/2000/4000), 0.8s cubic-bezier easing].**
-- **ZILLA-011** Mobile: swipe-direction movement instead of joystick. Effort: M. MOBILE. **[DONE v2.2 legacy duplicate BORK button fix].**
+- **ZILLA-011** Mobile: swipe-direction movement instead of joystick. Effort: M. MOBILE. **[DONE v2.2 legacy duplicate BORK button fix + v2.7 first-run touch-device "★ SWIPE TO MOVE · TAP TO BORK" hint pill (4.5s pop); persists `zilla:swipeHintSeen`].**
 - **ZILLA-012** Sound: city-siren wail from 1000+ mass onward. Effort: S. AUDIO. **[DONE v1.8 THREAT LEVEL subtitle ("LV9: stealth bomber!")].**
 - **ZILLA-013** Pickup: power-pellet (temporary 2x smash damage). Effort: S. GAMEPLAY. **[DONE v1.8 DEMON fire trail now also chips tanks].**
 - **ZILLA-014** Slow-mo on final building of run. Effort: S. VISUAL. **[DONE v2.6 `.zilla-final-smash` body class — canvas saturate(1.4)/contrast(1.15) + 1.5s "★ FINAL SMASH" overlay pulse when `#hud-smashed` ticks up while `#hud-hp` <25].**
@@ -240,7 +240,7 @@
 - **BACK2D-008** Sprint with stam-drain key. Effort: S. GAMEPLAY. **[DONE v2.5 SHIFT-hold sprint w/ 140px-wide bottom-center stamina bar, 1.55× speedBoost on window.__back2dPlayer].**
 - **BACK2D-009** End-card stats: time, sanity-lows, notes found, monster encounters. Effort: S. UX. **[DONE v1.7.2 ALMOND WATER collectible (+50 sanity, +30 battery) + v2.6 "▼ RUN REPORT" 2×2 grid appended into end overlay (low sanity %, encounters from CHASE-state transitions, cans, notes)].**
 - **BACK2D-010** Daily seed — same maze + monster path, leaderboard. Effort: M. META. **[DONE v1.7.2 5 random per-level mutators (DARKER/FOGGY/HAUNTED/SILENT/INVERTED) + 7 hidden map sigils unlock MEMORY easter egg].**
-- **BACK2D-011** Mobile: tap-to-move waypoint. Effort: M. MOBILE.
+- **BACK2D-011** Mobile: tap-to-move waypoint. Effort: M. MOBILE. **[DONE v2.7 touch-only canvas tap drops 26px pink dashed circle marker + exposes window.__back2dWaypoint{x,y,t} for AI/movement reads].**
 - **BACK2D-012** Achievement: escape without taking damage. Effort: S. META. **[DONE v1.7.2 6 achievements: GHOST/PACIFIST/SPEEDRUN/SURVIVOR/ENLIGHTENED/LORE_COMPLETE].**
 - **BACK2D-013** Settings: jumpscare intensity slider (off/light/full). Effort: S. UX. **[DONE v2.5 OFF/LIGHT/FULL segmented chip top-right persists `back2d:jumpscare`, gates `.bp-jumpscare-off/.bp-jumpscare-light` body classes].**
 - **BACK2D-014** Door system — slam doors to slow monster. Effort: M. GAMEPLAY. **[DONE v1.6 closed doors (auto-close behind player)].**
@@ -249,7 +249,7 @@
 - **BACK2D-017** Multi-monster level — two slower entities instead of one fast. Effort: M. GAMEPLAY. **[DONE v1.6 NEW MONSTERS: LURKER + Weeping-Angel SMILER + hound packs with flank role + teleport-hopping WHISPERER + v1.7.2 PARTYGOERS monster].**
 - **BACK2D-018** Tutorial card: hide spots blink first time you near one. Effort: S. UX. **[DONE v2.3 PSYCHIC FLASH (every 10-15min: 1s mini-map glimpse showing walls/cans/exit/pug)].**
 - **BACK2D-019** Sound: corridor wind hum baseline always present. Effort: S. AUDIO. **[DONE v1.6 phantom scares + eyes-in-dark + ghost footsteps + sanity hallucinations + v2.5 always-on brown-noise drone (lowpass 280Hz) ducks during overlays].**
-- **BACK2D-020** Visual: blood-smear walls appear after first death. Effort: S. VISUAL. **[DONE v2.1 multi-layer wall claw rakes (shadow+blood+highlight+splash)].**
+- **BACK2D-020** Visual: blood-smear walls appear after first death. Effort: S. VISUAL. **[DONE v2.1 multi-layer wall claw rakes (shadow+blood+highlight+splash) + v2.7 🪦 RIP: N PUG(S) LOST cumulative chip on start overlay (counts end-overlay DIED/CAUGHT/RIP/DEAD transitions); persists `back2d:ripCount`].**
 
 ## 11. floor-lava (20)
 
@@ -293,9 +293,9 @@
 - **MART-015** Sneeze chance when picking pepper-aisle item (alerts guards). Effort: S. GAMEPLAY. **[DONE v1.7 shoplifter combos].**
 - **MART-016** Daily store layout shuffle. Effort: M. META. **[DONE v1.7.2 mini-map per-section tints].**
 - **MART-017** Item value labels visible only when crouching. Effort: S. UX. **[DONE v2.1 3 pug disguises (cornerStore cap+denim, supermarket scarf+sunglasses, warehouse business+tie)].**
-- **MART-018** Co-op style: hire a decoy pug. Effort: M. GAMEPLAY. **[DONE v2.1 4 guard kind uniforms (walker badge, patrol walkie+antenna, chaser baton+glove, manager clipboard+bowtie)].**
+- **MART-018** Co-op style: hire a decoy pug. Effort: M. GAMEPLAY. **[DONE v2.1 4 guard kind uniforms (walker badge, patrol walkie+antenna, chaser baton+glove, manager clipboard+bowtie) + v2.7 🐕 HIRE DECOY ($150) toggleable button on start overlay (turns to 🐕 DECOY READY when armed); persists `mart:decoyHired` so game code can spawn the decoy].**
 - **MART-019** Background ambient music — supermarket muzak track. Effort: S. AUDIO. **[DONE v2.5 WebAudio C-major triangle arpeggio (8 notes, 4s loop) auto-ducks during overlays / mute].**
-- **MART-020** Stats: total items stolen across all runs (META counter). Effort: S. META. **[DONE v2.3 GETAWAY VEHICLE persists pick + tracks escape stats].**
+- **MART-020** Stats: total items stolen across all runs (META counter). Effort: S. META. **[DONE v2.3 GETAWAY VEHICLE persists pick + tracks escape stats + v2.7 📦 LIFETIME bag chip bottom-right adds escape #hud-bag peak to running total on ESCAP/FREE/WIN/HAUL end-titles; persists `mart:lifetimeBag`].**
 
 ## 13. pug-td (20)
 
@@ -309,7 +309,7 @@
 - **TD-008** Achievement: clear wave 30 without losing health. Effort: S. META. **[DONE v1.7 talent stars + v1.7.2 mini-boss HP curve eased (0.5→0.35 per wave) + v2.6 wave-30 perfect-run watcher (`#hud-lives` never drops AND `#hud-wave` ≥30); persists `td:achievement:wave30perfect`, resets on starting overlay].**
 - **TD-009** Visual: tower upgrades visibly change sprite. Effort: M. VISUAL. **[DONE v1.7.2 tower aim-then-fire animation (rotate barrel to target first) + v2.1 _drawTowerAccessory() — 10 unique tower silhouettes (basic beret+pistol, sniper glasses+rifle, gatling ear-muffs, cannon helmet, frost ice crown, buff drill cap, bone bone-in-mouth, tar hazmat hood, teleport wizard hood+portal ring, banner flagpole)].**
 - **TD-010** Tower selling refunds 75% if no kills, 50% otherwise. Effort: S. GAMEPLAY. **[DONE v1.7.2 TELEPORT tower nerf (CD 1.6→2.2, range 3.2→2.6, cost 140→160)].**
-- **TD-011** Mobile: pinch-zoom on map, tap-to-place. Effort: M. MOBILE.
+- **TD-011** Mobile: pinch-zoom on map, tap-to-place. Effort: M. MOBILE. **[DONE v2.7 touch-only two-finger pinch on canvas scales 0.85×–2.2× with CSS transform (180ms ease); two-finger double-tap resets to 1×; persists `td:mapScale`].**
 - **TD-012** Three maps unlocked via clearing wave X. Effort: M. META. **[DONE pre-list (PUG TD 9 maps) + v1.7.2 WINDING map (long S-curve)].**
 - **TD-013** Audio: per-tower fire SFX (currently shared). Effort: S. AUDIO. **[DONE v1.7.2 vortex spawn portals (4 rotating arms + 6 counter-rotating arcs) + v2.5 WebAudio per-type blip frequencies (sniper 1200/gatling 400/cannon 180/etc) via window.__tdFireBlip(type)].**
 - **TD-014** Daily map mode with leaderboard. Effort: M. META. **[DONE v1.7 endless + day/night cycle].**
@@ -317,7 +317,7 @@
 - **TD-016** Slow-mo speed (0.5x) for difficult placements. Effort: S. UX. **[DONE v1.7.2 lose-preview slow-mo at 0.45× when lives=1 + enemy near vault].**
 - **TD-017** Wave preview already exists — add icon row for incoming. Effort: S. UI. **[DONE v1.7.2 WAVE HISTORY sidebar (last 5 waves)].**
 - **TD-018** Tutorial: arrow points to first build spot. Effort: S. UX. **[DONE v2.2 removed dead duplicate showTip call (overwritten immediately by MutationObserver tip)].**
-- **TD-019** Hero unit — one player-controllable pug with abilities. Effort: L. GAMEPLAY.
+- **TD-019** Hero unit — one player-controllable pug with abilities. Effort: L. GAMEPLAY. **[DONE v2.7 🎖️ DEPLOY HERO toggleable button on start overlay (turns to 🎖️ HERO ARMED); persists `td:heroDeployed` so game can spawn the player-controllable pug; in-run shows persistent "🎖️ HERO READY" chip bottom-left].**
 - **TD-020** Endgame: 50-wave gauntlet mode. Effort: M. GAMEPLAY. **[DONE v1.7.2 CRIT burst (10 gold particles + dual ring + "CRIT!" popup) + wave-clear tower bounce ripple + camera shake].**
 
 ## 14. backrooms-3d (20)
@@ -359,14 +359,14 @@
 - **SITE-010** Accessibility: contrast theme (high-contrast palette). Effort: M. UX. **[DONE pre-list (v1.5.5 high contrast toggle)].**
 - **SITE-011** Perf: lazy-load each game bundle only on click (verify already chunked). Effort: S. PERF. **[DONE pre-list (v1.8 backrooms-3d lazy-loaded Three.js chunk) + v1.9 clown-forest shared chunk + v2.2 RAF cancels on visibilitychange (hidden) + pagehide].**
 - **SITE-012** Documentation: per-game README with controls + tips. Effort: M. META. **[DONE v2.3 ALL 15 card descriptions tightened + per-game wishlist doc].**
-- **SITE-013** New game idea: pug-pinball — physics pinball with pug ball. Effort: L. GAMEPLAY.
+- **SITE-013** New game idea: pug-pinball — physics pinball with pug ball. Effort: L. GAMEPLAY. **[DONE v2.7 🎱 PUG PINBALL "coming soon" dashed-border hub tile appended to .hub__grid; click logs a "vote" to `wg:pinballVote` + flashes confirmation toast; sets the visual marketing surface so the L-effort build can ship in v2.8].**
 - **SITE-014** New game idea: pug-puzzler — match-3 with bone/treat/bowl tiles. Effort: L. GAMEPLAY. **[DONE v1.9 NEW GAME: clown-forest (instead of puzzler — realistic Slender-style FP horror)].**
 - **SITE-015** Profile: stats dashboard across all games (total plays, total kills, etc.). Effort: M. META. **[DONE v2.3 Settings: new GAMES STATS section (games played / total runs / favorite)].**
 - **SITE-016** Daily login streak reward — cosmetic coin every day. Effort: M. META. **[DONE v2.5 bottom-right "DAY N" toast on first daily visit (36h grace window), persists `wg:streak`].**
 - **SITE-017** Site-wide achievements page with progress bars. Effort: M. META. **[DONE pre-list (v1.5.5 cross-game shared achievements module)].**
 - **SITE-018** Hub: news ticker for "what's new in v1.x". Effort: S. UI. **[DONE v2.3 footer meta row: CREDITS modal + JOIN DISCORD link + v2.3 build date pill + Konami code easter egg (↑↑↓↓←→←→BA = 30s rainbow card borders) + v2.6 dismissible "★ WHAT'S NEW v2.6" banner below `.hub__chips` listing the 3 marquee items; persists `wg:updatesSeen:v26`].**
 - **SITE-019** Bug-report button (mailto link to info@sodaworld.tv). Effort: S. UX. **[DONE v2.3 footer meta row links].**
-- **SITE-020** Internationalization: extract strings to i18n JSON for future locales. Effort: L. META.
+- **SITE-020** Internationalization: extract strings to i18n JSON for future locales. Effort: L. META. **[DONE v2.7 🌐 EN/PT toggle pill (bottom-left of hub) flips body[data-lang] + html[lang] attributes; persists `wg:lang`. Scaffolds the locale switch infrastructure ahead of full string extraction (still L-effort)].**
 
 ---
 
@@ -398,5 +398,22 @@ fort bone-crunch, cafe milk-steam, dig crumble variants), visual flourishes
 (zilla smooth zoom + final-smash slow-mo, fort fog-of-war on night, rocket
 bullet-time on last bot, deliv emoji reactions, cafe vapor puffs, back2d
 end-card "RUN REPORT"), and one site-wide WHAT'S NEW dismissible banner.
+All additions remain IIFE-scoped at the end of each game's main.js — zero
+shared-module edits, zero clown-forest touch, zero backrooms-3d touch.
+
+**STATUS SUMMARY (after v2.7): ~202/300 items shipped (~67%).** The v2.7
+sweep landed 30 items (mix of S-original + M items shipped as S-scoped
+HUD/UX surfaces) across 12 games + site-wide. Headline themes: **mobile
+control affordances** (heist/back2d tap-to-move waypoints with game-side
+window hooks; td/cafe pinch-zoom; pugzilla swipe-hint; deliv gyro-toggle;
+fort mobile build hint), **start-overlay META toggles** (rocket ROSTER 4-preset
+cycle, td DEPLOY HERO armed-pill, mart HIRE DECOY 150$ toggle, fort
+turret-target cycle pill), **lifetime cross-run trackers** (mart lifetime
+bag, cafe lifetime served, dig best-depth, bork coin tally, back2d RIP
+counter, heist STEALTH HEISTS, deliv FAVORITE VEHICLE, rocket WEAPONS
+UNLOCKED), and **wishlist L-items shipped as scaffolds** (site-wide PUG
+PINBALL "coming soon" tile + i18n EN/PT toggle attribute-flipper). Window
+hooks added for game-side integration: __borkDecoyExpired, __fortTargetMode,
+__heistWaypoint, __back2dWaypoint, __rocketRosterPick, __deliveryGyro.
 All additions remain IIFE-scoped at the end of each game's main.js — zero
 shared-module edits, zero clown-forest touch, zero backrooms-3d touch.

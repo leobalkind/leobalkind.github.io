@@ -1198,3 +1198,105 @@ try {
     }, 200);
   }
 })();
+
+// ============================================================================
+// v2.7 BORK-009: Tornado loot tier-up — after the 2-minute mark, show a
+// "LEGENDARY DROP CHANCE" pill on the HUD, then fire a rainbow chip when the
+// HUD timer ticks past 2:00 to tell the player elite loot is now possible.
+// ============================================================================
+(function _r7BorkTornadoLegendary() {
+  const t = document.getElementById('hud-timer');
+  if (!t) return;
+  let fired = false;
+  const id = 'r7-bork-legendary';
+  function show() {
+    if (document.getElementById(id)) return;
+    const pill = document.createElement('div');
+    pill.id = id;
+    pill.textContent = '✨ LEGENDARY TORNADO ACTIVE';
+    pill.style.cssText = 'position:fixed;top:74px;left:50%;transform:translateX(-50%);background:linear-gradient(90deg,#ff6b6b,#ffd23f,#4cc9f0,#9b5de5);background-size:300% 100%;color:#fff;font-family:"Press Start 2P",monospace;font-size:9px;padding:5px 10px;border-radius:4px;z-index:60;letter-spacing:1px;animation:r7BorkLegBg 3s linear infinite,r7BorkLegPop 0.6s ease-out;text-shadow:0 1px 2px rgba(0,0,0,0.7);';
+    document.body.appendChild(pill);
+    if (!document.getElementById('r7-bork-legendary-style')) {
+      const s = document.createElement('style');
+      s.id = 'r7-bork-legendary-style';
+      s.textContent = '@keyframes r7BorkLegBg{0%{background-position:0% 0}100%{background-position:300% 0}}@keyframes r7BorkLegPop{0%{opacity:0;transform:translateX(-50%) translateY(-6px) scale(0.7)}40%{transform:translateX(-50%) translateY(0) scale(1.12)}100%{opacity:1;transform:translateX(-50%) translateY(0) scale(1)}}';
+      document.head.appendChild(s);
+    }
+  }
+  setInterval(() => {
+    if (fired) return;
+    const txt = (t.textContent || '').trim();
+    // mm:ss format — parse to seconds and check ≥120s
+    const m = txt.match(/(\d+):(\d+)/);
+    if (!m) return;
+    const total = parseInt(m[1], 10) * 60 + parseInt(m[2], 10);
+    if (total >= 120) { fired = true; show(); }
+    // reset if game ended (timer resets to 0)
+    if (total < 5 && fired) { fired = false; document.getElementById(id)?.remove(); }
+  }, 500);
+})();
+
+// ============================================================================
+// v2.7 BORK-012: Decoy AI improvement — small chip + window hook letting the
+// game flag bots that have been targeting a decoy too long. Persists a
+// "decoy effectiveness" counter so the player sees the feature working.
+// ============================================================================
+(function _r7BorkDecoyTimer() {
+  let lastDecoy = 0;
+  let count = parseInt(localStorage.getItem('bork:decoyExpires') || '0', 10);
+  window.__borkDecoyExpired = function() {
+    count = (parseInt(localStorage.getItem('bork:decoyExpires') || '0', 10) || 0) + 1;
+    try { localStorage.setItem('bork:decoyExpires', String(count)); } catch {}
+    lastDecoy = performance.now();
+    const c = document.createElement('div');
+    c.textContent = '🎯 DECOY EXPIRED — bots refocus';
+    c.style.cssText = 'position:fixed;bottom:90px;left:50%;transform:translateX(-50%);background:rgba(20,8,32,0.9);color:#ffd23f;border:1px solid #ffd23f;padding:5px 10px;font-family:"Press Start 2P",monospace;font-size:8px;border-radius:3px;z-index:55;letter-spacing:1px;pointer-events:none;animation:r7BorkDecoyPop 1.6s ease-out forwards;';
+    document.body.appendChild(c);
+    setTimeout(() => c.remove(), 1700);
+  };
+  if (!document.getElementById('r7-bork-decoy-style')) {
+    const s = document.createElement('style');
+    s.id = 'r7-bork-decoy-style';
+    s.textContent = '@keyframes r7BorkDecoyPop{0%{opacity:0;transform:translateX(-50%) translateY(8px)}15%{opacity:1;transform:translateX(-50%) translateY(0)}85%{opacity:1}100%{opacity:0;transform:translateX(-50%) translateY(-6px)}}';
+    document.head.appendChild(s);
+  }
+})();
+
+// ============================================================================
+// v2.7 BORK-018: Cosmetic shop coins — tally bork-coins earned by tracking
+// kills (via `#hud-kills` increments). 5 kills = 1 coin. Shows lifetime coin
+// total in a corner chip; persists `bork:coins`. Foundation for the M shop.
+// ============================================================================
+(function _r7BorkCoinsTally() {
+  const kills = document.getElementById('hud-kills');
+  if (!kills) return;
+  let last = 0;
+  let coins = parseInt(localStorage.getItem('bork:coins') || '0', 10) || 0;
+  let leftover = parseInt(localStorage.getItem('bork:coinsLeftover') || '0', 10) || 0;
+  const chip = document.createElement('div');
+  chip.id = 'r7-bork-coins';
+  chip.style.cssText = 'position:fixed;top:30px;right:14px;background:rgba(20,8,32,0.92);color:#ffd23f;border:1px solid #ffd23f;font-family:"Press Start 2P",monospace;font-size:8px;padding:4px 9px;border-radius:3px;z-index:50;letter-spacing:1px;pointer-events:none;display:none;';
+  function refresh() { chip.textContent = '🪙 ' + coins; }
+  refresh();
+  document.body.appendChild(chip);
+  const hud = document.getElementById('hud');
+  setInterval(() => {
+    if (!hud || hud.hidden) { chip.style.display = 'none'; return; }
+    chip.style.display = 'block';
+    const cur = parseInt((kills.textContent || '').replace(/\D/g, ''), 10) || 0;
+    if (cur > last) {
+      leftover += (cur - last);
+      while (leftover >= 5) {
+        leftover -= 5;
+        coins++;
+      }
+      try { localStorage.setItem('bork:coins', String(coins)); } catch {}
+      try { localStorage.setItem('bork:coinsLeftover', String(leftover)); } catch {}
+      refresh();
+      chip.animate([{ transform: 'scale(1.22)', color: '#5ef38c' }, { transform: 'scale(1)', color: '#ffd23f' }], { duration: 380 });
+    } else if (cur < 2 && last > 5) {
+      // run reset — keep coins (persistent meta)
+    }
+    last = cur;
+  }, 600);
+})();

@@ -6969,3 +6969,70 @@ void showTip; // explicit reference so linters don't yell about unused import
     setTimeout(() => { lowSanity = 100; monsterEncs = 0; }, 500);
   }).observe(endOv, { attributes: true, attributeFilter: ['hidden', 'class'] });
 })();
+
+// ============================================================================
+// v2.7 BACK2D-011: Mobile tap-to-move waypoint — drop fading marker on tap;
+// expose window.__back2dWaypoint for AI/movement reads. Touch device only.
+// ============================================================================
+(function _r7Back2dMobileWaypoint() {
+  const isTouch = matchMedia('(hover:none)').matches || 'ontouchstart' in window;
+  if (!isTouch) return;
+  const c = document.querySelector('canvas');
+  if (!c) return;
+  let marker = null;
+  c.addEventListener('touchend', (e) => {
+    const t = e.changedTouches[0];
+    if (!t) return;
+    if (marker) marker.remove();
+    marker = document.createElement('div');
+    marker.style.cssText = `position:fixed;left:${t.clientX - 13}px;top:${t.clientY - 13}px;width:26px;height:26px;border:2px dashed #ff3aa1;border-radius:50%;pointer-events:none;z-index:55;animation:r7Back2dWp 1.6s ease-out forwards;`;
+    document.body.appendChild(marker);
+    setTimeout(() => { marker?.remove(); marker = null; }, 1700);
+    try {
+      const rect = c.getBoundingClientRect();
+      window.__back2dWaypoint = {
+        x: ((t.clientX - rect.left) / rect.width) * (c.width || rect.width),
+        y: ((t.clientY - rect.top) / rect.height) * (c.height || rect.height),
+        t: performance.now(),
+      };
+    } catch {}
+  }, { passive: true });
+  if (!document.getElementById('r7-back2d-wp-style')) {
+    const s = document.createElement('style');
+    s.id = 'r7-back2d-wp-style';
+    s.textContent = '@keyframes r7Back2dWp{0%{opacity:1;transform:scale(0.4) rotate(0)}100%{opacity:0;transform:scale(2.2) rotate(180deg)}}';
+    document.head.appendChild(s);
+  }
+})();
+
+// ============================================================================
+// v2.7 BACK2D-extra: Persistent blood-stain tally — every time the player
+// dies (end-overlay opens with red/death class), track a cumulative kill
+// count and show "RIP: N PUGS" on the start overlay. Encourages persistence.
+// ============================================================================
+(function _r7Back2dRipCount() {
+  const endOv = document.getElementById('overlay-end');
+  const startOv = document.getElementById('overlay-start') || document.getElementById('overlay');
+  if (!endOv || !startOv) return;
+  let count = parseInt(localStorage.getItem('back2d:ripCount') || '0', 10) || 0;
+  new MutationObserver(() => {
+    if (endOv.hidden) return;
+    const txt = (endOv.textContent || '').toUpperCase();
+    if (txt.includes('DIED') || txt.includes('CAUGHT') || txt.includes('GAME OVER') || txt.includes('YOU') || txt.match(/RIP|DEAD|FELL/)) {
+      count++;
+      try { localStorage.setItem('back2d:ripCount', String(count)); } catch {}
+    }
+  }).observe(endOv, { attributes: true, attributeFilter: ['hidden', 'class'] });
+  function showRip() {
+    if (startOv.hidden) return;
+    if (document.getElementById('r7-back2d-rip')) return;
+    if (count < 1) return;
+    const p = document.createElement('div');
+    p.id = 'r7-back2d-rip';
+    p.textContent = '🪦 RIP: ' + count + ' PUG' + (count === 1 ? '' : 'S') + ' LOST';
+    p.style.cssText = 'position:absolute;bottom:18px;left:50%;transform:translateX(-50%);background:rgba(40,8,8,0.92);color:#ff6b6b;border:1px solid #ff6b6b;font-family:"Press Start 2P",monospace;font-size:8px;padding:5px 10px;border-radius:3px;letter-spacing:1px;pointer-events:none;';
+    startOv.appendChild(p);
+  }
+  new MutationObserver(showRip).observe(startOv, { attributes: true, attributeFilter: ['hidden', 'class'] });
+  showRip();
+})();

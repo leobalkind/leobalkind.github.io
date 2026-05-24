@@ -76,6 +76,14 @@ const playWinChord = () => { try { audio?.playWinChord?.(); } catch {} };
 const playSwitchClick = () => { try { audio?.playSwitchClick?.(); } catch {} };
 const playSteam = (v) => { try { audio?.playSteam?.(v); } catch {} };
 const playDrip = () => { try { audio?.playDrip?.(); } catch {} };
+// v3 polish-round-3 additions:
+const playPaperPickup = () => { try { audio?.playPaperPickup?.(); } catch {} };
+const playMapBlip = () => { try { audio?.playMapBlip?.(); } catch {} };
+const playThrow = () => { try { audio?.playThrow?.(); } catch {} };
+const playRockClack = (vol, pan) => { try { audio?.playRockClack?.(vol, pan); } catch {} };
+const playStalkerStep = (pan) => { try { audio?.playStalkerStep?.(pan); } catch {} };
+const playCrouchRustle = () => { try { audio?.playCrouchRustle?.(); } catch {} };
+const playObjectiveDing = () => { try { audio?.playObjectiveDing?.(); } catch {} };
 
 // ---------------------------------------------------------------------------
 // SETTINGS MENU — wired the same way every other game does. The gear button
@@ -86,8 +94,8 @@ const _isTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
 createSettingsMenu({
   gameId: 'backrooms-3d',
   getControlsHelp: () => _isTouch
-    ? 'JOYSTICK walk · DRAG screen to look · SPRINT button to run · Find the red EXIT door.'
-    : 'WASD walk · SHIFT sprint · MOUSE look · ESC pause · Find the red EXIT door.',
+    ? 'JOYSTICK walk · DRAG to look · SPRINT/CROUCH/USE/THROW buttons · Find the red EXIT.'
+    : 'WASD walk · SHIFT sprint · C crouch · Q throw rock · E use · ESC pause · Find the red EXIT.',
 });
 
 // ---------------------------------------------------------------------------
@@ -126,6 +134,25 @@ const SANITY_RECOVER_LIGHT = 0.4;    // per second when standing under a fixture
 const CELLS_PER_LEVEL = 20;          // every N unique visited cells, advance level
 const HIDE_IMMUNITY_SEC = 7;         // closet hideout duration
 const HIDE_COOLDOWN_SEC = 25;        // before the same closet can be used again
+// v3 — stamina (sprint) drain/recovery rates. 100 stamina max.
+const STAMINA_MAX = 100;
+const STAMINA_DRAIN = 28;            // units per second sprinting
+const STAMINA_REGEN = 16;            // units per second standing / walking
+const STAMINA_REGEN_DELAY = 1.2;     // seconds after sprint stops before regen kicks in
+const STAMINA_SPRINT_MIN = 8;        // can't initiate sprint below this
+// v3 — crouch movement multiplier + camera height delta.
+const CROUCH_SPEED = 0.55;
+const CROUCH_HEIGHT_DROP = 0.55;    // metres dropped from PLAYER_H
+const CROUCH_FOOTSTEP_VOL = 0.35;   // multiplier for footstep audio
+// v3 — STALKER: a 4th monster that mimics player footsteps from offset behind.
+const STALKER_FOLLOW_DIST = 7;       // metres behind the player when stalking
+const STALKER_STEP_CADENCE_OFFSET = 0.15; // seconds; fires a fake step after each real one
+const STALKER_MIN_LEVEL = 1;         // doesn't appear in Lobby
+// v3 — throwable rocks: how many we can carry + how far they go.
+const ROCK_MAX_CARRY = 5;
+const ROCK_THROW_SPEED = 18;         // m/s
+const ROCK_GRAVITY = 12;             // m/s² (light — they arc gently)
+const ROCK_NOISE_RADIUS = 18;        // monster detects up to this dist
 
 // =============================================================================
 // LEVEL DEFINITIONS — each level paints the world differently. We swap
@@ -145,6 +172,10 @@ const LEVELS = [
     whisperChance: 0.15,          // chance to seed a far whisper
     chaserBonus: 0,               // hunt speed multiplier
     showSteam: false,
+    // v3 — per-level objective. The player completes it implicitly via
+    // tracked stats; we surface it on the HUD and the pause overlay.
+    objective: 'Walk 20 rooms to find the descent.',
+    objectiveKind: 'walk', objectiveTarget: 20,
   },
   // Level 1 — THE WAREHOUSE (concrete + crates, dim light)
   {
@@ -158,6 +189,8 @@ const LEVELS = [
     whisperChance: 0.25,
     chaserBonus: 0.4,
     showSteam: false,
+    objective: 'Collect 3 notes between the crates.',
+    objectiveKind: 'notes', objectiveTarget: 3,
   },
   // Level 2 — THE PIPES (rust, steam, dripping water)
   {
@@ -171,6 +204,8 @@ const LEVELS = [
     whisperChance: 0.35,
     chaserBonus: 0.8,
     showSteam: true,
+    objective: 'Flip 2 light switches to stabilise the grid.',
+    objectiveKind: 'switches', objectiveTarget: 2,
   },
   // Level 3 — THE VOID (almost pure dark; flashlight halo only)
   {
@@ -184,7 +219,32 @@ const LEVELS = [
     whisperChance: 0.50,
     chaserBonus: 1.0,
     showSteam: false,
+    objective: 'Find the red EXIT door and escape.',
+    objectiveKind: 'exit', objectiveTarget: 1,
   },
+];
+
+// =============================================================================
+// NOTE TEXTS — cryptic backstory snippets. Picked deterministically by cellRandom
+// so the same cell always yields the same note across regens. Kept short — they
+// appear in an overlay for 5s.
+// =============================================================================
+const NOTE_TEXTS = [
+  "Day 14. The hum doesn't stop. I think it's getting louder.",
+  "There are no doors. Only rooms. Only more rooms.",
+  "He smiles when the lights flicker. Don't look up.",
+  "The yellow is wrong. It was never this colour outside.",
+  "If you find this, you stayed too long. Go back.",
+  "Sanity is the price of looking back at the eyes.",
+  "I counted to four. Four floors. Four chances.",
+  "The closet saved me once. It will not save me twice.",
+  "Some of the footsteps aren't yours. Test them.",
+  "When the pipes scream, the lower one opens.",
+  "Below the void there is nothing. Above the void, also nothing.",
+  "The exit is red. Everything red is the exit. Almost.",
+  "We are not the first. We will not be the last.",
+  "Don't trust the silence. It is the loudest thing here.",
+  "The shadow is just you. Until it isn't.",
 ];
 
 // =============================================================================
@@ -557,6 +617,67 @@ function makeSwitchTexture(on) {
   g.fillRect(13, 33, 6, 4);
   return toTex(c);
 }
+// v3 — note paper texture (small folded-paper sprite on floor).
+function makeNoteTexture() {
+  const c = document.createElement('canvas'); c.width = 64; c.height = 64;
+  const g = c.getContext('2d');
+  g.clearRect(0, 0, 64, 64);
+  // Paper rectangle slightly skewed.
+  g.fillStyle = '#f4eccc';
+  g.beginPath();
+  g.moveTo(8, 14); g.lineTo(56, 12); g.lineTo(58, 54); g.lineTo(10, 56);
+  g.closePath(); g.fill();
+  g.strokeStyle = '#8a7a40'; g.lineWidth = 1; g.stroke();
+  // Folded crease line.
+  g.beginPath(); g.moveTo(8, 34); g.lineTo(58, 34); g.strokeStyle = '#c8b878'; g.stroke();
+  // Tiny ink-scratch glyphs.
+  g.fillStyle = '#3a2818';
+  for (let y = 18; y < 52; y += 5) {
+    for (let x = 12; x < 52; x += 4) {
+      if (Math.random() < 0.65) g.fillRect(x, y, 2, 1);
+    }
+  }
+  return toTex(c);
+}
+// v3 — rock texture (chunky pebble sprite).
+function makeRockTexture() {
+  const c = document.createElement('canvas'); c.width = 64; c.height = 64;
+  const g = c.getContext('2d');
+  g.clearRect(0, 0, 64, 64);
+  g.fillStyle = '#5a504a';
+  g.beginPath(); g.ellipse(32, 36, 22, 16, 0, 0, Math.PI * 2); g.fill();
+  // Highlight + dark spots.
+  g.fillStyle = '#8a7a70';
+  g.beginPath(); g.ellipse(24, 30, 8, 5, -0.3, 0, Math.PI * 2); g.fill();
+  g.fillStyle = '#2a201a';
+  g.beginPath(); g.arc(42, 40, 3, 0, Math.PI * 2); g.fill();
+  g.beginPath(); g.arc(20, 42, 2, 0, Math.PI * 2); g.fill();
+  return toTex(c);
+}
+// v3 — STALKER texture — eerie outline pug with no fill, just a chalk-white edge.
+function makeStalkerTexture() {
+  const c = document.createElement('canvas'); c.width = 256; c.height = 256;
+  const g = c.getContext('2d');
+  g.clearRect(0, 0, 256, 256);
+  // Pure outline silhouette — chalk-white edges only, fully transparent inside.
+  g.strokeStyle = 'rgba(220, 230, 245, 0.85)';
+  g.lineWidth = 2.5;
+  // Body
+  g.beginPath(); g.ellipse(128, 200, 68, 48, 0, 0, Math.PI * 2); g.stroke();
+  // Head
+  g.beginPath(); g.ellipse(128, 110, 70, 70, 0, 0, Math.PI * 2); g.stroke();
+  // Ears
+  g.beginPath(); g.moveTo(60, 70); g.lineTo(80, 100); g.lineTo(72, 50); g.closePath(); g.stroke();
+  g.beginPath(); g.moveTo(196, 70); g.lineTo(176, 100); g.lineTo(184, 50); g.closePath(); g.stroke();
+  // Tiny white pinprick eyes — barely there.
+  g.fillStyle = 'rgba(240, 250, 255, 0.95)';
+  g.fillRect(106, 102, 3, 3); g.fillRect(148, 102, 3, 3);
+  const tex = new THREE.CanvasTexture(c);
+  tex.magFilter = THREE.NearestFilter;
+  tex.minFilter = THREE.LinearMipMapLinearFilter;
+  tex.premultiplyAlpha = false;
+  return tex;
+}
 
 // Build all level texture sets ONCE up-front. We swap material maps on
 // level transition rather than rebuild canvases each time.
@@ -569,6 +690,8 @@ const TEXTURES = {
   exit:     makeExitDoorTexture(),
   switchOn: makeSwitchTexture(true),
   switchOff:makeSwitchTexture(false),
+  note:     makeNoteTexture(),
+  rock:     makeRockTexture(),
 };
 
 // =============================================================================
@@ -691,6 +814,17 @@ function generateRange(x0, y0, x1, y1) {
       if (cellRandom(x, y, 53) < 0.04) doodad = 'closet';
       else if (cellRandom(x, y, 59) < 0.06) doodad = 'switch';
       else if (cellRandom(x, y, 61) < 0.03) doodad = 'crate'; // only renders in warehouse
+      // v3 — additional floor-clutter doodads (mutually exclusive w/ above).
+      // Note papers (~3% per cell, scattered across all levels). They carry a
+      // deterministic text index so the same cell shows the same note across
+      // a regeneration sweep.
+      else if (cellRandom(x, y, 71) < 0.03) doodad = 'note';
+      // Rocks (~5% per cell, especially common in warehouse + pipes). The
+      // player picks them up to throw as monster distractions.
+      else if (cellRandom(x, y, 73) < 0.05) doodad = 'rock';
+      // Map snippets (~1.5% per cell). Rare-find collectible that briefly
+      // shows a mini-map overlay of the current visible area.
+      else if (cellRandom(x, y, 77) < 0.015) doodad = 'mapSnippet';
       // EXIT door is special: very rare seeds. We mark candidates; the actual
       // exit-door rendering is gated to LEVEL 4 ONLY so the player only sees
       // it once they've descended.
@@ -712,6 +846,13 @@ function generateRange(x0, y0, x1, y1) {
         doodad,
         exitCandidate,
         closetUsedAt: -1e9, // ts of last hide
+        // v3 — pickable doodad state. `pickedUp` survives across regeneration
+        // (we keep cell objects in `grid` forever once seen, so this is sticky).
+        // `noteIndex` is the deterministic backstory note this cell holds.
+        pickedUp: false,
+        noteIndex: Math.floor(cellRandom(x, y, 83) * NOTE_TEXTS.length),
+        // v3 — has a switch already been flipped (counts toward objective).
+        switchFlipped: false,
       });
     }
   }
@@ -870,6 +1011,48 @@ function buildCellGeometry(cell) {
     pipe.position.set(baseX, ROOM_H - 0.4, baseZ - 1.2);
     scene.add(pipe); group.extras.push(pipe);
   }
+  // v3 — Note paper sprite on floor. Skip if already collected.
+  if (cell.doodad === 'note' && !cell.pickedUp) {
+    const noteMat = new THREE.SpriteMaterial({ map: TEXTURES.note, fog: true, transparent: true, depthWrite: false });
+    const note = new THREE.Sprite(noteMat);
+    note.scale.set(0.45, 0.45, 1);
+    note.position.set(
+      baseX + (cellRandom(cell.x, cell.y, 81) - 0.5) * 1.6,
+      0.18,
+      baseZ + (cellRandom(cell.x, cell.y, 82) - 0.5) * 1.6,
+    );
+    scene.add(note); group.extras.push(note);
+    interactables.push({ mesh: note, kind: 'note', cellKey: cellKey(cell.x, cell.y) });
+  }
+  // v3 — Rock sprite on floor (pickable distraction). Skip if collected.
+  if (cell.doodad === 'rock' && !cell.pickedUp) {
+    const rockMat = new THREE.SpriteMaterial({ map: TEXTURES.rock, fog: true, transparent: true, depthWrite: false });
+    const rock = new THREE.Sprite(rockMat);
+    rock.scale.set(0.4, 0.4, 1);
+    rock.position.set(
+      baseX + (cellRandom(cell.x, cell.y, 85) - 0.5) * 1.8,
+      0.15,
+      baseZ + (cellRandom(cell.x, cell.y, 86) - 0.5) * 1.8,
+    );
+    scene.add(rock); group.extras.push(rock);
+    interactables.push({ mesh: rock, kind: 'rock', cellKey: cellKey(cell.x, cell.y) });
+  }
+  // v3 — Map snippet sprite. Re-uses the note texture but tinted blue.
+  if (cell.doodad === 'mapSnippet' && !cell.pickedUp) {
+    const mapMat = new THREE.SpriteMaterial({
+      map: TEXTURES.note, fog: true, transparent: true, depthWrite: false,
+      color: 0x80c0ff,
+    });
+    const m = new THREE.Sprite(mapMat);
+    m.scale.set(0.5, 0.5, 1);
+    m.position.set(
+      baseX + (cellRandom(cell.x, cell.y, 87) - 0.5) * 1.5,
+      0.22,
+      baseZ + (cellRandom(cell.x, cell.y, 88) - 0.5) * 1.5,
+    );
+    scene.add(m); group.extras.push(m);
+    interactables.push({ mesh: m, kind: 'mapSnippet', cellKey: cellKey(cell.x, cell.y) });
+  }
   // EXIT door — only on Level 3 (the VOID), only on exitCandidate cells.
   if (cell.exitCandidate && currentLevel === 3) {
     const wallSide = pickAvailableWallSide(cell);
@@ -919,9 +1102,22 @@ function disposeCellGeometry(key) {
   scene.remove(group.floor); group.floor.geometry.dispose();
   scene.remove(group.ceiling); group.ceiling.geometry.dispose();
   for (const w of group.walls) scene.remove(w);
-  for (const e of group.extras) scene.remove(e);
+  // v3 BUG FIX: extras include sprites (note/rock/map) with per-instance
+  // SpriteMaterial. Dispose them so we don't accumulate texture references on
+  // level changes. Also dispose any per-instance geometry on Mesh extras.
+  for (const e of group.extras) {
+    scene.remove(e);
+    if (e.geometry && e.geometry.dispose) {
+      try { e.geometry.dispose(); } catch {}
+    }
+    if (e.material && e.material.dispose && e.isSprite) {
+      // Only dispose for sprites — wall/closet/exit Meshes use shared materials.
+      try { e.material.dispose(); } catch {}
+    }
+  }
   const cell = grid.get(key);
   if (cell?.light) { scene.remove(cell.light); cell.light = null; }
+  if (cell) { cell.fixtureVisual = null; cell.fixtureMat = null; cell.switchMesh = null; }
   // Drop interactables in this cell.
   for (let i = interactables.length - 1; i >= 0; i--) {
     if (interactables[i].cellKey === key) interactables.splice(i, 1);
@@ -1035,6 +1231,27 @@ for (let i = 0; i < WHISPER_POOL; i++) {
   whispers.push({ sprite: sp, mat, active: false, lastWhisper: 0, staredAt: 0 });
 }
 
+// STALKER — 4th monster archetype. Follows the player from STALKER_FOLLOW_DIST
+// directly behind, mimicking footsteps slightly after each real player step.
+// Visible only when the player turns to look (chalk-outline sprite).
+// Doesn't catch the player physically — drains sanity when seen.
+const stalkerTex = makeStalkerTexture();
+const stalkerMat = new THREE.SpriteMaterial({
+  map: stalkerTex, fog: true, transparent: true, depthWrite: false, opacity: 0,
+});
+const stalkerSprite = new THREE.Sprite(stalkerMat);
+stalkerSprite.scale.set(1.9, 1.9, 1);
+stalkerSprite.position.set(0, MONSTER_HEIGHT / 2 + 0.2, 0);
+stalkerSprite.visible = false;
+scene.add(stalkerSprite);
+const stalker = {
+  active: false,
+  pos: new THREE.Vector3(0, 0, 0),
+  staredAt: 0,
+  pendingStep: 0,        // timestamp at which to fire a mimicked step
+  lastSeenByPlayer: 0,
+};
+
 // =============================================================================
 // COLLISION — simple cell-based AABB.
 // =============================================================================
@@ -1103,6 +1320,16 @@ const player = {
   hideUntil: -1e9,    // ts; monster-immune until this time
   isHidden: false,    // mirror for HUD/audio
   sprinting: false,
+  // v3 additions:
+  stamina: STAMINA_MAX,
+  staminaCooldown: 0,   // seconds until regen kicks back in
+  crouching: false,
+  rocks: 3,             // start with 3 rocks
+  notesCollected: 0,
+  mapsCollected: 0,
+  switchesFlipped: 0,
+  // Per-level lifetime tracking — index = level id, value = seconds alive on that level.
+  levelTime: [0, 0, 0, 0],
 };
 
 camera.position.copy(player.pos);
@@ -1143,8 +1370,15 @@ function applyLevel(lvl) {
   // cleanest way is to wipe rendered geometry — the next syncVisibleCells
   // call will rebuild with the new level-aware extras.
   for (const k of [...rendered]) { disposeCellGeometry(k); rendered.delete(k); }
+  // v3 BUG FIX: extra guard — make sure no orphan interactables survive a
+  // level swap. disposeCellGeometry already removes them, but if the prior
+  // applyLevel ran when a cell wasn't in `rendered` (rare race during init),
+  // an entry could linger.
+  interactables.length = 0;
   // HUD label.
   if (levelNameOut) levelNameOut.textContent = L.name;
+  // v3 — force HUD objective text to refresh on level change.
+  lastHudObj = '';
   // Audio + visuals.
   playLevelSting(lvl);
   flashElLevel?.classList.add('is-on');
@@ -1176,6 +1410,15 @@ window.addEventListener('keydown', (e) => {
   keys.add(k);
   if (k === 'escape') { if (gameState === 'play') pauseGame(); }
   if (k === 'e' || k === 'f') { if (gameState === 'play') tryInteract(); }
+  // v3 — Q throws a rock (if any in inventory).
+  if (k === 'q') { if (gameState === 'play') tryThrowRock(); }
+  // v3 — C toggles crouch (only while playing).
+  if (k === 'c') {
+    if (gameState === 'play') {
+      player.crouching = !player.crouching;
+      playCrouchRustle();
+    }
+  }
 });
 window.addEventListener('keyup', (e) => keys.delete((e.key || '').toLowerCase()));
 window.addEventListener('blur', () => keys.clear());
@@ -1213,11 +1456,23 @@ if (_isTouch) {
       // Pressed-and-held SPRINT — set the held flag while down.
       { id: 'sprint', label: 'SPRINT' },
       { id: 'use', label: 'USE' },
+      // v3 — crouch toggle + throw rock buttons.
+      { id: 'crouch', label: 'CROUCH' },
+      { id: 'throw', label: 'THROW' },
     ],
     onButton: (id, down) => {
       if (id === 'sprint') mobileSprintHeld = !!down;
       if (id === 'use' && down) {
         if (gameState === 'play') tryInteract();
+      }
+      if (id === 'crouch' && down) {
+        if (gameState === 'play') {
+          player.crouching = !player.crouching;
+          playCrouchRustle();
+        }
+      }
+      if (id === 'throw' && down) {
+        if (gameState === 'play') tryThrowRock();
       }
     },
   });
@@ -1291,9 +1546,21 @@ const levelBanner = document.getElementById('level-banner');
 const endDepth = document.getElementById('end-depth');
 const endLevel = document.getElementById('end-level');
 const endBest = document.getElementById('end-best');
+const endLevelStats = document.getElementById('end-level-stats');
 const startBestOut = document.getElementById('start-best');
 const winDepth = document.getElementById('win-depth');
 const winTime = document.getElementById('win-time');
+// v3 additions.
+const staminaFill = document.getElementById('hud-stamina');
+const staminaBar = staminaFill ? staminaFill.parentElement : null;
+const rockCount = document.getElementById('hud-rocks');
+const objectiveOut = document.getElementById('hud-objective');
+const noteOverlay = document.getElementById('note-overlay');
+const noteOverlayText = document.getElementById('note-overlay-text');
+const mapOverlay = document.getElementById('map-overlay');
+const mapCanvas = document.getElementById('map-canvas');
+const pauseObjective = document.getElementById('pause-objective');
+const crouchPill = document.getElementById('crouch-status');
 
 const best = loadBest('backrooms-3d');
 if (best && typeof best.depth === 'number') {
@@ -1308,6 +1575,17 @@ function startGame() {
   pauseOverlay.hidden = true;
   winOverlay.hidden = true;
   hudEl.hidden = false;
+  // v3 BUG FIX: hide note + map overlays (they may have lingered from prior run).
+  if (noteOverlay) { noteOverlay.hidden = true; noteOverlay.classList.remove('is-shown'); }
+  if (mapOverlay) { mapOverlay.hidden = true; mapOverlay.classList.remove('is-shown'); }
+  clearTimeout(noteHideTimer); clearTimeout(mapHideTimer);
+  // v3 BUG FIX: reset jumpscare/win flash DOM state so a restart from the
+  // end-card doesn't inherit a red/black overlay.
+  if (flashEl) { flashEl.classList.remove('is-on', 'is-red'); }
+  if (flashElWin) {
+    flashElWin.style.opacity = '0';
+    flashElWin.style.background = '#fff';
+  }
   // Reset player.
   player.pos.set(CELL / 2, PLAYER_H, CELL / 2);
   player.yaw = 0; player.pitch = 0;
@@ -1317,6 +1595,41 @@ function startGame() {
   player.deepestCell = 0;
   player.hideUntil = -1e9;
   player.isHidden = false;
+  // v3 — reset stamina/crouch/inventory/objectives.
+  player.stamina = STAMINA_MAX;
+  player.staminaCooldown = 0;
+  player.crouching = false;
+  player.rocks = 3;
+  player.notesCollected = 0;
+  player.mapsCollected = 0;
+  player.switchesFlipped = 0;
+  player.levelTime = [0, 0, 0, 0];
+  for (let i = 0; i < levelObjectiveMet.length; i++) levelObjectiveMet[i] = false;
+  // v3 BUG FIX — clear stalker state + sprite. Without this, the chalk
+  // sprite remained visible after restart.
+  stalkerActivatedThisLevel = -1;
+  stalker.active = false;
+  stalker.staredAt = 0;
+  stalker.pendingStep = 0;
+  stalkerSprite.visible = false;
+  stalkerMat.opacity = 0;
+  // v3 BUG FIX — clear any rocks-in-flight from the prior run.
+  for (const r of rocksInFlight) {
+    scene.remove(r.sprite);
+    try { r.mat.dispose(); } catch {}
+  }
+  rocksInFlight.length = 0;
+  // v3 BUG FIX — reset all grid cells' `pickedUp` flag so notes/rocks
+  // collected in prior runs reappear. Switches also reset to "unflipped"
+  // for objective re-tracking; the per-cell `closetUsedAt` is reset so the
+  // cooldown timer doesn't carry across runs.
+  for (const cell of grid.values()) {
+    cell.pickedUp = false;
+    cell.switchFlipped = false;
+    cell.closetUsedAt = -1e9;
+    cell.fixtureOn = true;
+    cell.lightOverride = null;
+  }
   // Reset level.
   applyLevel(0);
   // Reset monster.
@@ -1331,6 +1644,11 @@ function startGame() {
   // Reset win/jumpscare.
   jumpscaring = false; jumpscarePhase = 'none';
   winSequencePhase = 'none'; winSequenceT = 0;
+  // v3 BUG FIX: restore camera FOV in case the jumpscare/win cutscene left
+  // it pulled-in. Otherwise restarting after a death keeps the zoom.
+  camera.fov = _tunnelZoomBaseFov;
+  camera.updateProjectionMatrix();
+  _tunnelZoomT = 0;
   if (!_isTouch) {
     renderer.domElement.requestPointerLock();
   }
@@ -1348,6 +1666,19 @@ function pauseGame() {
   document.exitPointerLock?.();
   playAmbience(0);
   playSteam(0);
+  // v3 — populate pause-menu objective recap with current-level objective.
+  if (pauseObjective) {
+    const L = LEVELS[currentLevel];
+    let progress = 0;
+    if (L.objectiveKind === 'walk') progress = Math.min(L.objectiveTarget, player.visitedCells.size);
+    else if (L.objectiveKind === 'notes') progress = player.notesCollected;
+    else if (L.objectiveKind === 'switches') progress = player.switchesFlipped;
+    const status = levelObjectiveMet[currentLevel]
+      ? '<b style="color:#5ef38c">COMPLETE</b>'
+      : (L.objectiveKind === 'exit' ? 'open' : `<b>${progress}/${L.objectiveTarget}</b>`);
+    pauseObjective.innerHTML = `<div class="pause-obj-row"><span>LEVEL ${currentLevel + 1} — ${L.name}</span>${status}</div>` +
+                               `<div class="pause-obj-detail">${L.objective}</div>`;
+  }
 }
 
 function resumeGame() {
@@ -1367,6 +1698,23 @@ function endGame(reason) {
   gameState = 'dead';
   document.body.classList.remove('is-playing');
   document.exitPointerLock?.();
+  // v3 BUG FIX: clean up ALL monster visuals so end-card isn't covered by a
+  // half-faded shadow or whisper, and the stalker outline disappears.
+  for (const sh of shadows) { sh.active = false; sh.sprite.visible = false; sh.mat.opacity = 0; }
+  for (const wp of whispers) { wp.active = false; wp.sprite.visible = false; wp.mat.opacity = 0; }
+  stalker.active = false;
+  stalkerSprite.visible = false;
+  stalkerMat.opacity = 0;
+  // Stop drift/ticking of in-flight rocks (no audio mid-end-card).
+  for (const r of rocksInFlight) {
+    scene.remove(r.sprite);
+    try { r.mat.dispose(); } catch {}
+  }
+  rocksInFlight.length = 0;
+  // v3 BUG FIX — hide overlay panels left over from collectibles.
+  if (noteOverlay) { noteOverlay.hidden = true; noteOverlay.classList.remove('is-shown'); }
+  if (mapOverlay) { mapOverlay.hidden = true; mapOverlay.classList.remove('is-shown'); }
+  clearTimeout(noteHideTimer); clearTimeout(mapHideTimer);
   const depth = player.visitedCells.size;
   const level = currentLevel;
   endDepth.textContent = String(depth);
@@ -1379,6 +1727,21 @@ function endGame(reason) {
   } else {
     title.textContent = 'LOST';
     sub.textContent = 'Your sanity gave out. The yellow walls won.';
+  }
+  // v3 — per-level stats summary.
+  if (endLevelStats) {
+    const rows = [];
+    for (let i = 0; i < LEVELS.length; i++) {
+      const t = player.levelTime[i] || 0;
+      if (t < 0.5 && i > currentLevel) continue; // skip never-reached
+      const mm = String(Math.floor(t / 60)).padStart(2, '0');
+      const ss = String(Math.floor(t % 60)).padStart(2, '0');
+      rows.push(`<li>${LEVELS[i].name} &middot; <b>${mm}:${ss}</b></li>`);
+    }
+    rows.push(`<li>Notes found: <b>${player.notesCollected}</b></li>`);
+    rows.push(`<li>Maps used: <b>${player.mapsCollected}</b></li>`);
+    rows.push(`<li>Switches flipped: <b>${player.switchesFlipped}</b></li>`);
+    endLevelStats.innerHTML = rows.join('');
   }
   const run = { depth, level, score: depth, ts: Date.now() };
   const result = submitRun('backrooms-3d', run, (a, b) => (b.depth || 0) - (a.depth || 0));
@@ -1394,6 +1757,21 @@ function winGame() {
   gameState = 'win';
   document.body.classList.remove('is-playing');
   document.exitPointerLock?.();
+  // v3 BUG FIX: clean up all monster visuals — same as endGame. Otherwise
+  // the win overlay shows with a faded shadow/whisper visible behind it.
+  for (const sh of shadows) { sh.active = false; sh.sprite.visible = false; sh.mat.opacity = 0; }
+  for (const wp of whispers) { wp.active = false; wp.sprite.visible = false; wp.mat.opacity = 0; }
+  stalker.active = false;
+  stalkerSprite.visible = false;
+  stalkerMat.opacity = 0;
+  for (const r of rocksInFlight) {
+    scene.remove(r.sprite);
+    try { r.mat.dispose(); } catch {}
+  }
+  rocksInFlight.length = 0;
+  if (noteOverlay) { noteOverlay.hidden = true; noteOverlay.classList.remove('is-shown'); }
+  if (mapOverlay) { mapOverlay.hidden = true; mapOverlay.classList.remove('is-shown'); }
+  clearTimeout(noteHideTimer); clearTimeout(mapHideTimer);
   const depth = player.visitedCells.size;
   const elapsed = Math.floor(performance.now() / 1000 - runStartTs);
   const mm = String(Math.floor(elapsed / 60)).padStart(2, '0');
@@ -1429,7 +1807,21 @@ const _rayOrigin = new THREE.Vector3();
 const _rayDir = new THREE.Vector3();
 function findInteractable() {
   if (interactables.length === 0) return null;
-  _rayOrigin.set(player.pos.x, PLAYER_H, player.pos.z);
+  // v3 — floor pickups (note/rock/map) live near the player's feet — a normal
+  // forward-only raycast misses them when the player looks straight ahead. So
+  // we ALSO do a 2m-radius proximity check for kinds that are floor-laid.
+  // Wall-mounted items (closet/switch/exit) still use the directional raycast.
+  let bestProx = null, bestProxDist = 2.0;
+  for (const it of interactables) {
+    if (it.kind !== 'note' && it.kind !== 'rock' && it.kind !== 'mapSnippet') continue;
+    const dx = it.mesh.position.x - player.pos.x;
+    const dz = it.mesh.position.z - player.pos.z;
+    const d = Math.hypot(dx, dz);
+    if (d < bestProxDist) { bestProxDist = d; bestProx = it; }
+  }
+  // Wall-mounted directional raycast.
+  const eyeY = PLAYER_H - (player.crouching ? CROUCH_HEIGHT_DROP : 0);
+  _rayOrigin.set(player.pos.x, eyeY, player.pos.z);
   _rayDir.set(
     Math.cos(player.pitch) * -Math.sin(player.yaw),
     Math.sin(player.pitch),
@@ -1437,13 +1829,27 @@ function findInteractable() {
   ).normalize();
   _ray.set(_rayOrigin, _rayDir);
   _ray.far = 2.5;
-  const meshes = interactables.map(i => i.mesh);
-  const hits = _ray.intersectObjects(meshes, false);
-  if (hits.length === 0) return null;
-  const m = hits[0].object;
-  return interactables.find(i => i.mesh === m) || null;
+  const wallMeshes = interactables
+    .filter(i => i.kind === 'closet' || i.kind === 'switch' || i.kind === 'exit')
+    .map(i => i.mesh);
+  const hits = _ray.intersectObjects(wallMeshes, false);
+  let bestRay = null;
+  if (hits.length > 0) {
+    const m = hits[0].object;
+    bestRay = interactables.find(i => i.mesh === m) || null;
+  }
+  // Prefer wall-mounted (because the player explicitly aimed at it) unless a
+  // floor pickup is much closer (< 1.2m — they're literally on top of it).
+  if (bestRay && bestProx) {
+    return bestProxDist < 1.2 ? bestProx : bestRay;
+  }
+  return bestRay || bestProx;
 }
 function tryInteract() {
+  // v3 BUG FIX: never run interact logic outside of 'play'. Without this guard,
+  // a stuck click event late in the WIN/DEAD pipeline could re-trigger the win
+  // cutscene or hide the player mid-end-card.
+  if (gameState !== 'play') return;
   const target = findInteractable();
   if (!target) return;
   const cell = grid.get(target.cellKey);
@@ -1451,6 +1857,9 @@ function tryInteract() {
   if (target.kind === 'closet') {
     // Cooldown check.
     if (now() - cell.closetUsedAt < HIDE_COOLDOWN_SEC) return;
+    // v3 BUG FIX: don't allow re-hiding while already hidden — was permitted
+    // before, resulting in stuck states where the player could hide forever.
+    if (player.isHidden) return;
     cell.closetUsedAt = now();
     player.hideUntil = now() + HIDE_IMMUNITY_SEC;
     player.isHidden = true;
@@ -1464,13 +1873,58 @@ function tryInteract() {
     // Swap the panel texture.
     if (cell.switchMesh) cell.switchMesh.material = cell.fixtureOn ? switchOnMat : switchOffMat;
     playSwitchClick();
+    // v3 — count toward Level 2 objective (only first flip per switch counts).
+    if (!cell.switchFlipped) {
+      cell.switchFlipped = true;
+      player.switchesFlipped++;
+      checkObjectiveProgress();
+    }
   } else if (target.kind === 'exit') {
     // EXIT — only valid on Level 4 (currentLevel === 3).
     if (currentLevel === 3) beginWinSequence();
+  } else if (target.kind === 'note') {
+    // v3 — pick up note: mark consumed, show overlay text, remove from scene.
+    if (cell.pickedUp) return;
+    cell.pickedUp = true;
+    showNote(NOTE_TEXTS[cell.noteIndex] || NOTE_TEXTS[0]);
+    removeInteractableMesh(target);
+    player.notesCollected++;
+    playPaperPickup();
+    checkObjectiveProgress();
+  } else if (target.kind === 'rock') {
+    // v3 — pick up rock; cap inventory at ROCK_MAX_CARRY.
+    if (cell.pickedUp) return;
+    if (player.rocks >= ROCK_MAX_CARRY) return;
+    cell.pickedUp = true;
+    removeInteractableMesh(target);
+    player.rocks++;
+    playRockClack(0.3, 0);
+  } else if (target.kind === 'mapSnippet') {
+    if (cell.pickedUp) return;
+    cell.pickedUp = true;
+    removeInteractableMesh(target);
+    player.mapsCollected++;
+    showMapOverlay();
+    playMapBlip();
   }
+}
+// v3 helper — drops an interactable mesh from the scene + the lookup array.
+function removeInteractableMesh(item) {
+  if (!item || !item.mesh) return;
+  scene.remove(item.mesh);
+  if (item.mesh.material && item.mesh.material.dispose) {
+    // Sprite materials are shared (texture) — only dispose the per-sprite
+    // material instance, not the texture map.
+    try { item.mesh.material.dispose(); } catch {}
+  }
+  const idx = interactables.indexOf(item);
+  if (idx !== -1) interactables.splice(idx, 1);
 }
 
 function beginWinSequence() {
+  // v3 BUG FIX: state machine must not allow re-entry once 'winning' or 'win'
+  // is set. Previously a stray E press while the white flash was active could
+  // call beginWinSequence again, restarting the timer mid-cutscene.
   if (gameState !== 'play') return;
   gameState = 'winning';
   document.body.classList.remove('is-playing');
@@ -1479,6 +1933,98 @@ function beginWinSequence() {
   winSequencePhase = 'opening';
   winSequenceTotal = 0;
   playWinChord();
+}
+
+// =============================================================================
+// v3 — THROWN ROCKS: simple ballistic projectile pool. Each rock arcs forward
+// from the camera + gravity, then on first wall/floor hit fires a noise event
+// that attracts the chaser monster.
+// =============================================================================
+const ROCK_POOL = 8;
+const rocksInFlight = [];
+const rockTexFly = TEXTURES.rock;
+function tryThrowRock() {
+  if (gameState !== 'play') return;
+  if (player.rocks <= 0) return;
+  player.rocks--;
+  playThrow();
+  // Spawn sprite + ballistic state.
+  const mat = new THREE.SpriteMaterial({ map: rockTexFly, fog: true, transparent: true, depthWrite: false });
+  const spr = new THREE.Sprite(mat);
+  spr.scale.set(0.32, 0.32, 1);
+  const eyeY = PLAYER_H - (player.crouching ? CROUCH_HEIGHT_DROP : 0);
+  spr.position.set(player.pos.x, eyeY - 0.1, player.pos.z);
+  scene.add(spr);
+  // Velocity from camera-look direction. Add a small upward bias for arc.
+  const lookX = Math.cos(player.pitch) * -Math.sin(player.yaw);
+  const lookY = Math.sin(player.pitch);
+  const lookZ = Math.cos(player.pitch) * -Math.cos(player.yaw);
+  rocksInFlight.push({
+    sprite: spr, mat,
+    pos: spr.position,
+    vel: new THREE.Vector3(
+      lookX * ROCK_THROW_SPEED,
+      lookY * ROCK_THROW_SPEED + 1.5,
+      lookZ * ROCK_THROW_SPEED,
+    ),
+    ttl: 4.0,
+    landed: false,
+  });
+  if (rocksInFlight.length > ROCK_POOL) {
+    // Drop oldest if we exceed the pool to keep allocations bounded.
+    const oldest = rocksInFlight.shift();
+    scene.remove(oldest.sprite);
+    try { oldest.mat.dispose(); } catch {}
+  }
+}
+function tickRocks(dt) {
+  for (let i = rocksInFlight.length - 1; i >= 0; i--) {
+    const r = rocksInFlight[i];
+    r.ttl -= dt;
+    if (!r.landed) {
+      // Apply gravity + step.
+      r.vel.y -= ROCK_GRAVITY * dt;
+      const nx = r.pos.x + r.vel.x * dt;
+      const ny = r.pos.y + r.vel.y * dt;
+      const nz = r.pos.z + r.vel.z * dt;
+      // Floor collision.
+      if (ny < 0.1) {
+        r.pos.set(nx, 0.1, nz);
+        landRock(r);
+      } else {
+        // Wall collision via existing collideMove (treat as a tiny radius).
+        const [px, pz] = collideMove(r.pos.x, r.pos.z, r.vel.x * dt, r.vel.z * dt);
+        const blocked = Math.abs(px - (r.pos.x + r.vel.x * dt)) > 0.001
+                     || Math.abs(pz - (r.pos.z + r.vel.z * dt)) > 0.001;
+        r.pos.set(px, ny, pz);
+        if (blocked) landRock(r);
+      }
+    }
+    if (r.ttl <= 0) {
+      scene.remove(r.sprite);
+      try { r.mat.dispose(); } catch {}
+      rocksInFlight.splice(i, 1);
+    }
+  }
+}
+function landRock(rock) {
+  if (rock.landed) return;
+  rock.landed = true;
+  rock.vel.set(0, 0, 0);
+  // Audio clack with stereo pan + monster distract.
+  const dx = rock.pos.x - player.pos.x;
+  const dz = rock.pos.z - player.pos.z;
+  const dist = Math.hypot(dx, dz);
+  const screenSpaceX = Math.atan2(dz, dx) - player.yaw;
+  const panX = Math.sin(screenSpaceX);
+  playRockClack(Math.min(1, 0.5 + 0.3 / Math.max(1, dist / 6)), panX);
+  // Chaser distraction — if within radius, redirect wander target to landing spot.
+  const md = Math.hypot(monsterState.pos.x - rock.pos.x, monsterState.pos.z - rock.pos.z);
+  if (md < ROCK_NOISE_RADIUS) {
+    monsterState.wanderTarget = { x: rock.pos.x, z: rock.pos.z };
+    // Mark as recently "heard" so the chaser commits to it briefly.
+    monsterState.lastSeenAt = now();
+  }
 }
 
 // =============================================================================
@@ -1518,6 +2064,10 @@ function loop(nowMs) {
 
 function tickPlay(dt) {
   totalElapsed += dt;
+  // v3 — track per-level alive time. Index by currentLevel.
+  if (currentLevel >= 0 && currentLevel < player.levelTime.length) {
+    player.levelTime[currentLevel] += dt;
+  }
   // ---- Input → desired velocity ----
   const fwd = (keys.has('w') || keys.has('arrowup')) ? 1 : 0;
   const back = (keys.has('s') || keys.has('arrowdown')) ? 1 : 0;
@@ -1528,10 +2078,28 @@ function tickPlay(dt) {
   if (_isTouch && mcMove.mag > 0.05) {
     mx = mcMove.x; my = mcMove.y;
   }
-  // Sprint multiplier — shift key on desktop OR sprint button on mobile.
+  // ---- Sprint + stamina + crouch ----
+  const inputMagRaw = Math.hypot(mx, my);
   const sprintHeld = keys.has('shift') || mobileSprintHeld;
-  player.sprinting = sprintHeld && Math.hypot(mx, my) > 0.1;
-  const speed = WALK_SPEED * (player.sprinting ? SPRINT_MULT : 1);
+  // Sprint requires stamina above the minimum AND not crouching.
+  // While sprinting, stamina drains; if it bottoms out, sprint is locked out
+  // until it regenerates above the min threshold.
+  const canSprint = !player.crouching
+                  && inputMagRaw > 0.1
+                  && player.stamina > 0;
+  player.sprinting = sprintHeld && canSprint && player.stamina > (player.sprinting ? 0 : STAMINA_SPRINT_MIN);
+  if (player.sprinting) {
+    player.stamina = Math.max(0, player.stamina - STAMINA_DRAIN * dt);
+    player.staminaCooldown = STAMINA_REGEN_DELAY;
+  } else {
+    if (player.staminaCooldown > 0) player.staminaCooldown = Math.max(0, player.staminaCooldown - dt);
+    else player.stamina = Math.min(STAMINA_MAX, player.stamina + STAMINA_REGEN * dt);
+  }
+  // Crouch slows you down + makes footsteps quieter.
+  const speedMult = player.crouching ? CROUCH_SPEED
+                  : player.sprinting ? SPRINT_MULT
+                  : 1.0;
+  const speed = WALK_SPEED * speedMult;
   const cs = Math.cos(player.yaw), sn = Math.sin(player.yaw);
   let vx = (-sn * (-my)) + (cs * mx);
   let vz = (-cs * (-my)) + (-sn * mx);
@@ -1542,16 +2110,24 @@ function tickPlay(dt) {
   const moved = Math.hypot(nx - player.pos.x, nz - player.pos.z);
   player.pos.x = nx; player.pos.z = nz;
   if (moved > 0.001) {
-    player.walkTime += dt * (player.sprinting ? 11 : 8);
-    player.walkBob = Math.sin(player.walkTime) * (player.sprinting ? 0.06 : 0.04);
-    if (now() - player.lastFootstep > (player.sprinting ? 0.22 : 0.35)) {
-      playFootstep(moved / dt / WALK_SPEED);
+    player.walkTime += dt * (player.sprinting ? 11 : player.crouching ? 5 : 8);
+    player.walkBob = Math.sin(player.walkTime) * (player.sprinting ? 0.06 : player.crouching ? 0.02 : 0.04);
+    const stepInterval = player.sprinting ? 0.22 : player.crouching ? 0.52 : 0.35;
+    if (now() - player.lastFootstep > stepInterval) {
+      const vol = (moved / dt / WALK_SPEED) * (player.crouching ? CROUCH_FOOTSTEP_VOL : 1);
+      playFootstep(vol);
       player.lastFootstep = now();
+      // v3 — STALKER mimicry: schedule a fake step a moment later.
+      if (stalker.active && !player.crouching) {
+        stalker.pendingStep = now() + STALKER_STEP_CADENCE_OFFSET;
+      }
     }
   } else {
     player.walkBob *= 0.85;
   }
-  camera.position.set(player.pos.x, PLAYER_H + player.walkBob, player.pos.z);
+  // v3 — eye height accounts for crouch.
+  const eyeY = PLAYER_H - (player.crouching ? CROUCH_HEIGHT_DROP : 0);
+  camera.position.set(player.pos.x, eyeY + player.walkBob, player.pos.z);
   const lookX = Math.cos(player.pitch) * -Math.sin(player.yaw);
   const lookY = Math.sin(player.pitch);
   const lookZ = Math.cos(player.pitch) * -Math.cos(player.yaw);
@@ -1569,6 +2145,8 @@ function tickPlay(dt) {
     // Level-progression check.
     const newLevel = Math.min(LEVELS.length - 1, Math.floor(player.deepestCell / CELLS_PER_LEVEL));
     if (newLevel > currentLevel) applyLevel(newLevel);
+    // v3 — Lobby/walk objective progresses with each new cell.
+    checkObjectiveProgress();
   }
   expandIfNeeded(cx, cy);
   syncVisibleCells(cx, cy);
@@ -1576,6 +2154,8 @@ function tickPlay(dt) {
   tickMonster(dt);
   tickShadows(dt);
   tickWhispers(dt);
+  tickStalker(dt);
+  tickRocks(dt);
   tickDistantSounds(dt);
   tickSanity(dt);
   tickInteractPrompt();
@@ -1849,6 +2429,81 @@ function spawnWhisper() {
 }
 
 // =============================================================================
+// STALKER — 4th monster archetype. Stays STALKER_FOLLOW_DIST behind the player,
+// mimicking footsteps with a slight offset. Only visible when the player turns
+// around (chalk-outline sprite). Cannot catch the player; drains sanity when
+// looked at directly.
+//
+// Activation: spawns on Level 2+ once the player has walked >=12 cells on
+// that level. Single instance per game.
+// =============================================================================
+let stalkerActivatedThisLevel = -1;
+function tickStalker(dt) {
+  // Activation gate.
+  if (currentLevel >= STALKER_MIN_LEVEL
+      && stalkerActivatedThisLevel !== currentLevel
+      && player.visitedCells.size > 12) {
+    stalkerActivatedThisLevel = currentLevel;
+    stalker.active = true;
+    // Spawn directly behind player.
+    const behindX = player.pos.x + Math.sin(player.yaw) * STALKER_FOLLOW_DIST;
+    const behindZ = player.pos.z + Math.cos(player.yaw) * STALKER_FOLLOW_DIST;
+    stalker.pos.set(behindX, MONSTER_HEIGHT / 2 + 0.2, behindZ);
+    stalkerSprite.position.copy(stalker.pos);
+    stalkerSprite.visible = true;
+    stalker.staredAt = 0;
+  }
+  if (!stalker.active) return;
+  // Compute desired position: STALKER_FOLLOW_DIST directly behind the player.
+  const behindX = player.pos.x + Math.sin(player.yaw) * STALKER_FOLLOW_DIST;
+  const behindZ = player.pos.z + Math.cos(player.yaw) * STALKER_FOLLOW_DIST;
+  // Only teleport-relocate if the player can't see the current position OR
+  // if we're way too far behind (e.g., player ran fast).
+  const fwdX = -Math.sin(player.yaw);
+  const fwdZ = -Math.cos(player.yaw);
+  const dx = stalker.pos.x - player.pos.x;
+  const dz = stalker.pos.z - player.pos.z;
+  const distToPlayer = Math.hypot(dx, dz);
+  const dotFwd = (dx / Math.max(0.001, distToPlayer)) * fwdX + (dz / Math.max(0.001, distToPlayer)) * fwdZ;
+  const playerCanSee = dotFwd > 0.5; // roughly in front of player
+  // If player can't see us OR we're too far, snap to "behind".
+  if (!playerCanSee || distToPlayer > STALKER_FOLLOW_DIST * 2.5) {
+    // Validate target cell is inside the grid before snapping.
+    const tc = grid.get(cellKey(Math.floor(behindX / CELL), Math.floor(behindZ / CELL)));
+    if (tc) stalker.pos.set(behindX, MONSTER_HEIGHT / 2 + 0.2, behindZ);
+  } else {
+    // Gentle drift toward the target (so it doesn't pop).
+    stalker.pos.x += (behindX - stalker.pos.x) * Math.min(1, dt * 1.5);
+    stalker.pos.z += (behindZ - stalker.pos.z) * Math.min(1, dt * 1.5);
+  }
+  stalkerSprite.position.set(stalker.pos.x, MONSTER_HEIGHT / 2 + 0.2, stalker.pos.z);
+  // Fire delayed footstep mimic.
+  if (stalker.pendingStep > 0 && now() >= stalker.pendingStep) {
+    stalker.pendingStep = 0;
+    // Stereo pan based on stalker position relative to player view.
+    const screenSpaceX = Math.atan2(stalker.pos.z - player.pos.z, stalker.pos.x - player.pos.x) - player.yaw;
+    const panX = Math.sin(screenSpaceX);
+    playStalkerStep(panX);
+  }
+  // Visibility + opacity tied to whether the player looks back.
+  if (playerCanSee && hasLineOfSight(player.pos.x, player.pos.z, stalker.pos.x, stalker.pos.z)) {
+    stalkerMat.opacity = Math.min(0.7, stalkerMat.opacity + dt * 1.5);
+    // Stare-drain sanity if dead-centre.
+    if (dotFwd > 0.92) {
+      stalker.staredAt += dt;
+      if (stalker.staredAt > 0.8) {
+        player.sanity = Math.max(0, player.sanity - SANITY_DRAIN_STARE * 0.6 * dt);
+      }
+    } else {
+      stalker.staredAt = Math.max(0, stalker.staredAt - dt * 1.5);
+    }
+  } else {
+    stalkerMat.opacity = Math.max(0, stalkerMat.opacity - dt * 3);
+    stalker.staredAt = Math.max(0, stalker.staredAt - dt * 2);
+  }
+}
+
+// =============================================================================
 // DISTANT SOUNDS — periodically fire a random door slam or distant cry from
 // "another room" to keep the player on edge.
 // =============================================================================
@@ -1988,6 +2643,101 @@ function tickSanity(dt) {
 }
 
 // =============================================================================
+// v3 — OBJECTIVES, NOTES, MAP OVERLAY
+// =============================================================================
+// Per-level objective progress check. Sets `levelObjectiveMet[lvl] = true`
+// once the target is reached. We fire `playObjectiveDing` + a tiny HUD pulse
+// the first time each level is satisfied.
+const levelObjectiveMet = [false, false, false, false];
+function checkObjectiveProgress() {
+  const L = LEVELS[currentLevel];
+  if (!L || levelObjectiveMet[currentLevel]) return;
+  let progress = 0;
+  if (L.objectiveKind === 'walk') progress = player.visitedCells.size;
+  else if (L.objectiveKind === 'notes') progress = player.notesCollected;
+  else if (L.objectiveKind === 'switches') progress = player.switchesFlipped;
+  else if (L.objectiveKind === 'exit') progress = 0; // satisfied only on win
+  if (progress >= L.objectiveTarget) {
+    levelObjectiveMet[currentLevel] = true;
+    playObjectiveDing();
+    // Visual ping on the objective HUD chip.
+    if (objectiveOut) {
+      objectiveOut.classList.add('is-met');
+      setTimeout(() => objectiveOut?.classList.remove('is-met'), 1800);
+    }
+  }
+}
+
+// Show a note's text in the centre overlay for ~5 seconds.
+let noteHideTimer = 0;
+function showNote(text) {
+  if (!noteOverlay) return;
+  noteOverlayText.textContent = text;
+  noteOverlay.hidden = false;
+  noteOverlay.classList.add('is-shown');
+  clearTimeout(noteHideTimer);
+  noteHideTimer = setTimeout(() => {
+    noteOverlay?.classList.remove('is-shown');
+    setTimeout(() => { if (noteOverlay) noteOverlay.hidden = true; }, 400);
+  }, 5000);
+}
+
+// Show a mini-map overlay for ~4 seconds. We render a 2D canvas snapshot of
+// the currently-visible cells around the player.
+let mapHideTimer = 0;
+function showMapOverlay() {
+  if (!mapOverlay || !mapCanvas) return;
+  drawMiniMap();
+  mapOverlay.hidden = false;
+  mapOverlay.classList.add('is-shown');
+  clearTimeout(mapHideTimer);
+  mapHideTimer = setTimeout(() => {
+    mapOverlay?.classList.remove('is-shown');
+    setTimeout(() => { if (mapOverlay) mapOverlay.hidden = true; }, 400);
+  }, 4000);
+}
+function drawMiniMap() {
+  const ctx2d = mapCanvas.getContext('2d');
+  const W = mapCanvas.width, H = mapCanvas.height;
+  ctx2d.fillStyle = '#0a0806';
+  ctx2d.fillRect(0, 0, W, H);
+  // Each cell is 8px square.
+  const px = 8;
+  const ppc = { cx: Math.floor(player.pos.x / CELL), cy: Math.floor(player.pos.z / CELL) };
+  const cols = Math.floor(W / px), rows = Math.floor(H / px);
+  const ox = ppc.cx - Math.floor(cols / 2);
+  const oy = ppc.cy - Math.floor(rows / 2);
+  for (let r = 0; r < rows; r++) {
+    for (let cc = 0; cc < cols; cc++) {
+      const cell = grid.get(cellKey(ox + cc, oy + r));
+      if (!cell) continue;
+      const X = cc * px, Y = r * px;
+      // Floor tile color depends on whether visited.
+      const visited = player.visitedCells.has(cellKey(ox + cc, oy + r));
+      ctx2d.fillStyle = visited ? '#3a3220' : '#1a1408';
+      ctx2d.fillRect(X + 1, Y + 1, px - 2, px - 2);
+      // Walls.
+      ctx2d.strokeStyle = '#c8a040'; ctx2d.lineWidth = 1;
+      if (cell.walls.N) { ctx2d.beginPath(); ctx2d.moveTo(X, Y); ctx2d.lineTo(X + px, Y); ctx2d.stroke(); }
+      if (cell.walls.S) { ctx2d.beginPath(); ctx2d.moveTo(X, Y + px); ctx2d.lineTo(X + px, Y + px); ctx2d.stroke(); }
+      if (cell.walls.W) { ctx2d.beginPath(); ctx2d.moveTo(X, Y); ctx2d.lineTo(X, Y + px); ctx2d.stroke(); }
+      if (cell.walls.E) { ctx2d.beginPath(); ctx2d.moveTo(X + px, Y); ctx2d.lineTo(X + px, Y + px); ctx2d.stroke(); }
+    }
+  }
+  // Player dot — bright yellow, centred.
+  const X = Math.floor(cols / 2) * px + px / 2;
+  const Y = Math.floor(rows / 2) * px + px / 2;
+  ctx2d.fillStyle = '#ffd23f';
+  ctx2d.beginPath(); ctx2d.arc(X, Y, 3, 0, Math.PI * 2); ctx2d.fill();
+  // Heading arrow.
+  ctx2d.strokeStyle = '#ffd23f'; ctx2d.lineWidth = 2;
+  ctx2d.beginPath();
+  ctx2d.moveTo(X, Y);
+  ctx2d.lineTo(X + Math.sin(-player.yaw) * 7, Y + Math.cos(-player.yaw) * -7);
+  ctx2d.stroke();
+}
+
+// =============================================================================
 // INTERACT PROMPT — show "[E] OPEN" or "[E] EXIT" when a target is reachable.
 // =============================================================================
 function tickInteractPrompt() {
@@ -1997,12 +2747,25 @@ function tickInteractPrompt() {
   let label = '';
   const keyHint = _isTouch ? 'USE' : 'E';
   if (target.kind === 'closet') {
-    if (cell && now() - cell.closetUsedAt < HIDE_COOLDOWN_SEC) label = '[ closet on cooldown ]';
+    // v3 — when already hidden, show clear feedback instead of a stale HIDE prompt.
+    if (player.isHidden) label = '[ already hidden ]';
+    else if (cell && now() - cell.closetUsedAt < HIDE_COOLDOWN_SEC) {
+      const cd = Math.ceil(HIDE_COOLDOWN_SEC - (now() - cell.closetUsedAt));
+      label = `[ closet cooldown · ${cd}s ]`;
+    }
     else label = `[${keyHint}] HIDE`;
   } else if (target.kind === 'switch') {
     label = cell?.fixtureOn ? `[${keyHint}] LIGHTS OFF` : `[${keyHint}] LIGHTS ON`;
   } else if (target.kind === 'exit') {
     label = currentLevel === 3 ? `[${keyHint}] ESCAPE` : '[ locked ]';
+  } else if (target.kind === 'note') {
+    label = `[${keyHint}] READ NOTE`;
+  } else if (target.kind === 'rock') {
+    label = player.rocks >= ROCK_MAX_CARRY
+      ? `[ rocks full · ${ROCK_MAX_CARRY}/${ROCK_MAX_CARRY} ]`
+      : `[${keyHint}] PICK UP ROCK`;
+  } else if (target.kind === 'mapSnippet') {
+    label = `[${keyHint}] OPEN MAP`;
   }
   interactPrompt.textContent = label;
   interactPrompt.hidden = false;
@@ -2012,6 +2775,7 @@ function tickInteractPrompt() {
 // HUD UPDATE
 // =============================================================================
 let lastHudDepth = -1, lastHudLevel = -1, lastHudSanityPct = -1, lastHidden = false;
+let lastHudStaminaPct = -1, lastHudRocks = -1, lastHudObj = '', lastCrouching = false;
 function tickHUD() {
   const pct = Math.round(player.sanity);
   if (pct !== lastHudSanityPct) {
@@ -2019,6 +2783,42 @@ function tickHUD() {
     sanityBar.classList.toggle('is-low', pct < 50 && pct >= 25);
     sanityBar.classList.toggle('is-critical', pct < 25);
     lastHudSanityPct = pct;
+  }
+  // Stamina bar.
+  if (staminaFill) {
+    const sp = Math.round(player.stamina);
+    if (sp !== lastHudStaminaPct) {
+      staminaFill.style.width = sp + '%';
+      if (staminaBar) {
+        staminaBar.classList.toggle('is-low', sp < 30);
+        staminaBar.classList.toggle('is-critical', sp < 10);
+      }
+      lastHudStaminaPct = sp;
+    }
+  }
+  // Rock count.
+  if (rockCount && player.rocks !== lastHudRocks) {
+    rockCount.textContent = String(player.rocks);
+    lastHudRocks = player.rocks;
+  }
+  // Objective HUD.
+  if (objectiveOut) {
+    const L = LEVELS[currentLevel];
+    let txt;
+    if (levelObjectiveMet[currentLevel]) txt = 'COMPLETE: descend deeper';
+    else {
+      let progress = 0;
+      if (L.objectiveKind === 'walk') progress = Math.min(L.objectiveTarget, player.visitedCells.size);
+      else if (L.objectiveKind === 'notes') progress = player.notesCollected;
+      else if (L.objectiveKind === 'switches') progress = player.switchesFlipped;
+      txt = L.objectiveKind === 'exit'
+        ? L.objective
+        : `${L.objective} (${progress}/${L.objectiveTarget})`;
+    }
+    if (txt !== lastHudObj) {
+      objectiveOut.textContent = txt;
+      lastHudObj = txt;
+    }
   }
   const depth = player.visitedCells.size;
   if (depth !== lastHudDepth) {
@@ -2051,6 +2851,11 @@ function tickHUD() {
   if (player.isHidden && hideStatus) {
     const left = Math.max(0, player.hideUntil - now());
     hideStatus.textContent = `HIDDEN · ${left.toFixed(1)}s`;
+  }
+  // Crouch pill.
+  if (crouchPill && player.crouching !== lastCrouching) {
+    crouchPill.hidden = !player.crouching;
+    lastCrouching = player.crouching;
   }
 }
 

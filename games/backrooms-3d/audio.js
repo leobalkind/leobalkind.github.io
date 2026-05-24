@@ -633,6 +633,131 @@ export function createAudio() {
     o.start(t); o.stop(t + 0.22);
   }
 
+  // ---- v3 18. Paper pickup ----------------------------------------------
+  // Two-stage: high-pass noise crinkle + soft "fold" thump. Reads as "you
+  // unfolded a piece of paper" — the canonical pickup sound.
+  function playPaperPickup() {
+    if (!started || !ctx) return;
+    const t = now();
+    // Crinkle: brief HPF'd noise.
+    const src = mkNoise(1.3);
+    const hp = mkFilter('highpass', 2000);
+    const bp = mkFilter('bandpass', 3800, 4);
+    const g1 = mkEnv(t, 0.005, 0.08, 0.12);
+    pipe(src, hp, bp, g1, busSfx);
+    src.start(t, rnd() * 3, 0.13);
+    // Faint mid-thump for "unfold".
+    const o = mkOsc('triangle', 420);
+    o.frequency.exponentialRampToValueAtTime(280, t + 0.08);
+    const g2 = mkEnv(t + 0.03, 0.005, 0.04, 0.10);
+    pipe(o, g2, busSfx);
+    o.start(t + 0.03); o.stop(t + 0.16);
+  }
+
+  // ---- v3 19. Map blip ---------------------------------------------------
+  // Brief two-note rising chime (think Metroid-style scan) — clearly distinct
+  // from the paper pickup so the player knows they grabbed something rarer.
+  function playMapBlip() {
+    if (!started || !ctx) return;
+    const t = now();
+    const out = mkGain(0.6); out.connect(busSfx);
+    const notes = [659.3, 880]; // E5 → A5
+    for (let i = 0; i < notes.length; i++) {
+      const o = mkOsc('triangle', notes[i]);
+      const g = mkEnv(t + i * 0.08, 0.005, 0.10, 0.18);
+      pipe(o, g, out);
+      o.start(t + i * 0.08); o.stop(t + i * 0.08 + 0.22);
+    }
+    // Light brightness sparkle.
+    const src = mkNoise(2);
+    const bp = mkFilter('bandpass', 6500, 4);
+    const gn = mkEnv(t, 0.01, 0.04, 0.18);
+    pipe(src, bp, gn, busSfx);
+    src.start(t, rnd() * 3, 0.2);
+  }
+
+  // ---- v3 20. Throw whoosh ----------------------------------------------
+  // Quick lowpassed noise burst with falling cutoff — the air being parted.
+  function playThrow() {
+    if (!started || !ctx) return;
+    const t = now();
+    const src = mkNoise(1.0);
+    const lp = mkFilter('lowpass', 2200);
+    lp.frequency.exponentialRampToValueAtTime(400, t + 0.18);
+    const g = mkEnv(t, 0.005, 0.18, 0.15);
+    pipe(src, lp, g, busSfx);
+    src.start(t, rnd() * 3, 0.22);
+  }
+
+  // ---- v3 21. Rock clack on landing -------------------------------------
+  // Hard-pan attack noise + low resonance thump. Distance + pan come from
+  // the caller (rock landing position).
+  function playRockClack(vol, pan) {
+    if (!started || !ctx) return;
+    const t = now();
+    const amp = clamp01(vol || 0.4);
+    const px = mx(-1, mn(1, pan || 0));
+    // Click: very short bandpass noise.
+    const src = mkNoise(1.4);
+    const bp = mkFilter('bandpass', 2400 + rnd() * 400, 3);
+    const g1 = mkEnv(t, 0.002, 0.4 * amp, 0.05);
+    const p1 = mkPan(px);
+    if (p1) pipe(src, bp, g1, p1, reverbIn || busSfx);
+    else pipe(src, bp, g1, reverbIn || busSfx);
+    src.start(t, rnd() * 3, 0.06);
+    // Thunk: low resonance.
+    const o = mkOsc('sine', 110 + rnd() * 30);
+    o.frequency.exponentialRampToValueAtTime(60, t + 0.12);
+    const g2 = mkEnv(t, 0.003, 0.18 * amp, 0.16);
+    const p2 = mkPan(px * 0.7);
+    if (p2) pipe(o, g2, p2, reverbIn || busSfx);
+    else pipe(o, g2, reverbIn || busSfx);
+    o.start(t); o.stop(t + 0.18);
+  }
+
+  // ---- v3 22. Stalker step (mimicked footstep, eerily delayed) ---------
+  // Same envelope as playFootstep but routed through the reverb tail + always
+  // panned hard left/right (random) so it reads as "someone behind you, off-axis".
+  function playStalkerStep(panX) {
+    if (!started || !ctx || !reverbIn) return;
+    const t = now();
+    const px = mx(-1, mn(1, panX || 0));
+    const src = mkNoise(1 + (rnd() - 0.5) * 0.1);
+    const bp = mkFilter('bandpass', 600 + rnd() * 200, 1.6);
+    const lp = mkFilter('lowpass', 1300);
+    const g = mkEnv(t, 0.015, 0.07, 0.10);
+    const p = mkPan(px);
+    if (p) pipe(src, bp, lp, g, p, reverbIn);
+    else pipe(src, bp, lp, g, reverbIn);
+    src.start(t, rnd() * 3.5, 0.14);
+  }
+
+  // ---- v3 23. Crouch rustle (clothes shifting) -------------------------
+  function playCrouchRustle() {
+    if (!started || !ctx) return;
+    const t = now();
+    const src = mkNoise(0.9);
+    const bp = mkFilter('bandpass', 1200, 1.8);
+    const g = mkEnv(t, 0.008, 0.05, 0.20);
+    pipe(src, bp, g, busSfx);
+    src.start(t, rnd() * 3, 0.25);
+  }
+
+  // ---- v3 24. Objective complete ding ----------------------------------
+  // Bright two-note major-third chime: G5 → B5. Plays with light reverb tail.
+  function playObjectiveDing() {
+    if (!started || !ctx) return;
+    const t = now();
+    const out = mkGain(0.5); out.connect(reverbIn || busSfx);
+    const notes = [783.99, 987.77];
+    for (let i = 0; i < notes.length; i++) {
+      const o = mkOsc('sine', notes[i]);
+      const g = mkEnv(t + i * 0.10, 0.005, 0.12, 0.45);
+      pipe(o, g, out);
+      o.start(t + i * 0.10); o.stop(t + i * 0.10 + 0.55);
+    }
+  }
+
   // ---- Returned controller -------------------------------------------------
   return {
     start, stop,
@@ -655,5 +780,13 @@ export function createAudio() {
     playSwitchClick,
     playSteam,
     playDrip,
+    // v3 polish-round-3 additions:
+    playPaperPickup,
+    playMapBlip,
+    playThrow,
+    playRockClack,
+    playStalkerStep,
+    playCrouchRustle,
+    playObjectiveDing,
   };
 }

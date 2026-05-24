@@ -242,6 +242,48 @@ export function createAudio() {
     src.start(t); src.stop(t + 1.05);
   }
 
+  // ---- 5a. SPLASH (foot in puddle) ----------------------------------------
+  // Wet-step transient: short noise burst run through two bandpasses (low body +
+  // bright droplet shimmer). Slightly stereo-panned per call so consecutive
+  // splashes don't stack flatly. Heavily reverbed because the woods are damp.
+  function playSplash() {
+    if (!started || !ctx) return;
+    const t = now();
+    const p = (rnd() - 0.5) * 0.6;
+    const out = gn(0.42); panTo(out, p, busSfx);
+    pipe(out, gn(0.35), reverbIn);
+    // Low watery thump
+    const lo = nz(0.7);
+    pipe(lo, flt('bandpass', 320, 1.6), env(t, 0.005, 0.32, 0.18), out);
+    lo.start(t, rnd() * 3, 0.22);
+    // Bright droplet shimmer (slight pitch chirp via filter sweep)
+    const hi = nz(1.05);
+    const bp = flt('bandpass', 3200, 6);
+    bp.frequency.exponentialRampToValueAtTime(2200, t + 0.18);
+    pipe(hi, bp, env(t + 0.02, 0.005, 0.22, 0.16), out);
+    hi.start(t + 0.02, rnd() * 3, 0.22);
+  }
+
+  // ---- 5b. CROW CAW (single distant crow call) ----------------------------
+  // 1.2s call: gravelly squawk (lowpassed saw) + a noise rasp on top. Caller
+  // passes pan + dist for positional placement.  Used by the bird-flock event.
+  function playCrowCaw(panX, dist) {
+    if (!started || !ctx) return;
+    const t = now();
+    const a = att(dist), p = cPan(panX);
+    const out = gn(0.55 * a); panTo(out, p, busSfx);
+    pipe(out, gn(0.5), reverbIn);
+    // Body — saw at ~520 Hz dropping
+    const sw = osc('sawtooth', 540 + rnd() * 60);
+    sw.frequency.exponentialRampToValueAtTime(280, t + 0.42);
+    pipe(sw, flt('lowpass', 1600, 0.9), env(t, 0.01, 0.30, 0.45), out);
+    sw.start(t); sw.stop(t + 0.48);
+    // Rasp — bandpassed noise overlaid
+    const ns = nz(1.0);
+    pipe(ns, flt('bandpass', 1100, 3), env(t, 0.012, 0.20, 0.42), out);
+    ns.start(t, rnd() * 3, 0.45);
+  }
+
   // ---- 5. OWL (two hoots with falling vibrato) ----------------------------
   function playOwl() {
     if (!started || !ctx) return;
@@ -1010,6 +1052,7 @@ export function createAudio() {
     playFootstep, setSurface,
     playFlashlightClick, playFlashlightFlicker,
     playForestAmbience, playWindGust, playTwigSnap, playLeafSwirl, playOwl,
+    playSplash, playCrowCaw,
     playClownLaugh, playClownStep, playClownBreath, playKnifeDrag,
     playLightning,
     playStalkMusic, playHuntMusic, playChaseMusic, stopAllMusic,

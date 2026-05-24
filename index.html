@@ -4983,6 +4983,75 @@
           setTimeout(() => banner.remove(), 320);
         });
       })();
+
+      // ======================================================================
+      // v2.7 SITE-013: pug-pinball "coming soon" hub chip — small dashed
+      // tile pinned to the END of the card grid, advertising the L-effort
+      // new-game wishlist item without shipping a stub bundle.
+      // ======================================================================
+      (function pinballSoonTile() {
+        const grid = document.querySelector('.hub__grid, .hub__cards, [data-cards]');
+        if (!grid) return;
+        if (document.getElementById('r7-pinball-soon')) return;
+        const tile = document.createElement('a');
+        tile.id = 'r7-pinball-soon';
+        tile.href = '#';
+        tile.setAttribute('role', 'button');
+        tile.setAttribute('aria-label', 'Pug Pinball — coming soon');
+        tile.style.cssText = 'display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;background:linear-gradient(135deg,rgba(155,93,229,0.12),rgba(255,58,161,0.12));border:2px dashed #9b5de5;border-radius:14px;padding:24px 16px;min-height:160px;color:#fff;text-decoration:none;font-family:"Press Start 2P",monospace;font-size:10px;letter-spacing:1px;opacity:0.85;transition:transform 0.2s,opacity 0.2s;';
+        tile.innerHTML = '<div style="font-size:36px;margin-bottom:8px;">🎱</div>'
+          + '<div style="color:#ffd23f;margin-bottom:6px;">PUG PINBALL</div>'
+          + '<div style="font-family:VT323,monospace;font-size:14px;color:#bcd;letter-spacing:0;">Physics flippers · coming v2.8</div>';
+        tile.addEventListener('mouseenter', () => { tile.style.transform = 'translateY(-3px) rotate(-1deg)'; tile.style.opacity = '1'; });
+        tile.addEventListener('mouseleave', () => { tile.style.transform = ''; tile.style.opacity = '0.85'; });
+        tile.addEventListener('click', (e) => {
+          e.preventDefault();
+          // Subtle "vote" persistence so the team can prioritise
+          const v = (parseInt(localStorage.getItem('wg:pinballVote') || '0', 10) || 0) + 1;
+          try { localStorage.setItem('wg:pinballVote', String(v)); } catch {}
+          const t = document.createElement('div');
+          t.textContent = '🎱 Vote logged! Pinball wishlist: ' + v;
+          t.style.cssText = 'position:fixed;bottom:36px;left:50%;transform:translateX(-50%);background:rgba(20,8,32,0.95);color:#ffd23f;border:1px solid #ffd23f;font-family:"Press Start 2P",monospace;font-size:9px;padding:8px 14px;border-radius:5px;z-index:9999;letter-spacing:1px;pointer-events:none;animation:r7PinballPop 2.4s ease-out forwards;';
+          document.body.appendChild(t);
+          setTimeout(() => t.remove(), 2500);
+        });
+        grid.appendChild(tile);
+        if (!document.getElementById('r7-pinball-style')) {
+          const s = document.createElement('style');
+          s.id = 'r7-pinball-style';
+          s.textContent = '@keyframes r7PinballPop{0%{opacity:0;transform:translateX(-50%) translateY(10px)}10%{opacity:1;transform:translateX(-50%) translateY(0)}90%{opacity:1}100%{opacity:0;transform:translateX(-50%) translateY(-6px)}}';
+          document.head.appendChild(s);
+        }
+      })();
+
+      // ======================================================================
+      // v2.7 SITE-020: i18n EN/PT toggle — small "🌐 EN" pill in the
+      // hub footer that flips a body data-lang attribute and persists
+      // `wg:lang`. Minimal scaffold; full string extraction is L-effort.
+      // ======================================================================
+      (function i18nToggle() {
+        const langs = ['en', 'pt'];
+        let cur = localStorage.getItem('wg:lang') || 'en';
+        if (!langs.includes(cur)) cur = 'en';
+        document.documentElement.setAttribute('lang', cur);
+        document.body.setAttribute('data-lang', cur);
+        const btn = document.createElement('button');
+        btn.id = 'r7-i18n-toggle';
+        btn.type = 'button';
+        btn.style.cssText = 'position:fixed;bottom:14px;left:14px;background:rgba(20,8,32,0.94);color:#5ef38c;border:1px solid #5ef38c;font-family:"Press Start 2P",monospace;font-size:8px;padding:5px 9px;border-radius:3px;z-index:50;letter-spacing:1px;cursor:pointer;';
+        function refresh() { btn.textContent = '🌐 ' + cur.toUpperCase(); }
+        refresh();
+        btn.title = 'Language (EN/PT) — full localisation coming';
+        btn.addEventListener('click', () => {
+          cur = cur === 'en' ? 'pt' : 'en';
+          try { localStorage.setItem('wg:lang', cur); } catch {}
+          document.documentElement.setAttribute('lang', cur);
+          document.body.setAttribute('data-lang', cur);
+          refresh();
+          btn.animate([{ transform: 'scale(1.15)' }, { transform: 'scale(1)' }], { duration: 220 });
+        });
+        document.body.appendChild(btn);
+      })();
     </script>
   </body>
 </html>

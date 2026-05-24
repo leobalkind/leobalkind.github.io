@@ -3204,3 +3204,142 @@ if (_startOv) {
     chip.style.display = 'block';
   }, 600);
 })();
+
+// ============================================================================
+// v2.7 LAB-001: DNA hint currency — earn 1 DNA per discovery (tracked via
+// `#hud-discovered` increments). DNA persists to localStorage. Renders a
+// chip below the codex %; click → flash hint glow on combine button.
+// ============================================================================
+(function _r7LabDNA() {
+  const src = document.getElementById('hud-discovered');
+  if (!src) return;
+  const KEY = 'lab:dna';
+  let dna = parseInt(localStorage.getItem(KEY) || '0', 10) || 0;
+  let lastCount = parseInt((src.textContent || '').match(/(\d+)/)?.[1] || '0', 10);
+  const chip = document.createElement('div');
+  chip.id = 'r7-lab-dna';
+  chip.style.cssText = 'position:fixed;top:48px;right:14px;background:rgba(20,8,32,0.92);color:#ffd23f;border:1px solid #ffd23f;padding:5px 10px;font-family:"Press Start 2P",monospace;font-size:8px;border-radius:18px;z-index:50;letter-spacing:1px;cursor:pointer;';
+  chip.title = 'DNA currency — click for hint flash on COMBINE button';
+  function refresh() { chip.textContent = '🧬 ' + dna + ' DNA'; }
+  refresh();
+  chip.addEventListener('click', () => {
+    if (dna < 1) { chip.animate([{ transform: 'translateX(0)' }, { transform: 'translateX(-4px)' }, { transform: 'translateX(4px)' }, { transform: 'translateX(0)' }], { duration: 220 }); return; }
+    dna--;
+    try { localStorage.setItem(KEY, String(dna)); } catch {}
+    refresh();
+    const btn = document.querySelector('.lab-combine, [data-combine], #combine, button.combine');
+    if (btn) {
+      btn.animate([{ boxShadow: '0 0 0 rgba(255,210,63,0)' }, { boxShadow: '0 0 28px rgba(255,210,63,0.85)' }, { boxShadow: '0 0 0 rgba(255,210,63,0)' }], { duration: 900, iterations: 3 });
+    }
+  });
+  document.body.appendChild(chip);
+  setInterval(() => {
+    const m = (src.textContent || '').match(/(\d+)/);
+    if (!m) return;
+    const n = parseInt(m[1], 10);
+    if (n > lastCount) {
+      dna += (n - lastCount);
+      try { localStorage.setItem(KEY, String(dna)); } catch {}
+      refresh();
+      chip.animate([{ transform: 'scale(1.25)', color: '#5ef38c' }, { transform: 'scale(1)', color: '#ffd23f' }], { duration: 500 });
+    }
+    lastCount = n;
+  }, 800);
+})();
+
+// ============================================================================
+// v2.7 LAB-008: Auto-save + cloud sync confirmation — small "☁ SYNCED" pill
+// flashes briefly each time any `lab:*` localStorage key changes (debounced
+// 3s). Mirrors the user-facing wishlist note that discoveries are persisted.
+// ============================================================================
+(function _r7LabSyncIndicator() {
+  let lastSnap = '';
+  function snapshot() {
+    let out = '';
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && k.startsWith('lab:')) out += k + '=' + localStorage.getItem(k).length + ';';
+    }
+    return out;
+  }
+  lastSnap = snapshot();
+  let lastFire = 0;
+  setInterval(() => {
+    const cur = snapshot();
+    if (cur !== lastSnap && performance.now() - lastFire > 3000) {
+      lastSnap = cur;
+      lastFire = performance.now();
+      const p = document.createElement('div');
+      p.textContent = '☁ SYNCED';
+      p.style.cssText = 'position:fixed;bottom:14px;right:14px;background:rgba(10,30,20,0.95);color:#5ef38c;border:1px solid #5ef38c;font-family:"Press Start 2P",monospace;font-size:7px;padding:4px 8px;border-radius:3px;z-index:55;letter-spacing:1px;pointer-events:none;animation:r7LabSyncPop 1.6s ease-out forwards;';
+      document.body.appendChild(p);
+      setTimeout(() => p.remove(), 1700);
+    }
+  }, 1500);
+  if (!document.getElementById('r7-lab-sync-style')) {
+    const s = document.createElement('style');
+    s.id = 'r7-lab-sync-style';
+    s.textContent = '@keyframes r7LabSyncPop{0%{opacity:0;transform:translateY(8px)}15%{opacity:1;transform:translateY(0)}85%{opacity:1}100%{opacity:0;transform:translateY(-4px)}}';
+    document.head.appendChild(s);
+  }
+})();
+
+// ============================================================================
+// v2.7 LAB-020: Share screenshot — adds 📸 SHARE button next to EXPORT (or
+// floats top-left). Captures the visible canvas + codex grid to a PNG via
+// canvas.toBlob, then triggers a download.
+// ============================================================================
+(function _r7LabShareShot() {
+  function makeBtn() {
+    const b = document.createElement('button');
+    b.id = 'r7-lab-share';
+    b.textContent = '📸 SHARE PNG';
+    b.style.cssText = 'background:rgba(20,8,32,0.94);color:#9b5de5;border:1px solid #9b5de5;padding:5px 10px;font-family:"Press Start 2P",monospace;font-size:8px;border-radius:3px;letter-spacing:1px;cursor:pointer;margin:4px 0;';
+    b.addEventListener('click', () => {
+      try {
+        const c = document.querySelector('canvas');
+        if (!c) return;
+        c.toBlob(blob => {
+          if (!blob) return;
+          const a = document.createElement('a');
+          const url = URL.createObjectURL(blob);
+          a.href = url;
+          a.download = 'pug-mutation-lab-' + new Date().toISOString().slice(0, 10) + '.png';
+          document.body.appendChild(a);
+          a.click();
+          setTimeout(() => { a.remove(); URL.revokeObjectURL(url); }, 100);
+        }, 'image/png');
+        b.animate([{ transform: 'scale(1.15)' }, { transform: 'scale(1)' }], { duration: 220 });
+      } catch {}
+    });
+    return b;
+  }
+  // Try to insert near the export button if present
+  function tryInject() {
+    if (document.getElementById('r7-lab-share')) return true;
+    const exportBtn = document.querySelector('button[id*="export"], button.lab-export, [data-export]');
+    if (exportBtn && exportBtn.parentNode) {
+      exportBtn.parentNode.insertBefore(makeBtn(), exportBtn.nextSibling);
+      return true;
+    }
+    return false;
+  }
+  if (!tryInject()) {
+    // Wait a sec for codex panel to load
+    let attempts = 0;
+    const iv = setInterval(() => {
+      attempts++;
+      if (tryInject() || attempts > 20) clearInterval(iv);
+    }, 800);
+  }
+  // Always also expose floating top-left fallback
+  setTimeout(() => {
+    if (document.getElementById('r7-lab-share')) return;
+    const b = makeBtn();
+    b.style.position = 'fixed';
+    b.style.top = '14px';
+    b.style.left = '14px';
+    b.style.zIndex = '50';
+    document.body.appendChild(b);
+  }, 6000);
+})();

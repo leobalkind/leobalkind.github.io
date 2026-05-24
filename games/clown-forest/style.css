@@ -1774,3 +1774,184 @@ body.cf-gore-off #vfx-hit-flash {
   background: radial-gradient(ellipse at center, rgba(60,60,60,0.18) 0%, rgba(0,0,0,0) 70%);
 }
 
+/* =============================================================================
+   ROUND-7 — Sprint motion-blur (peripheral haze) + crouch indicator badge
+   + run-statistics pie chart on the end overlay + TAKEN ending palette.
+   ============================================================================= */
+
+/* Sprint motion-blur — a soft inward smear on the left/right edges of the
+   viewport that fades in when the player has been sprinting continuously for
+   > 0.4s. Pure CSS gradient layered on the VFX layer. --blur-alpha is set
+   from JS. Body doesn't move so we hide it via opacity instead of display. */
+#vfx-sprint-blur {
+  background:
+    linear-gradient(90deg,
+      rgba(8, 10, 14, 0.55) 0%,
+      rgba(8, 10, 14, 0.18) 18%,
+      rgba(0, 0, 0, 0) 32%,
+      rgba(0, 0, 0, 0) 68%,
+      rgba(8, 10, 14, 0.18) 82%,
+      rgba(8, 10, 14, 0.55) 100%);
+  opacity: var(--blur-alpha, 0);
+  backdrop-filter: blur(1.6px);
+  -webkit-backdrop-filter: blur(1.6px);
+  transition: opacity 0.18s linear;
+}
+#vfx-sprint-blur.is-on {
+  /* While engaged, a subtle vertical streak overlay on the very edges to
+     reinforce the "wind in the eyes" feeling. */
+  background:
+    linear-gradient(90deg,
+      rgba(8, 10, 14, 0.65) 0%,
+      rgba(8, 10, 14, 0.22) 16%,
+      rgba(0, 0, 0, 0) 30%,
+      rgba(0, 0, 0, 0) 70%,
+      rgba(8, 10, 14, 0.22) 84%,
+      rgba(8, 10, 14, 0.65) 100%),
+    repeating-linear-gradient(90deg,
+      rgba(255,255,255,0) 0px,
+      rgba(255,255,255,0) 2px,
+      rgba(255,255,255,0.025) 2px,
+      rgba(255,255,255,0.025) 3px);
+}
+body.reduced-motion #vfx-sprint-blur { display: none; }
+
+/* Crouch indicator (HUD). Small chip just above the vitals; uses the same
+   translucent glass token. .is-shown fades it in; .is-listening tints it. */
+.hud-crouch {
+  position: absolute;
+  left: max(14px, env(safe-area-inset-left, 0));
+  bottom: 92px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  background: rgba(8, 10, 14, 0.62);
+  border: 1px solid rgba(120, 60, 40, 0.28);
+  box-shadow: inset 0 0 16px rgba(0,0,0,0.45);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  border-radius: 2px;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 0.45rem;
+  letter-spacing: 0.14em;
+  color: #c8b890;
+  opacity: 0;
+  transform: translateY(4px);
+  pointer-events: none;
+  transition: opacity 0.25s ease, transform 0.25s ease, color 0.3s ease, border-color 0.3s ease;
+}
+.hud-crouch.is-shown {
+  opacity: 0.9;
+  transform: translateY(0);
+}
+.hud-crouch.is-listening {
+  color: #c0d8c0;
+  border-color: rgba(60, 130, 90, 0.4);
+}
+.hud-crouch__icon {
+  display: inline-block;
+  width: 11px;
+  height: 13px;
+  position: relative;
+  /* Hunched silhouette — small "head" + bent body block + leg line. */
+  background:
+    radial-gradient(circle at 50% 22%, #c8b890 0px, #c8b890 2.6px, transparent 3px),
+    linear-gradient(180deg, transparent 30%, #c8b890 30%, #c8b890 70%, transparent 70%);
+  background-repeat: no-repeat;
+}
+.hud-crouch__icon::after {
+  /* Crouched legs — short angled line under the body block. */
+  content: '';
+  position: absolute;
+  left: 1px; right: 1px;
+  bottom: -1px;
+  height: 2px;
+  background: #c8b890;
+  transform: skewY(-12deg);
+}
+.hud-crouch.is-listening .hud-crouch__icon,
+.hud-crouch.is-listening .hud-crouch__icon::after {
+  background-color: #c0d8c0;
+}
+.hud-crouch.is-listening .hud-crouch__icon {
+  background:
+    radial-gradient(circle at 50% 22%, #c0d8c0 0px, #c0d8c0 2.6px, transparent 3px),
+    linear-gradient(180deg, transparent 30%, #c0d8c0 30%, #c0d8c0 70%, transparent 70%);
+  background-repeat: no-repeat;
+}
+
+@media (max-width: 540px) {
+  .hud-crouch { bottom: 132px; font-size: 0.4rem; padding: 3px 6px; }
+  .hud-crouch__icon { width: 9px; height: 11px; }
+}
+
+/* Run-statistics pie chart (end overlay).  Mirrors .cf-pb spacing. */
+.cf-stats-pie {
+  width: 100%;
+  max-width: 360px;
+  margin: 10px auto 6px;
+  text-align: left;
+  font-family: 'Cormorant Garamond', serif;
+  color: #c8b890;
+}
+.cf-stats-pie__title {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 0.55rem;
+  letter-spacing: 0.18em;
+  text-align: center;
+  color: #8a7a60;
+  padding: 6px 8px;
+  border: 1px solid rgba(120, 88, 60, 0.4);
+  background: rgba(20, 14, 10, 0.55);
+}
+.cf-stats-pie__row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 4px 0;
+}
+.cf-stats-pie__canvas {
+  width: 120px;
+  height: 120px;
+  flex: 0 0 120px;
+  background: transparent;
+}
+.cf-stats-pie__legend {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  flex: 1 1 auto;
+  font-size: 0.95rem;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 4px;
+}
+.cf-stats-pie__legend li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.cf-stats-pie__legend i {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 1px;
+}
+.cf-stats-pie__legend span { flex: 1 1 auto; color: #c8b890; }
+.cf-stats-pie__legend b {
+  color: #ffd0a0;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+#end-overlay.is-escape .cf-stats-pie__legend b { color: #ffe0b0; }
+
+/* TAKEN ending — softer, sadder palette than the standard "YOU WERE FOUND".
+   Uses italics + a muted blue-grey tint so the ending reads as melancholic
+   rather than violent. */
+#end-overlay .end-title.is-taken,
+#end-title.is-taken {
+  color: #b0b8c4;
+  font-style: italic;
+  text-shadow: 0 0 16px rgba(80, 100, 120, 0.5);
+}

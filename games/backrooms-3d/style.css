@@ -368,3 +368,222 @@ body.is-playing #vignette { display: block; }
 /* Force the body background black so any letterboxing around the canvas
    (rare aspect-ratio fallbacks) doesn't show the purple hub bg. */
 body { background: #000; }
+
+/* =============================================================================
+   v3 — Stamina bar (sits beneath the sanity bar).
+   ============================================================================= */
+.hud3-vital--stamina { margin-top: 6px; }
+.hud3-bar--stamina > i {
+  background: linear-gradient(90deg, #5edcff, #80f0c0);
+}
+.hud3-bar--stamina.is-low > i {
+  background: linear-gradient(90deg, #ffd23f, #ff8e3c);
+}
+.hud3-bar--stamina.is-critical > i {
+  background: linear-gradient(90deg, #ff3a3a, #c01010);
+  animation: hud3Pulse 0.5s ease-in-out infinite;
+}
+
+/* v3 — Rock counter chip. Sits below the stamina bar. */
+.hud3-rocks {
+  margin-top: 8px;
+  font-family: var(--font-display);
+  color: #c8c0a0;
+  font-size: 0.5rem;
+  display: flex; align-items: center; gap: 5px;
+}
+.hud3-rocks-ico {
+  display: inline-block;
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  background: #6a5a4e;
+  text-indent: -9999px;
+  box-shadow: inset 0 -2px 2px rgba(0,0,0,0.5);
+}
+.hud3-rocks > span:last-child {
+  color: #ffd23f;
+  font-weight: bold;
+  text-shadow: 0 0 6px rgba(255, 210, 63, 0.4);
+}
+
+/* v3 — Objective banner along the top. Subtle until completion, then pulses. */
+#hud-objective {
+  position: fixed;
+  top: max(14px, env(safe-area-inset-top, 0));
+  left: 50%;
+  transform: translateX(-50%);
+  font-family: var(--font-display);
+  font-size: 0.5rem;
+  letter-spacing: 0.12em;
+  color: #fff8a0;
+  background: rgba(8, 6, 14, 0.7);
+  border: 1px solid rgba(200, 160, 60, 0.55);
+  border-radius: 4px;
+  padding: 7px 14px;
+  z-index: 11;
+  pointer-events: none;
+  display: none;
+  text-shadow: 0 0 8px rgba(255, 210, 63, 0.4);
+  max-width: 80vw;
+  text-align: center;
+}
+body.is-playing #hud-objective { display: block; }
+#hud-objective.is-met {
+  animation: objMet 1.8s ease-out;
+  border-color: #5ef38c;
+  color: #80ffa0;
+}
+@keyframes objMet {
+  0%   { transform: translateX(-50%) scale(1); box-shadow: 0 0 0 rgba(94, 243, 140, 0.8); }
+  20%  { transform: translateX(-50%) scale(1.15); box-shadow: 0 0 28px rgba(94, 243, 140, 0.85); }
+  100% { transform: translateX(-50%) scale(1); box-shadow: 0 0 0 rgba(94, 243, 140, 0); }
+}
+
+/* v3 — Crouched pill — same shape as HIDDEN pill but green-blue. */
+#crouch-status {
+  position: fixed;
+  top: max(50px, env(safe-area-inset-top, 0));
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(6, 14, 16, 0.85);
+  border: 1px solid #5edcff;
+  border-radius: 4px;
+  padding: 6px 14px;
+  color: #b0e8ff;
+  font-family: var(--font-display);
+  font-size: 0.5rem;
+  letter-spacing: 0.15em;
+  z-index: 12;
+  box-shadow: 0 0 12px rgba(94, 220, 255, 0.35);
+  pointer-events: none;
+}
+
+/* v3 — Note overlay (cryptic paper card centred above gameplay). */
+#note-overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  z-index: 40;
+  opacity: 0;
+  transition: opacity 0.4s ease-out;
+}
+#note-overlay.is-shown { opacity: 1; }
+.note-card {
+  background: #f4ecc8;
+  color: #2a1808;
+  border: 2px solid #7a6028;
+  border-radius: 2px;
+  padding: 18px 26px;
+  max-width: 440px;
+  box-shadow: 0 6px 0 #2a1808, 0 12px 40px rgba(0,0,0,0.8);
+  transform: rotate(-1.5deg);
+  font-family: var(--font-display);
+}
+.note-card-tag {
+  font-size: 0.45rem;
+  letter-spacing: 0.3em;
+  color: #7a6028;
+  margin-bottom: 10px;
+  border-bottom: 1px dashed #7a6028;
+  padding-bottom: 6px;
+}
+.note-card-text {
+  font-size: 0.6rem;
+  line-height: 1.6;
+  letter-spacing: 0.05em;
+  text-align: center;
+  margin: 14px 0;
+}
+.note-card-foot {
+  font-size: 0.4rem;
+  letter-spacing: 0.2em;
+  color: #7a6028;
+  text-align: center;
+  font-style: italic;
+}
+
+/* v3 — Map overlay panel. */
+#map-overlay {
+  position: fixed;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%) scale(0.94);
+  pointer-events: none;
+  z-index: 40;
+  opacity: 0;
+  transition: opacity 0.35s ease-out, transform 0.4s ease-out;
+}
+#map-overlay.is-shown {
+  opacity: 1;
+  transform: translate(-50%, -50%) scale(1);
+}
+.map-card {
+  background: rgba(8, 6, 14, 0.92);
+  border: 1px solid #80c0ff;
+  border-radius: 4px;
+  padding: 14px;
+  box-shadow: 0 0 28px rgba(128, 192, 255, 0.4), inset 0 0 12px rgba(0,0,0,0.6);
+  text-align: center;
+}
+.map-card-tag {
+  font-family: var(--font-display);
+  font-size: 0.5rem;
+  letter-spacing: 0.25em;
+  color: #80c0ff;
+  margin-bottom: 8px;
+}
+.map-card-foot {
+  font-family: var(--font-display);
+  font-size: 0.4rem;
+  letter-spacing: 0.15em;
+  color: #80a0c0;
+  margin-top: 6px;
+}
+#map-canvas {
+  display: block;
+  margin: 0 auto;
+  border: 1px solid #4a6080;
+  image-rendering: pixelated;
+  background: #0a0806;
+}
+
+/* v3 — Pause objective recap. */
+.pause-obj {
+  background: rgba(200, 160, 60, 0.08);
+  border: 1px solid rgba(200, 160, 60, 0.35);
+  border-radius: 4px;
+  padding: 10px 14px;
+  margin: 12px 0;
+  max-width: 320px;
+  margin-left: auto; margin-right: auto;
+  text-align: left;
+  font-family: var(--font-display);
+  color: #c8c0a0;
+}
+.pause-obj-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.5rem;
+  letter-spacing: 0.08em;
+  color: #ffd680;
+  margin-bottom: 6px;
+}
+.pause-obj-detail {
+  font-size: 0.45rem;
+  line-height: 1.4;
+  color: #c8c0a0;
+  letter-spacing: 0.05em;
+}
+
+/* v3 — End-card detailed stats list. */
+.end-stats--detail {
+  margin-top: 10px;
+  border-top: 1px dashed rgba(200, 160, 60, 0.4);
+  padding-top: 10px;
+  font-size: 0.45rem !important;
+}
+.end-stats--detail li {
+  margin: 3px 0;
+}

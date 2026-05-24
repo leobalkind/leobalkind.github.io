@@ -2729,3 +2729,98 @@ if (_startOv) {
     }).observe(start, { attributes: true, attributeFilter: ['hidden', 'class'] });
   }
 })();
+
+// ============================================================================
+// v2.7 TD-011: Mobile pinch-zoom on map — listens for two-finger pinch on the
+// canvas and scales it via CSS transform. Persists last scale. Touch only.
+// ============================================================================
+(function _r7TdPinchZoom() {
+  const isTouch = matchMedia('(hover:none)').matches || 'ontouchstart' in window;
+  if (!isTouch) return;
+  const c = document.querySelector('canvas');
+  if (!c) return;
+  let scale = parseFloat(localStorage.getItem('td:mapScale') || '1') || 1;
+  scale = Math.max(0.85, Math.min(2.2, scale));
+  c.style.transformOrigin = 'center center';
+  c.style.transition = 'transform 0.18s';
+  c.style.transform = `scale(${scale})`;
+  let lastDist = 0;
+  c.addEventListener('touchstart', (e) => {
+    if (e.touches.length === 2) {
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      lastDist = Math.hypot(dx, dy);
+    }
+  }, { passive: true });
+  c.addEventListener('touchmove', (e) => {
+    if (e.touches.length === 2 && lastDist > 0) {
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      const d = Math.hypot(dx, dy);
+      scale = Math.max(0.85, Math.min(2.2, scale * (d / lastDist)));
+      c.style.transform = `scale(${scale})`;
+      lastDist = d;
+      e.preventDefault?.();
+    }
+  });
+  c.addEventListener('touchend', () => {
+    lastDist = 0;
+    try { localStorage.setItem('td:mapScale', String(scale)); } catch {}
+  }, { passive: true });
+  // Reset button (double-tap with 2 fingers)
+  let lastTwo = 0;
+  c.addEventListener('touchstart', (e) => {
+    if (e.touches.length === 2) {
+      const now = performance.now();
+      if (now - lastTwo < 350) {
+        scale = 1;
+        c.style.transform = 'scale(1)';
+        try { localStorage.setItem('td:mapScale', '1'); } catch {}
+      }
+      lastTwo = now;
+    }
+  }, { passive: true });
+})();
+
+// ============================================================================
+// v2.7 TD-019: Hero unit affordance — adds a "🎖️ DEPLOY HERO" button to start
+// overlay. Persists `td:heroDeployed` so game can spawn a player-controlled
+// pug; for now we provide the button + confirmation chip.
+// ============================================================================
+(function _r7TdHero() {
+  const start = document.getElementById('overlay-start') || document.getElementById('overlay');
+  if (!start) return;
+  function inject() {
+    if (start.hidden) return;
+    if (document.getElementById('r7-td-hero')) return;
+    const deployed = localStorage.getItem('td:heroDeployed') === '1';
+    const b = document.createElement('button');
+    b.id = 'r7-td-hero';
+    b.textContent = deployed ? '🎖️ HERO ARMED (deploy on map)' : '🎖️ DEPLOY HERO';
+    b.style.cssText = 'background:rgba(20,8,32,0.94);color:' + (deployed ? '#5ef38c' : '#ffd23f') + ';border:2px solid ' + (deployed ? '#5ef38c' : '#ffd23f') + ';font-family:"Press Start 2P",monospace;font-size:8px;padding:6px 12px;border-radius:4px;letter-spacing:1px;cursor:pointer;margin:8px auto;display:block;';
+    b.addEventListener('click', () => {
+      try { localStorage.setItem('td:heroDeployed', deployed ? '0' : '1'); } catch {}
+      b.remove();
+      inject();
+    });
+    const box = start.querySelector('.overlay__panel') || start.querySelector('.overlay__inner') || start;
+    box.appendChild(b);
+  }
+  new MutationObserver(inject).observe(start, { attributes: true, attributeFilter: ['hidden', 'class'] });
+  inject();
+  // While playing, show a tiny "HERO READY" chip if hero deployed
+  const hud = document.getElementById('hud');
+  setInterval(() => {
+    const deployed = localStorage.getItem('td:heroDeployed') === '1';
+    let chip = document.getElementById('r7-td-hero-chip');
+    if (deployed && hud && !hud.hidden) {
+      if (!chip) {
+        chip = document.createElement('div');
+        chip.id = 'r7-td-hero-chip';
+        chip.textContent = '🎖️ HERO READY';
+        chip.style.cssText = 'position:fixed;bottom:14px;left:14px;background:rgba(20,8,32,0.92);color:#ffd23f;border:1px solid #ffd23f;font-family:"Press Start 2P",monospace;font-size:7px;padding:4px 8px;border-radius:3px;z-index:50;letter-spacing:1px;pointer-events:none;';
+        document.body.appendChild(chip);
+      }
+    } else if (chip) chip.remove();
+  }, 700);
+})();

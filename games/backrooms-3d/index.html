@@ -41,6 +41,16 @@
         <div class="hud3-lbl">SANITY</div>
         <div class="hud3-bar"><i id="hud-sanity"></i></div>
       </div>
+      <!-- v3 — stamina bar sits beneath sanity. -->
+      <div class="hud3-vital hud3-vital--stamina">
+        <div class="hud3-lbl">STAMINA</div>
+        <div class="hud3-bar hud3-bar--stamina"><i id="hud-stamina"></i></div>
+      </div>
+      <!-- v3 — rocks-in-pocket counter. -->
+      <div class="hud3-rocks">
+        <span class="hud3-rocks-ico" aria-hidden="true">&#9679;</span>
+        <span id="hud-rocks">3</span>
+      </div>
     </div>
     <div class="hud3-row hud3-row--stats">
       <div class="hud3-stat"><b>DEPTH</b><span id="hud-depth">0</span></div>
@@ -52,11 +62,35 @@
     </div>
   </div>
 
+  <!-- v3 — Objective banner along the top. -->
+  <div id="hud-objective" aria-live="polite">Find the descent.</div>
+
   <!-- Hide-mode status pill — shown when inside a closet. -->
   <div id="hide-status" hidden>HIDDEN</div>
 
+  <!-- v3 — Crouching status pill. -->
+  <div id="crouch-status" hidden>CROUCHED</div>
+
   <!-- Interact prompt — short label when something is reachable in front. -->
   <div id="interact-prompt" hidden>[E] OPEN</div>
+
+  <!-- v3 — Note overlay: shows the picked-up paper's cryptic text. -->
+  <div id="note-overlay" hidden aria-live="polite">
+    <div class="note-card">
+      <div class="note-card-tag">FOUND PAPER</div>
+      <div class="note-card-text" id="note-overlay-text"></div>
+      <div class="note-card-foot">— page torn at fold —</div>
+    </div>
+  </div>
+
+  <!-- v3 — Mini-map overlay (rendered to canvas on pickup). -->
+  <div id="map-overlay" hidden aria-live="polite">
+    <div class="map-card">
+      <div class="map-card-tag">MAP SNIPPET</div>
+      <canvas id="map-canvas" width="240" height="240"></canvas>
+      <div class="map-card-foot">visible cells fade in 4s</div>
+    </div>
+  </div>
 
   <!-- Level transition banner. -->
   <div id="level-banner" aria-hidden="true">
@@ -79,9 +113,9 @@
         Four levels descend into something darker. Find the EXIT to escape.
       </p>
       <ul class="overlay__controls">
-        <li><b>WASD</b> walk · <b>SHIFT</b> sprint · <b>MOUSE</b> look · <b>E</b> use · <b>ESC</b> pause</li>
-        <li>On mobile: <b>JOYSTICK</b> walk · <b>DRAG</b> look · <b>SPRINT</b> / <b>USE</b> buttons</li>
-        <li>Hide in <b>closets</b>. Flip <b>switches</b>. Find the red <b>EXIT</b>.</li>
+        <li><b>WASD</b> walk · <b>SHIFT</b> sprint · <b>C</b> crouch · <b>Q</b> throw rock · <b>E</b> use · <b>ESC</b> pause</li>
+        <li>On mobile: <b>JOYSTICK</b> walk · <b>DRAG</b> look · <b>SPRINT / USE / CROUCH / THROW</b> buttons</li>
+        <li>Hide in <b>closets</b>. Read <b>notes</b>. Find map snippets. Find the red <b>EXIT</b>.</li>
       </ul>
       <p class="overlay__sub" style="color:var(--neon-yellow);font-size:0.55rem;">
         Best depth: <span id="start-best">&mdash;</span>
@@ -104,6 +138,8 @@
         <li>Deepest level: <b id="end-level">1</b></li>
         <li id="end-best">Best depth: <b>&mdash;</b></li>
       </ul>
+      <!-- v3 — per-level alive-time + collectible stats. -->
+      <ul class="end-stats end-stats--detail" id="end-level-stats"></ul>
       <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin-top:14px;">
         <button id="end-restart" class="overlay__btn">REENTER</button>
         <a class="overlay__btn overlay__btn--ghost" href="../../index.html">&larr; HUB</a>
@@ -140,6 +176,8 @@
       <div class="overlay__tag">PAUSED</div>
       <h2 class="overlay__title">PAUSED</h2>
       <p class="overlay__sub">The hum continues without you.</p>
+      <!-- v3 — current level objective recap. -->
+      <div id="pause-objective" class="pause-obj"></div>
       <div style="display:flex;flex-direction:column;gap:10px;align-items:stretch;max-width:240px;margin:0 auto;">
         <button id="pause-resume" class="overlay__btn">RESUME</button>
         <button id="pause-restart" class="overlay__btn overlay__btn--ghost">RESTART</button>

@@ -3415,3 +3415,70 @@ if (_startOv) {
     last = cur;
   }, 250);
 })();
+
+// ============================================================================
+// v2.7 ZILLA-003: Debris persistence extend — a top-right "DEBRIS: N" counter
+// that ticks up on smash events (`#hud-smashed` increments) and persists the
+// session record. Pure HUD layer — no canvas particle changes.
+// ============================================================================
+(function _r7ZillaDebris() {
+  const smashed = document.getElementById('hud-smashed');
+  if (!smashed) return;
+  let last = 0;
+  let count = 0;
+  const peak = parseInt(localStorage.getItem('zilla:debrisPeak') || '0', 10) || 0;
+  const chip = document.createElement('div');
+  chip.id = 'r7-zilla-debris';
+  chip.style.cssText = 'position:fixed;top:48px;right:14px;background:rgba(20,8,32,0.9);color:#ff8e3c;border:1px solid #ff8e3c;font-family:"Press Start 2P",monospace;font-size:8px;padding:5px 9px;border-radius:3px;z-index:50;letter-spacing:1px;pointer-events:none;';
+  function refresh() {
+    chip.textContent = '🧱 DEBRIS ' + count + (count > peak ? ' (NEW)' : ' / ' + peak);
+    chip.style.color = count > peak ? '#5ef38c' : '#ff8e3c';
+    chip.style.borderColor = chip.style.color;
+  }
+  refresh();
+  document.body.appendChild(chip);
+  setInterval(() => {
+    const cur = parseInt((smashed.textContent || '').replace(/\D/g, ''), 10) || 0;
+    if (cur > last) {
+      const delta = cur - last;
+      // each smash spawns 20-50 debris chunks visually; multiply
+      count += delta * 28;
+      refresh();
+      if (count > peak) {
+        try { localStorage.setItem('zilla:debrisPeak', String(count)); } catch {}
+      }
+    } else if (cur < 2 && last > 5) {
+      // game reset — clear counter
+      count = 0;
+      refresh();
+    }
+    last = cur;
+  }, 350);
+})();
+
+// ============================================================================
+// v2.7 ZILLA-011: Mobile swipe-direction hint — first-run touch device shows
+// a "★ SWIPE TO MOVE" pill explaining the directional touch scheme. Bound to
+// touchstart on the canvas, persists `zilla:swipeHintSeen`.
+// ============================================================================
+(function _r7ZillaSwipeHint() {
+  const isTouch = matchMedia('(hover:none)').matches || 'ontouchstart' in window;
+  if (!isTouch) return;
+  if (localStorage.getItem('zilla:swipeHintSeen')) return;
+  function show() {
+    if (localStorage.getItem('zilla:swipeHintSeen')) return;
+    try { localStorage.setItem('zilla:swipeHintSeen', '1'); } catch {}
+    const p = document.createElement('div');
+    p.textContent = '★ SWIPE TO MOVE · TAP TO BORK';
+    p.style.cssText = 'position:fixed;bottom:120px;left:50%;transform:translateX(-50%);background:rgba(20,8,32,0.95);color:#ffd23f;border:1px solid #ffd23f;font-family:"Press Start 2P",monospace;font-size:9px;padding:8px 14px;border-radius:5px;z-index:75;letter-spacing:1px;pointer-events:none;animation:r7ZillaSwipePop 4.5s ease-out forwards;';
+    document.body.appendChild(p);
+    setTimeout(() => p.remove(), 4600);
+  }
+  setTimeout(show, 1500);
+  if (!document.getElementById('r7-zilla-swipe-style')) {
+    const s = document.createElement('style');
+    s.id = 'r7-zilla-swipe-style';
+    s.textContent = '@keyframes r7ZillaSwipePop{0%{opacity:0;transform:translateX(-50%) translateY(10px)}8%{opacity:1;transform:translateX(-50%) translateY(0)}90%{opacity:1}100%{opacity:0;transform:translateX(-50%) translateY(-6px)}}';
+    document.head.appendChild(s);
+  }
+})();

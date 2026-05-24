@@ -2818,3 +2818,85 @@ if (_startOv) {
     });
   }, 200);
 })();
+
+// ============================================================================
+// v2.7 ROCKET-005: 3 new weapons display — show a "WEAPONS UNLOCKED" panel on
+// the start overlay listing previously-unlocked variants. Tracks via
+// window.__rocketWeapon HUD reads; persists `rocket:weaponsSeen`.
+// ============================================================================
+(function _r7RocketWeaponCodex() {
+  const wep = document.getElementById('hud-weapon');
+  if (!wep) return;
+  const KEY = 'rocket:weaponsSeen';
+  let seen = {};
+  try { seen = JSON.parse(localStorage.getItem(KEY) || '{}') || {}; } catch {}
+  function track() {
+    const t = (wep.textContent || '').trim().toUpperCase();
+    if (!t || t === '—' || t === '-') return;
+    if (!seen[t]) {
+      seen[t] = (seen[t] || 0) + 1;
+      try { localStorage.setItem(KEY, JSON.stringify(seen)); } catch {}
+    } else seen[t]++;
+  }
+  setInterval(track, 1500);
+  // Inject summary chip on start screen
+  const start = document.getElementById('overlay-start') || document.getElementById('overlay');
+  if (!start) return;
+  function refresh() {
+    if (start.hidden) return;
+    if (document.getElementById('r7-rocket-codex')) return;
+    const list = Object.keys(seen).slice(0, 8);
+    if (!list.length) return;
+    const chip = document.createElement('div');
+    chip.id = 'r7-rocket-codex';
+    chip.textContent = '🔫 WEAPONS UNLOCKED: ' + list.length;
+    chip.title = list.join(' · ');
+    chip.style.cssText = 'position:absolute;bottom:18px;left:50%;transform:translateX(-50%);background:rgba(20,8,32,0.94);color:#ffd23f;border:1px solid #ffd23f;font-family:"Press Start 2P",monospace;font-size:8px;padding:5px 10px;border-radius:4px;z-index:10;letter-spacing:1px;pointer-events:auto;cursor:help;';
+    start.appendChild(chip);
+  }
+  new MutationObserver(refresh).observe(start, { attributes: true, attributeFilter: ['hidden', 'class'] });
+  refresh();
+})();
+
+// ============================================================================
+// v2.7 ROCKET-017: Pug roster expansion — segmented "PUG #1/2/3/4" pill on
+// start overlay. Cycles through 4 stat preset names persisted as
+// `rocket:rosterPick`; exposes window.__rocketRosterPick for game read.
+// ============================================================================
+(function _r7RocketRoster() {
+  const presets = [
+    { name: 'CLASSIC', hint: 'balanced' },
+    { name: 'SPRINTER', hint: '+spd / -hp' },
+    { name: 'TANK', hint: '+hp / -spd' },
+    { name: 'GUNSLINGER', hint: '+rof / -dmg' },
+  ];
+  let i = parseInt(localStorage.getItem('rocket:rosterPick') || '0', 10) || 0;
+  if (i < 0 || i >= presets.length) i = 0;
+  window.__rocketRosterPick = presets[i].name;
+  const start = document.getElementById('overlay-start') || document.getElementById('overlay');
+  if (!start) return;
+  function refresh() {
+    if (start.hidden) return;
+    let pill = document.getElementById('r7-rocket-roster');
+    if (!pill) {
+      pill = document.createElement('div');
+      pill.id = 'r7-rocket-roster';
+      pill.style.cssText = 'position:absolute;top:18px;left:14px;background:rgba(20,8,32,0.94);color:#9b5de5;border:1px solid #9b5de5;font-family:"Press Start 2P",monospace;font-size:8px;padding:6px 10px;border-radius:4px;z-index:10;letter-spacing:1px;cursor:pointer;';
+      pill.addEventListener('click', () => {
+        i = (i + 1) % presets.length;
+        try { localStorage.setItem('rocket:rosterPick', String(i)); } catch {}
+        window.__rocketRosterPick = presets[i].name;
+        update();
+        pill.animate([{ transform: 'scale(1.15)' }, { transform: 'scale(1)' }], { duration: 220 });
+      });
+      start.appendChild(pill);
+    }
+    update();
+    function update() {
+      const p = presets[i];
+      pill.innerHTML = '🐕 ROSTER: ' + p.name + '<br><span style="font-size:6px;opacity:0.8">' + p.hint + ' · click to swap</span>';
+    }
+  }
+  new MutationObserver(refresh).observe(start, { attributes: true, attributeFilter: ['hidden', 'class'] });
+  refresh();
+})();

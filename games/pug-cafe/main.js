@@ -2589,3 +2589,79 @@ if (_startOv) {
     }
   }, 800);
 })();
+
+// ============================================================================
+// v2.7 CAFE-011: Mobile pinch-zoom on order list — when the order panel
+// (#hud-orders or .cafe-orders) gets two-finger pinch, scale 1.0×–1.6× via
+// CSS transform. Persists last user scale to localStorage.
+// ============================================================================
+(function _r7CafePinchZoom() {
+  const isTouch = matchMedia('(hover:none)').matches || 'ontouchstart' in window;
+  if (!isTouch) return;
+  const panel = document.querySelector('#hud-orders, .cafe-orders, #hud, .hud');
+  if (!panel) return;
+  let scale = parseFloat(localStorage.getItem('cafe:orderScale') || '1') || 1;
+  scale = Math.max(1, Math.min(1.6, scale));
+  panel.style.transformOrigin = 'top right';
+  panel.style.transform = `scale(${scale})`;
+  let lastDist = 0;
+  panel.addEventListener('touchstart', (e) => {
+    if (e.touches.length === 2) {
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      lastDist = Math.hypot(dx, dy);
+    }
+  }, { passive: true });
+  panel.addEventListener('touchmove', (e) => {
+    if (e.touches.length === 2 && lastDist > 0) {
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      const d = Math.hypot(dx, dy);
+      const k = d / lastDist;
+      scale = Math.max(1, Math.min(1.6, scale * k));
+      panel.style.transform = `scale(${scale})`;
+      lastDist = d;
+    }
+  }, { passive: true });
+  panel.addEventListener('touchend', () => {
+    lastDist = 0;
+    try { localStorage.setItem('cafe:orderScale', String(scale)); } catch {}
+  }, { passive: true });
+})();
+
+// ============================================================================
+// v2.7 CAFE-extra: Lifetime customers served — small bottom-left META counter
+// reading `#hud-served` increments across all runs. Persists `cafe:lifetimeServed`.
+// Adds milestone glow when lifetime hits 100/500/1000.
+// ============================================================================
+(function _r7CafeLifetime() {
+  const served = document.getElementById('hud-served');
+  if (!served) return;
+  let last = parseInt((served.textContent || '').replace(/\D/g, ''), 10) || 0;
+  let lifetime = parseInt(localStorage.getItem('cafe:lifetimeServed') || '0', 10) || 0;
+  const chip = document.createElement('div');
+  chip.id = 'r7-cafe-lifetime';
+  chip.style.cssText = 'position:fixed;bottom:14px;left:14px;background:rgba(20,8,32,0.92);color:#5ef38c;border:1px solid #5ef38c;font-family:"Press Start 2P",monospace;font-size:7px;padding:4px 8px;border-radius:3px;z-index:50;letter-spacing:1px;pointer-events:none;';
+  function refresh() { chip.textContent = '☕ LIFETIME: ' + lifetime; }
+  refresh();
+  document.body.appendChild(chip);
+  setInterval(() => {
+    const cur = parseInt((served.textContent || '').replace(/\D/g, ''), 10) || 0;
+    if (cur > last) {
+      lifetime += (cur - last);
+      try { localStorage.setItem('cafe:lifetimeServed', String(lifetime)); } catch {}
+      const prevHit = ['cafe:milestone100', 'cafe:milestone500', 'cafe:milestone1000'];
+      const milestones = [100, 500, 1000];
+      milestones.forEach((m, i) => {
+        if (lifetime >= m && !localStorage.getItem(prevHit[i])) {
+          try { localStorage.setItem(prevHit[i], '1'); } catch {}
+          chip.animate([{ transform: 'scale(1.4)', color: '#ffd23f' }, { transform: 'scale(1)', color: '#5ef38c' }], { duration: 900 });
+        }
+      });
+      refresh();
+    } else if (cur === 0 && last > 5) {
+      // run reset — no action
+    }
+    last = cur;
+  }, 800);
+})();
