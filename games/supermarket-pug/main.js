@@ -763,6 +763,8 @@ function tick(dt) {
   if (frozenAisleH && pug.y > frozenAisleY - frozenAisleH / 2 && pug.y < frozenAisleY + frozenAisleH / 2) frozen = true;
   let speed = inCart ? 280 : 160;
   if (frozen) speed *= 0.85;
+  // GETAWAY VEHICLE — apply speed mul during escape phase (alarm on).
+  if (activeGetaway && alarm && alarm.on) speed *= activeGetaway.speedMul;
   // Acceleration ramp from rest — smooth lerp to target velocity gives the cart
   // (and pug) a sense of weight instead of snapping to top speed instantly.
   let tvx = 0, tvy = 0;
@@ -783,7 +785,7 @@ function tick(dt) {
       }
     }
     pug.ang = Math.atan2(my, mx);
-    if (inCart) heat = Math.min(1, heat + dt * 0.04);
+    if (inCart) heat = Math.min(1, heat + dt * 0.04 * (activeGetaway && alarm && alarm.on ? activeGetaway.heatMul : 1));
   }
   if (pug.cartWobbleT > 0) pug.cartWobbleT = Math.max(0, pug.cartWobbleT - dt);
   // Cart is heavier (slower ramp); on-foot is snappier.
@@ -2194,7 +2196,70 @@ function _renderEndBadges() {
 
 document.getElementById('start-btn').addEventListener('click', start);
 document.getElementById('end-restart').addEventListener('click', start);
+// =============================================================================
+// GETAWAY VEHICLE — picked at start screen, applied during alarm/escape phase.
+// Each vehicle gives a unique escape modifier: skateboard fast / cart big bag /
+// handbag stealthy (lower heat gain in escape).
+// =============================================================================
+const GETAWAY_VEHICLES = [
+  { id: 'skateboard', name: 'SKATEBOARD', icon: '🛹', desc: '+40% speed in escape · -10% bag cap', speedMul: 1.40, bagMul: 0.90, heatMul: 1.0 },
+  { id: 'cart',       name: 'BIG CART',   icon: '🛒', desc: '+40% bag cap · normal speed',         speedMul: 1.0,  bagMul: 1.40, heatMul: 1.1 },
+  { id: 'handbag',    name: 'HANDBAG',    icon: '👜', desc: 'Half heat gain · normal speed',       speedMul: 1.0,  bagMul: 1.0,  heatMul: 0.50 },
+];
+let selectedGetawayId = 'skateboard';
+let activeGetaway = null;
+let _origMaxBag = null;
+(function _injectGetawayUI() {
+  const ov = document.getElementById('overlay');
+  const startBtn = document.getElementById('start-btn');
+  if (!ov || !startBtn) return;
+  const wrap = document.createElement('div');
+  wrap.id = 'mart-getaway-pick';
+  wrap.style.cssText = 'margin:8px auto 6px;padding:8px;background:rgba(0,0,0,0.4);border:1px solid var(--border);border-radius:6px;max-width:520px;';
+  wrap.innerHTML = `<div style="font-family:var(--font-display);font-size:0.5rem;color:var(--neon-yellow);text-align:center;letter-spacing:0.08em;margin-bottom:6px;">🏃 GETAWAY VEHICLE</div>
+    <div id="mart-getaway-list" style="display:flex;gap:6px;flex-wrap:wrap;justify-content:center;"></div>
+    <div id="mart-getaway-desc" style="font-size:0.42rem;color:var(--text-soft);text-align:center;margin-top:6px;letter-spacing:0.04em;"></div>`;
+  startBtn.parentNode.insertBefore(wrap, startBtn);
+  function paint() {
+    const list = document.getElementById('mart-getaway-list');
+    const desc = document.getElementById('mart-getaway-desc');
+    if (!list) return;
+    list.innerHTML = GETAWAY_VEHICLES.map((v) => {
+      const active = selectedGetawayId === v.id;
+      return `<button data-getaway="${v.id}" style="padding:8px 12px;background:${active?'rgba(255,210,63,0.18)':'rgba(0,0,0,0.5)'};border:2px solid ${active?'#ffd23f':'var(--border)'};color:${active?'#ffd23f':'var(--text-soft)'};border-radius:4px;font-family:var(--font-display);font-size:0.5rem;cursor:pointer;letter-spacing:0.05em;">${v.icon}<br>${v.name}</button>`;
+    }).join('');
+    const sel = GETAWAY_VEHICLES.find((v) => v.id === selectedGetawayId);
+    if (desc && sel) desc.textContent = sel.desc;
+    list.querySelectorAll('button[data-getaway]').forEach((b) => {
+      b.addEventListener('click', () => { selectedGetawayId = b.getAttribute('data-getaway'); paint(); });
+    });
+  }
+  paint();
+})();
+// Hook tick to apply getaway modifiers when alarm is on (= escape phase).
+let _lastAlarmOn = false;
+setInterval(() => {
+  if (!running) return;
+  const alarmOn = !!(alarm && alarm.on);
+  if (alarmOn && !_lastAlarmOn && activeGetaway) {
+    // Entering escape: announce + apply bag cap bonus
+    if (_origMaxBag == null) _origMaxBag = maxBag;
+    if (activeGetaway.bagMul !== 1.0 && typeof maxBag === 'number') {
+      maxBag = Math.round(_origMaxBag * activeGetaway.bagMul);
+    }
+    try { popup(pug.x, pug.y - 30, `★ ${activeGetaway.icon} ${activeGetaway.name} ★`, '#ffd23f'); } catch (e) { /* */ }
+  }
+  if (!alarmOn && _lastAlarmOn) {
+    // Reset on alarm-off
+    if (_origMaxBag != null) { maxBag = _origMaxBag; _origMaxBag = null; }
+  }
+  _lastAlarmOn = alarmOn;
+}, 200);
+
 function start() {
+  // Apply selected getaway BEFORE reset() so it's available in the run.
+  activeGetaway = GETAWAY_VEHICLES.find((v) => v.id === selectedGetawayId) || GETAWAY_VEHICLES[0];
+  _origMaxBag = null;
   reset(); running = true;
   keys.clear(); touchAt = null; // wipe stuck inputs from prior match
   document.getElementById('overlay').hidden = true; document.getElementById('overlay').classList.add('is-hidden');

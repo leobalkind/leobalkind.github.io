@@ -2341,6 +2341,106 @@ function applyIngredientFilter() {
   });
 }
 
+// ===== EVOLUTION TREE — graph of species linked by shared ingredients =====
+// Each node = one discovered species. Edges = ≥2 shared ingredients.
+// Lays out by tier (rows) and renders into an SVG. Click cell → pop on codex.
+const _treeBtn = document.createElement('button');
+_treeBtn.className = 'lab-codex-btn lab-tree-btn';
+_treeBtn.textContent = '🌳 TREE';
+_treeBtn.style.right = 'calc(60px + 260px)';
+_treeBtn.style.background = 'linear-gradient(180deg, #5ef38c, #1a6030)';
+_treeBtn.style.borderColor = '#b0ffc0';
+_treeBtn.style.boxShadow = '0 4px 0 #0a3018';
+_treeBtn.title = 'Visualize relationships between your discovered species';
+document.body.appendChild(_treeBtn);
+const _treeModal = document.createElement('div');
+_treeModal.className = 'lab-codex-modal';
+_treeModal.style.cssText = 'position:fixed;inset:0;z-index:200;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,0.85);padding:16px;';
+_treeModal.innerHTML = `
+  <div style="background:linear-gradient(180deg,#1a0f2e,#0a0716);border:3px solid #5ef38c;border-radius:10px;padding:18px;max-width:900px;width:100%;max-height:88vh;overflow:auto;box-shadow:0 0 40px rgba(94,243,140,0.4);">
+    <h2 style="font-family:var(--font-display);text-align:center;color:#5ef38c;margin:0 0 4px;text-shadow:0 0 12px #5ef38c;">🌳 EVOLUTION TREE</h2>
+    <div id="tree-sub" style="text-align:center;color:#c8c0e8;font-family:var(--font-display);font-size:0.45rem;margin-bottom:10px;">Click a node to see ingredients · Lines = species sharing ≥2 ingredients</div>
+    <svg id="tree-svg" width="860" height="520" style="max-width:100%;display:block;margin:0 auto;background:rgba(0,0,0,0.4);border-radius:6px;"></svg>
+    <button id="tree-close" style="background:rgba(0,0,0,0.6);color:#fff;border:2px solid #5ef38c;border-radius:4px;font-family:var(--font-display);font-size:0.55rem;padding:8px 18px;cursor:pointer;display:block;margin:14px auto 0;">CLOSE</button>
+  </div>`;
+document.body.appendChild(_treeModal);
+_treeBtn.addEventListener('click', () => { renderEvolutionTree(); _treeModal.style.display = 'flex'; });
+_treeModal.querySelector('#tree-close').addEventListener('click', () => { _treeModal.style.display = 'none'; });
+_treeModal.addEventListener('click', (e) => { if (e.target === _treeModal) _treeModal.style.display = 'none'; });
+function renderEvolutionTree() {
+  const svg = document.getElementById('tree-svg');
+  if (!svg) return;
+  const all = Object.values(discoveries || {});
+  const sub = document.getElementById('tree-sub');
+  if (sub) sub.textContent = `${all.length} species discovered · click any node for details`;
+  // Layout by tier (rows): LEGENDARY top, then EPIC, RARE, COMMON, CURSED bottom.
+  const tierRows = { LEGENDARY: 0, EPIC: 1, RARE: 2, COMMON: 3, CURSED: 4 };
+  const tierColor = { LEGENDARY: '#ffd23f', EPIC: '#b055ff', RARE: '#4cc9f0', COMMON: '#c8c8d8', CURSED: '#ff3a3a' };
+  const tierLabel = { LEGENDARY: 'LEGENDARY', EPIC: 'EPIC', RARE: 'RARE', COMMON: 'COMMON', CURSED: 'CURSED' };
+  const byTier = { LEGENDARY: [], EPIC: [], RARE: [], COMMON: [], CURSED: [] };
+  for (const d of all) {
+    const t = d.tier || (d.legendary ? 'LEGENDARY' : (d.cursed ? 'CURSED' : 'COMMON'));
+    if (byTier[t]) byTier[t].push(d);
+  }
+  const W = 860, H = 520;
+  const rowH = H / 5;
+  const nodes = []; // {x, y, d, key, ids}
+  for (const tier of Object.keys(byTier)) {
+    const arr = byTier[tier];
+    const row = tierRows[tier];
+    arr.forEach((d, i) => {
+      const x = (i + 0.5) * (W / Math.max(1, arr.length));
+      const y = row * rowH + rowH / 2;
+      nodes.push({ x, y, d, key: d.key || '', ids: (d.key || '').split(',') });
+    });
+  }
+  // Edges: connect nodes whose ingredient sets share ≥2 ingredients.
+  const edges = [];
+  for (let i = 0; i < nodes.length; i++) {
+    for (let j = i + 1; j < nodes.length; j++) {
+      const a = nodes[i].ids, b = nodes[j].ids;
+      let shared = 0;
+      for (const id of a) if (b.includes(id)) shared++;
+      if (shared >= 2) edges.push({ a: i, b: j, shared });
+    }
+  }
+  // Build SVG content (lines first, then nodes, then tier labels).
+  let html = '';
+  // Tier row labels at left
+  for (const tier of Object.keys(tierRows)) {
+    const y = tierRows[tier] * rowH + rowH / 2;
+    html += `<text x="6" y="${y + 4}" fill="${tierColor[tier]}" font-family="monospace" font-size="10" opacity="0.7">${tierLabel[tier]}</text>`;
+  }
+  // Edges
+  for (const e of edges) {
+    const n1 = nodes[e.a], n2 = nodes[e.b];
+    const alpha = Math.min(0.6, 0.18 + e.shared * 0.12);
+    html += `<line x1="${n1.x}" y1="${n1.y}" x2="${n2.x}" y2="${n2.y}" stroke="#5ef38c" stroke-width="1" opacity="${alpha}" />`;
+  }
+  // Nodes
+  for (const n of nodes) {
+    const t = n.d.tier || (n.d.legendary ? 'LEGENDARY' : (n.d.cursed ? 'CURSED' : 'COMMON'));
+    const col = tierColor[t] || '#c8c8d8';
+    const icon = n.d.icon || '?';
+    const safeName = (n.d.name || 'Unknown').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+    const safeKey = n.key.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+    html += `<g class="tree-node" data-key="${safeKey}" style="cursor:pointer;">
+      <circle cx="${n.x}" cy="${n.y}" r="13" fill="rgba(0,0,0,0.5)" stroke="${col}" stroke-width="2" />
+      <text x="${n.x}" y="${n.y + 5}" text-anchor="middle" font-size="14">${icon}</text>
+      <title>${safeName} (${t}) · ${safeKey}</title>
+    </g>`;
+  }
+  svg.innerHTML = html;
+  // Click handler — show name in sub
+  svg.querySelectorAll('.tree-node').forEach((g) => {
+    g.addEventListener('click', () => {
+      const k = g.getAttribute('data-key');
+      const d = discoveries[k];
+      if (d && sub) sub.innerHTML = `<b style="color:${tierColor[d.tier || (d.legendary?'LEGENDARY':(d.cursed?'CURSED':'COMMON'))]};">${d.name}</b> · ${(d.key||'').split(',').join(' + ')}`;
+    });
+  });
+}
+
 // ===== CODEX =====
 const _codexBtn = document.createElement('button');
 _codexBtn.className = 'lab-codex-btn';

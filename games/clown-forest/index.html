@@ -84,9 +84,10 @@
       </div>
     </div>
 
-    <!-- Items (top-right) — brief fade-in on pickup only. -->
+    <!-- Items (top-right) — brief fade-in on pickup only. The /N denominator
+         updates from JS based on difficulty (EASY=4 / NORMAL=5 / NIGHTMARE=5). -->
     <div id="hud-items" class="hud-items">
-      ITEMS <span id="hud-items-n">0</span>/5
+      ITEMS <span id="hud-items-n">0</span>/<span id="hud-items-total">5</span>
     </div>
 
     <!-- Subtitle line (bottom-center) — italicized audio cues + objective beats. -->
@@ -169,7 +170,9 @@
 
   <!-- =====================================================================
        START OVERLAY — black, bare, dread-soaked. No animation noise. The
-       tagline does the heavy lifting.
+       tagline does the heavy lifting. Round-4 adds:
+         · Difficulty selector (EASY / NORMAL / NIGHTMARE)
+         · Lifetime run stats (runs, escapes, fastest)
        ===================================================================== -->
   <div id="start-overlay" class="overlay" hidden>
     <div class="start-fog" aria-hidden="true"></div>
@@ -180,7 +183,14 @@
       <p class="start-subtitle"><i>in the forest</i></p>
       <p class="start-tagline">Find 5. Reach the beacon. Survive the night.</p>
       <p class="start-best">BEST: <span id="start-best">—</span></p>
+      <div id="start-diff" class="start-diff" role="radiogroup" aria-label="Difficulty">
+        <button class="start-diff__btn" data-diff="easy" type="button" role="radio">EASY</button>
+        <button class="start-diff__btn is-active" data-diff="normal" type="button" role="radio" aria-checked="true">NORMAL</button>
+        <button class="start-diff__btn start-diff__btn--nightmare" data-diff="nightmare" type="button" role="radio">NIGHTMARE</button>
+      </div>
+      <p id="start-diff-desc" class="start-diff__desc">Standard run: 5 items, beacon escape, normal clown.</p>
       <button id="start-btn" class="start-btn">ENTER THE WOODS</button>
+      <p id="start-stats" class="start-stats">RUNS: 0 / ESCAPES: 0 / FASTEST: —</p>
       <a class="start-back" href="../../index.html">← BACK TO HUB</a>
     </div>
   </div>
@@ -252,12 +262,36 @@
        ===================================================================== -->
   <div id="confirm-overlay" class="overlay" hidden>
     <div class="confirm-panel">
-      <h2 class="confirm-title">RESTART RUN?</h2>
-      <p class="confirm-sub">Your progress will be lost.</p>
+      <h2 class="confirm-title" id="confirm-title">RESTART RUN?</h2>
+      <p class="confirm-sub" id="confirm-sub">Your progress will be lost.</p>
       <div class="confirm-buttons">
         <button id="confirm-yes" class="confirm-btn confirm-btn--danger">YES, RESTART</button>
         <button id="confirm-no" class="confirm-btn">CANCEL</button>
       </div>
+    </div>
+  </div>
+
+  <!-- =====================================================================
+       MAP OVERLAY — shown when player picks up the rare hand-drawn map item.
+       4s auto-fade; while shown, the clown gets a 30s head-start ("time
+       wasted"). Painted entirely in JS canvas.
+       ===================================================================== -->
+  <div id="map-overlay" class="map-overlay" hidden>
+    <div class="map-overlay__paper">
+      <canvas id="map-canvas" width="380" height="380"></canvas>
+      <div class="map-overlay__caption">CRUMPLED HAND-DRAWN MAP</div>
+    </div>
+  </div>
+
+  <!-- =====================================================================
+       NPC ENCOUNTER — rare, atmospheric. A stranger appears, says one line,
+       vanishes. Pure DOM; the world stays unpaused so the line lands while
+       the player is still walking.
+       ===================================================================== -->
+  <div id="npc-overlay" class="npc-overlay" hidden aria-live="polite">
+    <div class="npc-overlay__bubble">
+      <span class="npc-overlay__tag">A STRANGER</span>
+      <p id="npc-line" class="npc-overlay__line">He's coming. Run.</p>
     </div>
   </div>
 

@@ -124,6 +124,37 @@ function unlockAchievement(id) {
   try { sfx.arp([659, 880, 1175, 1568], 'triangle', 0.07, 0.22, 0.28); } catch {}
 }
 let runStartT = 0, runPowerupsGrabbed = 0, biomeStartDamage = false;
+// =============================================================================
+// BIOME CHALLENGE — optional bonus objective per biome. Rolled at biome-shift,
+// shown as a HUD banner. Completing pays +500 score and a popup celebration.
+// Failing silently drops the challenge at next biome shift.
+// =============================================================================
+const BIOME_CHALLENGES = [
+  { id: 'coins_clean',  desc: 'Collect 3 treats WITHOUT taking damage', bonus: 500,
+    test: (s) => s.treats >= 3 && !s.damaged },
+  { id: 'combo_high',   desc: 'Land a 10+ combo this biome',             bonus: 600,
+    test: (s) => s.maxCombo >= 10 },
+  { id: 'no_powerups',  desc: 'Clear the biome WITHOUT using powerups',  bonus: 700,
+    test: (s) => s.powerups === 0 },
+  { id: 'speedy',       desc: 'Clear the biome in under 30 seconds',     bonus: 800,
+    test: (s) => s.elapsed <= 30 },
+];
+let activeBiomeChal = null;     // { ...chal, stats: {treats, maxCombo, powerups, startT, damaged} }
+function _rollBiomeChallenge() {
+  activeBiomeChal = { ...BIOME_CHALLENGES[Math.floor(Math.random() * BIOME_CHALLENGES.length)],
+    stats: { treats: 0, maxCombo: 0, powerups: 0, startT: performance.now(), damaged: false } };
+}
+function _evalBiomeChallenge() {
+  if (!activeBiomeChal) return;
+  const s = activeBiomeChal.stats;
+  s.elapsed = (performance.now() - s.startT) / 1000;
+  if (activeBiomeChal.test(s)) {
+    score += activeBiomeChal.bonus;
+    banner = { text: `★ CHALLENGE +${activeBiomeChal.bonus} ★`, life: 0, max: 2 };
+    try { sfx.arp([523, 784, 1047, 1320], 'triangle', 0.07, 0.22, 0.16); } catch (e) { /* */ }
+  }
+  activeBiomeChal = null;
+}
 // === Round 2: WIND CURRENTS — drift zones that push the player ===
 let windCurrents = [];
 let windSpawnT = 5;
@@ -410,6 +441,7 @@ function refillJumps() { pug.jumpsLeft = wingsT > 0 ? 3 : 2; }
 function checkComboThreshold() {
   // Track lifetime-best combo for end-screen surfacing (Round-2 polish).
   if (comboJumps > maxComboThisRun) maxComboThisRun = comboJumps;
+  if (activeBiomeChal) activeBiomeChal.stats.maxCombo = Math.max(activeBiomeChal.stats.maxCombo, comboJumps);
   // Trigger at 5, 10, 20, then every 10 above
   const hit =
     comboJumps === 5 || comboJumps === 10 || comboJumps === 20 ||
@@ -640,6 +672,7 @@ function tick(dt) {
     if (Math.abs(p.x - pug.x) < 20 && Math.abs(p.y - pug.y) < 20) {
       if (gameMode === 'death_run') { powerups.splice(i, 1); continue; }
       powerups.splice(i, 1);
+      if (activeBiomeChal) activeBiomeChal.stats.powerups++;
       if (p.type === 'jetpack') jetpackT = 5;
       else if (p.type === 'freeze') freezeT = 4;
       else if (p.type === 'shrink') shrinkT = 6;
@@ -677,6 +710,7 @@ function tick(dt) {
       if (Math.hypot(t.x - petBird.x, t.y - petBird.y) < 50 && Math.hypot(t.x - pug.x, t.y - pug.y) < 200) {
         treats.splice(i, 1);
         treatsGot++; score += 50;
+        if (activeBiomeChal) activeBiomeChal.stats.treats++;
         sfx.tone(1760, 'triangle', 0.06, 0.18);
         pop(t.x, t.y - 10, '+50 PET', '#fff7d0');
       }
@@ -698,7 +732,7 @@ function tick(dt) {
     const d = fallingDebris[i]; d.y += d.vy * dt;
     if (d.y > H + 30) { fallingDebris.splice(i, 1); continue; }
     if (rocketBootT <= 0 && Math.abs(d.x - pug.x) < d.sz + 10 && Math.abs(d.y - pug.y) < d.sz + 10) {
-      if (shieldT > 0) { shieldT = 0; biomeStartDamage = true; pop(d.x, d.y, 'SHIELD!', '#4cc9f0'); fallingDebris.splice(i, 1); continue; }
+      if (shieldT > 0) { shieldT = 0; biomeStartDamage = true; if (activeBiomeChal) activeBiomeChal.stats.damaged = true; pop(d.x, d.y, 'SHIELD!', '#4cc9f0'); fallingDebris.splice(i, 1); continue; }
       return die();
     }
   }
@@ -706,7 +740,7 @@ function tick(dt) {
   for (let i = haunts.length - 1; i >= 0; i--) {
     const h = haunts[i]; h.ampT += dt * 1.5; h.alpha = Math.min(1, h.alpha + dt); h.y = h.baseY + Math.sin(h.ampT) * 30;
     if (Math.abs(h.x - pug.x) < 18 && Math.abs(h.y - pug.y) < 18 && Math.abs(pug.vy) < 100 && rocketBootT <= 0) {
-      if (shieldT > 0) { shieldT = 0; biomeStartDamage = true; pop(h.x, h.y, 'SHIELD!', '#4cc9f0'); haunts.splice(i, 1); continue; }
+      if (shieldT > 0) { shieldT = 0; biomeStartDamage = true; if (activeBiomeChal) activeBiomeChal.stats.damaged = true; pop(h.x, h.y, 'SHIELD!', '#4cc9f0'); haunts.splice(i, 1); continue; }
       return die();
     }
   }
@@ -739,7 +773,7 @@ function tick(dt) {
     const m = meteors[i]; m.x += m.vx * dt; m.y += m.vy * dt;
     if (m.y > H + 30) { meteors.splice(i, 1); continue; }
     if (rocketBootT <= 0 && Math.abs(m.x - pug.x) < m.sz + 10 && Math.abs(m.y - pug.y) < m.sz + 10) {
-      if (shieldT > 0) { shieldT = 0; biomeStartDamage = true; pop(m.x, m.y, 'SHIELD!', '#4cc9f0'); meteors.splice(i, 1); continue; }
+      if (shieldT > 0) { shieldT = 0; biomeStartDamage = true; if (activeBiomeChal) activeBiomeChal.stats.damaged = true; pop(m.x, m.y, 'SHIELD!', '#4cc9f0'); meteors.splice(i, 1); continue; }
       return die();
     }
     if (Math.random() < 0.5 && embers.length < 200) embers.push({ x: m.x, y: m.y, vx: -m.vx * 0.2, vy: -m.vy * 0.2, life: 0, max: 0.4, r: 2 + Math.random() * 2, color: '#b055ff', glow: true });
@@ -892,6 +926,12 @@ function tick(dt) {
       nextBiomeAtHeight += 500;
       // Round 2: PERFECT_BIOME — cleared a 500m biome with no damage
       if (!biomeStartDamage) unlockAchievement('perfect_biome');
+      // BIOME CHALLENGE — eval previous, roll next.
+      _evalBiomeChallenge();
+      _rollBiomeChallenge();
+      if (activeBiomeChal) {
+        banner = { text: `★ CHALLENGE: ${activeBiomeChal.desc} ★`, life: 0, max: 3 };
+      }
       biomeStartDamage = false;
       // Unlock new powerup on each biome reached (cosmetic + functional)
       const unlockMap = { 1: 'shield', 2: 'doubleJumpExtra', 3: 'slowMo', 4: 'multiplier' };
@@ -947,6 +987,7 @@ function tick(dt) {
     if (Math.abs(t.x - pug.x) < 20 && Math.abs(t.y - pug.y) < 20) {
       treats.splice(i, 1);
       treatsGot++; score += 50 * scoreMul;
+      if (activeBiomeChal) activeBiomeChal.stats.treats++;
       sfx.tone(1320, 'triangle', 0.08, 0.2);
       pop(t.x, t.y - 10, `+${50 * scoreMul}`, '#ffd23f');
     }

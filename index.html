@@ -35,11 +35,12 @@
           type="search"
           autocomplete="off"
           placeholder="Search games…   ( press / )"
-          aria-label="Search games"
+          aria-label="Search games — try names like 'bork' or tags like 'stealth'"
         />
         <div id="hub-cats" class="hub__cats" role="tablist" aria-label="Filter by category">
           <button class="hub__cat is-active" data-cat="all" type="button" role="tab" aria-selected="true">ALL</button>
           <button class="hub__cat" data-cat="action" type="button" role="tab" aria-selected="false">ACTION</button>
+          <button class="hub__cat hub__cat--horror" data-cat="horror" type="button" role="tab" aria-selected="false">HORROR</button>
           <button class="hub__cat" data-cat="stealth" type="button" role="tab" aria-selected="false">STEALTH</button>
           <button class="hub__cat" data-cat="defense" type="button" role="tab" aria-selected="false">DEFENSE</button>
           <button class="hub__cat" data-cat="driving" type="button" role="tab" aria-selected="false">DRIVING</button>
@@ -47,7 +48,22 @@
           <button class="hub__cat" data-cat="mining" type="button" role="tab" aria-selected="false">MINING</button>
           <button class="hub__cat" data-cat="puzzle" type="button" role="tab" aria-selected="false">PUZZLE</button>
           <button class="hub__cat" data-cat="management" type="button" role="tab" aria-selected="false">MANAGEMENT</button>
-          <button class="hub__cat" data-cat="horror" type="button" role="tab" aria-selected="false">HORROR</button>
+        </div>
+        <!-- Sort toolbar — total count + sort dropdown so the player can re-rank
+             the grid without typing in the search box. Lives between the
+             category chips and the grid itself. -->
+        <div class="hub__toolbar" aria-label="Sort and count">
+          <span id="hub-count" class="hub__count" aria-live="polite">— / 15 GAMES</span>
+          <label class="hub__sort-wrap">
+            <span class="hub__sort-lbl">SORT</span>
+            <select id="hub-sort" class="hub__sort" aria-label="Sort games">
+              <option value="default">Featured</option>
+              <option value="name">Name (A-Z)</option>
+              <option value="recent">Recently updated</option>
+              <option value="most-played">Most played</option>
+              <option value="horror-only">Horror only</option>
+            </select>
+          </label>
         </div>
         <!-- Empty-state node is built lazily by setupSearchAndCats() when needed,
              so web scrapers / screen-readers don't see "No games match" on initial load. -->
@@ -251,7 +267,7 @@
           </div>
           <div class="card__body">
             <h2 class="card__title">BORK BATTLE</h2>
-            <p class="card__desc">Meme pugs in custom vehicles. Evolve, brawl, survive the shrinking neon dog park.</p>
+            <p class="card__desc">Meme pugs. Custom karts. Shrinking neon arena. Last dog wins.</p>
             <span class="card__cta">Play →</span>
           </div>
         </a>
@@ -528,7 +544,7 @@
           </div>
           <div class="card__body">
             <h2 class="card__title">PUGFORT.EXE</h2>
-            <p class="card__desc">Survival defense. Build a fortress, fight zombie hordes, keep the pug alive.</p>
+            <p class="card__desc">Build the wall. Mount turrets. Survive the zombie nights.</p>
             <span class="card__cta">Enter →</span>
           </div>
         </a>
@@ -699,7 +715,7 @@
               </g>
             </svg>
           </div>
-          <div class="card__body"><h2 class="card__title">PUG HEIST SOCIETY</h2><p class="card__desc">Tiny spy pugs sneak through houses for snacks, socks, and forbidden cheese. Use distract-bark + fart boost.</p><span class="card__cta">Sneak →</span></div>
+          <div class="card__body"><h2 class="card__title">PUG HEIST SOCIETY</h2><p class="card__desc">Stealth pugs. Vision cones. Forbidden cheese. Distract, sneak, grab.</p><span class="card__cta">Sneak →</span></div>
         </a>
 
         <a class="card" href="/games/pug-cafe/index.html">
@@ -916,7 +932,7 @@
               </g>
             </svg>
           </div>
-          <div class="card__body"><h2 class="card__title">PUG CAFÉ PANIC</h2><p class="card__desc">Chaotic café staffed by hyperactive pugs. Triple bacon pupcakes. Slime smoothies. Watch the orders pile up — combos pay extra.</p><span class="card__cta">Open →</span></div>
+          <div class="card__body"><h2 class="card__title">PUG CAFÉ PANIC</h2><p class="card__desc">Chaos kitchen. Bacon pupcakes. Slime lattes. Chain orders for tips.</p><span class="card__cta">Open →</span></div>
         </a>
 
         <a class="card" href="/games/rocket-pug/index.html">
@@ -1070,7 +1086,7 @@
               </g>
             </svg>
           </div>
-          <div class="card__body"><h2 class="card__title">ROCKET PUG ARENA</h2><p class="card__desc">Armored pugs with absurd gadgets: tennis cannons, toaster jetpacks, sausage launchers. 4 bots, 1 winner.</p><span class="card__cta">Fight →</span></div>
+          <div class="card__body"><h2 class="card__title">ROCKET PUG ARENA</h2><p class="card__desc">Toaster jetpacks. Sausage launchers. 4 bots, 1 winner.</p><span class="card__cta">Fight →</span></div>
         </a>
 
         <a class="card" href="/games/dungeon-diggers/index.html">
@@ -1254,7 +1270,7 @@
               </g>
             </svg>
           </div>
-          <div class="card__body"><h2 class="card__title">PUG DUNGEON DIGGERS</h2><p class="card__desc">Dig deep for bones, cursed toys, golden biscuits. Upgrade your drill. Unlock the Cheese Caverns.</p><span class="card__cta">Dig →</span></div>
+          <div class="card__body"><h2 class="card__title">PUG DUNGEON DIGGERS</h2><p class="card__desc">Dig deeper. Upgrade your drill. Find the Cheese Caverns.</p><span class="card__cta">Dig →</span></div>
         </a>
 
         <a class="card" href="/games/mutation-lab/index.html">
@@ -1430,7 +1446,7 @@
               </g>
             </svg>
           </div>
-          <div class="card__body"><h2 class="card__title">PUG MUTATION LAB</h2><p class="card__desc">Combine 3 ingredients. Get a cursed pug. Some legendary. Some abominations. Collect them all.</p><span class="card__cta">Fuse →</span></div>
+          <div class="card__body"><h2 class="card__title">PUG MUTATION LAB</h2><p class="card__desc">Fuse 3 ingredients. Get a cursed pug. Collect every abomination.</p><span class="card__cta">Fuse →</span></div>
         </a>
 
         <a class="card" href="/games/delivery-pugs/index.html">
@@ -1664,7 +1680,7 @@
               </g>
             </svg>
           </div>
-          <div class="card__body"><h2 class="card__title">APOCALYPSE DELIVERY PUGS</h2><p class="card__desc">Race a delivery pug through the ruined city. Skateboards, shopping carts, tiny tanks. Dodge zombies. Deliver on time.</p><span class="card__cta">Deliver →</span></div>
+          <div class="card__body"><h2 class="card__title">APOCALYPSE DELIVERY PUGS</h2><p class="card__desc">Race through the ruined city. Dodge zombies. Beat the clock.</p><span class="card__cta">Deliver →</span></div>
         </a>
 
         <a class="card" href="/games/pugzilla/index.html">
@@ -1881,7 +1897,7 @@
               </g>
             </svg>
           </div>
-          <div class="card__body"><h2 class="card__title">PUGZILLA RAMPAGE</h2><p class="card__desc">Giant mutant pug. Smash buildings. Eat vehicles. Shockwave-bork the military. Evolve into bigger forms.</p><span class="card__cta">Rampage →</span></div>
+          <div class="card__body"><h2 class="card__title">PUGZILLA RAMPAGE</h2><p class="card__desc">Smash the city. Eat the tanks. Evolve into a megaform.</p><span class="card__cta">Rampage →</span></div>
         </a>
 
         <a class="card" href="/games/backrooms-pug/index.html">
@@ -2066,7 +2082,10 @@
               </g>
             </svg>
           </div>
-          <div class="card__body"><h2 class="card__title">BACKROOMS OF PUG</h2><p class="card__desc">Endless yellow hallways. A giant pug hunts you. Hold SHIFT to walk silently. Collect cans, find the exit.</p><span class="card__cta">Enter →</span></div>
+          <div class="card__body">
+            <div class="card__tags"><span class="card__tag card__tag--horror">HORROR</span></div>
+            <h2 class="card__title">BACKROOMS OF PUG</h2><p class="card__desc">Endless yellow halls. Something hunts you. Walk silent. Don't get caught.</p><span class="card__cta">Enter →</span>
+          </div>
         </a>
 
         <a class="card" href="/games/backrooms-3d/index.html">
@@ -2181,7 +2200,14 @@
               </g>
             </svg>
           </div>
-          <div class="card__body"><h2 class="card__title">BACKROOMS 3D</h2><p class="card__desc">First-person noclip. Real Three.js maze. Buzzing flickering lights, endless yellow corridors, and something hunting you in the fog.</p><span class="card__cta">Enter →</span></div>
+          <div class="card__body">
+            <div class="card__tags">
+              <span class="card__tag card__tag--horror">HORROR</span>
+              <span class="card__tag card__tag--3d">3D</span>
+              <span class="card__tag card__tag--new">NEW</span>
+            </div>
+            <h2 class="card__title">BACKROOMS 3D</h2><p class="card__desc">True first-person Three.js maze. Yellow corridors. Buzzing lights. Footsteps behind you.</p><span class="card__cta">Enter →</span>
+          </div>
         </a>
 
         <a class="card" href="/games/clown-forest/index.html">
@@ -2318,7 +2344,15 @@
               </g>
             </svg>
           </div>
-          <div class="card__body"><h2 class="card__title">CLOWN IN THE FOREST</h2><p class="card__desc">Realistic first-person horror. A serial-killer clown stalks you through a midnight forest. Find 5 lost items. Escape before dawn.</p><span class="card__cta">Enter →</span></div>
+          <div class="card__body">
+            <div class="card__tags">
+              <span class="card__tag card__tag--horror">HORROR</span>
+              <span class="card__tag card__tag--3d">3D</span>
+              <span class="card__tag card__tag--realistic">REALISTIC</span>
+              <span class="card__tag card__tag--new">NEW</span>
+            </div>
+            <h2 class="card__title">CLOWN IN THE FOREST</h2><p class="card__desc">Midnight forest. A killer clown hunts you. Find 5 items. Escape before dawn.</p><span class="card__cta">Enter →</span>
+          </div>
         </a>
 
         <a class="card" href="/games/floor-lava/index.html">
@@ -2525,7 +2559,7 @@
               </g>
             </svg>
           </div>
-          <div class="card__body"><h2 class="card__title">FLOOR IS LAVA</h2><p class="card__desc">Vertical climber. Lava rises faster every second. Double-jump between platforms. Grab treats on the way.</p><span class="card__cta">Climb →</span></div>
+          <div class="card__body"><h2 class="card__title">FLOOR IS LAVA</h2><p class="card__desc">Lava rising. Climb fast. Double-jump or burn.</p><span class="card__cta">Climb →</span></div>
         </a>
 
         <a class="card" href="/games/supermarket-pug/index.html">
@@ -2742,7 +2776,7 @@
               </g>
             </svg>
           </div>
-          <div class="card__body"><h2 class="card__title">SUPERMARKET PUG</h2><p class="card__desc">Steal food. Knock over shelves. Hop in a shopping cart. Escape security with the biggest haul.</p><span class="card__cta">Steal →</span></div>
+          <div class="card__body"><h2 class="card__title">SUPERMARKET PUG</h2><p class="card__desc">Grab the loot. Dodge security. Cart-escape with the biggest haul.</p><span class="card__cta">Steal →</span></div>
         </a>
 
         <a class="card" href="/games/pug-td/index.html">
@@ -2954,7 +2988,7 @@
               </g>
             </svg>
           </div>
-          <div class="card__body"><h2 class="card__title">PUG TOWER DEFENSE</h2><p class="card__desc">Place pug-class towers on the green cells. 15 waves of squirrels, cats, birds, tanks. Defend the biscuit vault.</p><span class="card__cta">Defend →</span></div>
+          <div class="card__body"><h2 class="card__title">PUG TOWER DEFENSE</h2><p class="card__desc">Build towers. 15 waves. Defend the biscuit vault.</p><span class="card__cta">Defend →</span></div>
         </a>
 
         <div class="card card--coming">
@@ -2988,7 +3022,7 @@
       </section>
 
       <footer class="hub__footer">
-        <span>Built with PixiJS + Vite</span>
+        <span>Built with PixiJS + Three.js + Vite</span>
         <!-- Inline font-size/margin removed; uniform pill style now inherited from .hub__chip -->
         <span id="daily-seed" class="hub__chip" title="Today's daily-challenge seed"></span>
         <span id="gamepad-chip" class="hub__chip" title="Gamepad detected" hidden>🎮 GAMEPAD</span>
@@ -3000,10 +3034,21 @@
         <button id="random-btn" type="button" class="hub__icon-btn" title="Play a random game" aria-label="Play a random game">🎲</button>
         <span id="profile-chip" class="hub__chip hub__chip--profile" title="Active profile · click to switch">
           <!-- Dot inherits color from the muted token; profile.js overwrites with the active profile's accent. -->
-          <span class="profile-chip__dot" style="background:var(--muted)"></span>
+          <span class="profile-chip__avatar" aria-hidden="true">
+            <span class="profile-chip__dot" style="background:var(--muted)"></span>
+          </span>
           <span class="profile-chip__name">GUEST</span>
           <span class="profile-chip__chev">▾</span>
         </span>
+        <!-- Secondary footer row: credits / discord / version. Wraps separately
+             on mobile so the icon buttons stay on the line above. -->
+        <div class="hub__meta">
+          <button id="credits-btn" type="button" class="hub__meta-link" aria-label="Credits and attribution">CREDITS</button>
+          <span class="hub__meta-sep">·</span>
+          <a id="discord-link" class="hub__meta-link" href="https://discord.gg/webgames" target="_blank" rel="noopener noreferrer" aria-label="Join our Discord">JOIN DISCORD</a>
+          <span class="hub__meta-sep">·</span>
+          <span id="build-version" class="hub__meta-version" title="Build version">v2.2 · build 2026-05-24</span>
+        </div>
       </footer>
     </main>
 
@@ -3051,6 +3096,17 @@
           <label for="opt-profile-name" class="hub-profile-label">Display name</label>
           <input id="opt-profile-name" type="text" maxlength="16" placeholder="PUGGO" />
         </div>
+        <!-- GAMES STATS section — populated by JS on modal open. Shows
+             quick at-a-glance numbers for the active profile. -->
+        <h3 class="settings-sec">GAMES STATS</h3>
+        <div id="settings-games-stats" class="settings-stats">
+          <div class="settings-stat"><span class="settings-stat__val" id="ss-played">0</span><span class="settings-stat__lbl">games played</span></div>
+          <div class="settings-stat"><span class="settings-stat__val" id="ss-total">0</span><span class="settings-stat__lbl">total runs</span></div>
+          <div class="settings-stat"><span class="settings-stat__val" id="ss-fav">—</span><span class="settings-stat__lbl">favorite</span></div>
+        </div>
+        <!-- DANGER ZONE -->
+        <h3 class="settings-sec settings-sec--danger">DANGER ZONE</h3>
+        <button id="opt-reset-all" type="button" class="profile-btn profile-btn--danger" style="display:block;width:100%;margin-top:6px;">RESET ALL DATA</button>
         <button id="settings-close" type="button" class="hub-modal__close">DONE</button>
       </div>
     </div>
@@ -3127,12 +3183,52 @@
       <div class="hub-modal__panel hub-modal__panel--wide">
         <h2>YOUR STATS</h2>
         <div id="stats-summary" class="stats-summary"></div>
+        <!-- Sortable headers — clicking a th flips its sort direction. The
+             actual sort logic lives in renderStats() in the script section. -->
         <table class="stats-table">
-          <thead><tr><th>GAME</th><th>BEST</th><th>WHEN</th></tr></thead>
+          <thead><tr>
+            <th data-sort="game" class="is-sortable" tabindex="0">GAME <span class="th-arrow"></span></th>
+            <th data-sort="best" class="is-sortable" tabindex="0">BEST <span class="th-arrow"></span></th>
+            <th data-sort="when" class="is-sortable" tabindex="0">WHEN <span class="th-arrow"></span></th>
+          </tr></thead>
           <tbody id="stats-tbody"></tbody>
         </table>
         <div id="stats-empty" class="stats-empty" hidden>No games played yet. Pick a card and start a run!</div>
         <button id="stats-close" type="button" class="hub-modal__close">DONE</button>
+      </div>
+    </div>
+
+    <!-- Credits modal — attribution for libraries + fonts + content creators -->
+    <div id="credits-modal" class="hub-modal" hidden>
+      <div class="hub-modal__panel hub-modal__panel--wide">
+        <h2>CREDITS</h2>
+        <ul class="credits-list">
+          <li><b>Game engine</b> · <a href="https://pixijs.com/" target="_blank" rel="noopener">PixiJS</a> — 2D pixel rendering for the cartoon games</li>
+          <li><b>3D engine</b> · <a href="https://threejs.org/" target="_blank" rel="noopener">Three.js</a> — first-person Backrooms 3D + Clown in the Forest</li>
+          <li><b>Bundler</b> · <a href="https://vitejs.dev/" target="_blank" rel="noopener">Vite</a> — dev server + production build</li>
+          <li><b>Cloud sync</b> · <a href="https://supabase.com/" target="_blank" rel="noopener">Supabase</a> — optional cross-device save sync</li>
+          <li><b>Fonts</b> · <a href="https://fonts.google.com/specimen/Press+Start+2P" target="_blank" rel="noopener">Press Start 2P</a> + <a href="https://fonts.google.com/specimen/VT323" target="_blank" rel="noopener">VT323</a> from Google Fonts</li>
+          <li><b>Art &amp; code</b> · all SVG card thumbnails + game art handcrafted for this project</li>
+          <li><b>Procedural audio</b> · WebAudio-only, no samples — synth-from-scratch for SFX + music</li>
+          <li><b>Inspiration</b> · The Backrooms (Kane Pixels), Brotato, Vampire Survivors, Untitled Goose Game</li>
+        </ul>
+        <p class="credits-foot">100% client-side · no telemetry · no ads · open-source-friendly build</p>
+        <button id="credits-close" type="button" class="hub-modal__close">DONE</button>
+      </div>
+    </div>
+
+    <!-- RESET ALL confirm modal — two-step destructive flow. Step 1 prompts
+         "are you sure", step 2 requires typing RESET to confirm. -->
+    <div id="reset-all-modal" class="hub-modal" hidden>
+      <div class="hub-modal__panel">
+        <h2 style="color:var(--crimson)">RESET EVERYTHING?</h2>
+        <p class="onboard-body" id="reset-all-step1">This wipes every high score, achievement, setting, and profile from this device. Cloud accounts stay intact but local cache is cleared. <b>This cannot be undone.</b></p>
+        <p class="onboard-body" id="reset-all-step2" hidden>Type <code>RESET</code> below to confirm.</p>
+        <input id="reset-all-input" type="text" maxlength="10" placeholder="type RESET" autocomplete="off" hidden style="display:block;width:100%;padding:10px;background:rgba(0,0,0,.5);border:2px solid var(--crimson);color:#fff;border-radius:4px;font-family:var(--font-display);letter-spacing:.15em;text-align:center;font-size:.8rem;margin:0 0 10px;" />
+        <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:14px;">
+          <button id="reset-all-cancel" type="button" class="profile-btn profile-btn--ghost">CANCEL</button>
+          <button id="reset-all-confirm" type="button" class="profile-btn profile-btn--danger">I'M SURE</button>
+        </div>
       </div>
     </div>
 
@@ -3487,6 +3583,8 @@
       // login.js owns onChange + initial chip render via initHubAccounts()
       // Hook the new "My Data" footer button
       $('mydata-btn')?.addEventListener('click', () => openMyDataModal());
+      // Sort state for the stats table — toggled by clicking column headers.
+      let _statsSort = { col: 'game', dir: 1 };
       function renderStats() {
         const cards = [...document.querySelectorAll('.hub__grid .card[href*="/games/"]')];
         const rows = [];
@@ -3497,31 +3595,40 @@
           const id = m[1];
           const title = card.querySelector('.card__title')?.textContent?.trim() || id;
           let raw = null; try { raw = localStorage.getItem('wg:hs:' + id); } catch {}
-          let bestText = '—', whenText = '—';
+          let bestText = '—', whenText = '—', whenTs = 0, bestNum = 0;
           if (raw) {
             try {
               const data = JSON.parse(raw);
               played++;
               for (const k of ['score','kills','floor','level','depth','wave','deliveries','cansTotal']) {
-                if (typeof data[k] === 'number') { bestText = `★ ${k.toUpperCase()} ${data[k]}`; break; }
+                if (typeof data[k] === 'number') { bestText = `★ ${k.toUpperCase()} ${data[k]}`; bestNum = data[k]; break; }
               }
               if (typeof data.ts === 'number') {
+                whenTs = data.ts;
                 const d = new Date(data.ts);
                 whenText = `${d.getMonth()+1}/${d.getDate()}/${String(d.getFullYear()).slice(2)}`;
               }
             } catch {}
           }
           // Achievements (optional — games that adopt src/shared/achievements.js store under wg:ach:<id>)
-          let achText = '';
+          let achText = '', achN = 0;
           try {
             const aRaw = localStorage.getItem('wg:ach:' + id);
             if (aRaw) {
               const a = JSON.parse(aRaw);
-              if (Array.isArray(a) && a.length) { achText = ` · 🏆${a.length}`; achTotal += a.length; }
+              if (Array.isArray(a) && a.length) { achText = ` · 🏆${a.length}`; achN = a.length; achTotal += a.length; }
             }
           } catch {}
-          rows.push({ title, bestText: bestText + achText, whenText });
+          rows.push({ title, bestText: bestText + achText, whenText, whenTs, bestNum, achN });
         }
+        // Sort rows according to current header click state
+        rows.sort((a, b) => {
+          const d = _statsSort.dir;
+          if (_statsSort.col === 'game') return d * a.title.localeCompare(b.title);
+          if (_statsSort.col === 'best') return d * ((b.bestNum || 0) - (a.bestNum || 0));
+          if (_statsSort.col === 'when') return d * ((b.whenTs || 0) - (a.whenTs || 0));
+          return 0;
+        });
         const tbody = $('stats-tbody');
         const empty = $('stats-empty');
         const summary = $('stats-summary');
@@ -3532,7 +3639,29 @@
             ? `PLAYED ${played} / ${cards.length}   ·   🏆 ${achTotal} ACHIEVEMENTS`
             : `PLAYED ${played} / ${cards.length}`;
         }
+        // Reflect sort arrows on the header
+        document.querySelectorAll('#stats-modal .stats-table thead th').forEach((th) => {
+          const arrow = th.querySelector('.th-arrow');
+          if (!arrow) return;
+          if (th.dataset.sort === _statsSort.col) arrow.textContent = _statsSort.dir === 1 ? ' ▲' : ' ▼';
+          else arrow.textContent = '';
+        });
       }
+      // Sortable headers — clicking flips direction; new column resets to ascending.
+      (function bindStatsSort() {
+        document.querySelectorAll('#stats-modal .stats-table thead th.is-sortable').forEach((th) => {
+          const onSort = () => {
+            const col = th.dataset.sort;
+            if (_statsSort.col === col) _statsSort.dir = -_statsSort.dir;
+            else { _statsSort.col = col; _statsSort.dir = (col === 'game') ? 1 : -1; }
+            renderStats();
+          };
+          th.addEventListener('click', onSort);
+          th.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSort(); }
+          });
+        });
+      })();
       $('onboard-close')?.addEventListener('click', () => {
         closeModal('onboard-modal');
         localStorage.setItem('wg:onboarded', '1');
@@ -3559,16 +3688,31 @@
       });
       // ESC closes any open modal
       window.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape') ['settings-modal','changelog-modal','onboard-modal','stats-modal','profile-modal'].forEach(closeModal);
+        if (e.key === 'Escape') ['settings-modal','changelog-modal','onboard-modal','stats-modal','profile-modal','credits-modal','reset-all-modal'].forEach(closeModal);
       });
       // Add stats-modal to backdrop-click closers too
       $('stats-modal')?.addEventListener('click', (e) => { if (e.target.id === 'stats-modal') closeModal('stats-modal'); });
-      // Dynamic game count in the LIVE chip — derived from playable cards
+      // Dynamic game count in the LIVE chip — derived from playable cards.
+      // (The hub-count badge in the toolbar is also kept in sync by apply()
+      // inside setupSearchAndCats.)
       const liveChip = $('hub-live-chip');
       if (liveChip) {
         const n = document.querySelectorAll('.hub__grid .card:not(.card--coming)').length;
         liveChip.textContent = `LIVE · ${n} GAMES`;
       }
+      // Per-card play counter — bump localStorage on click so the
+      // "most played" sort + settings stats panel have real data to use.
+      document.querySelectorAll('.hub__grid .card[href*="/games/"]').forEach((card) => {
+        card.addEventListener('click', () => {
+          const m = (card.getAttribute('href') || '').match(/\/games\/([^/]+)/);
+          if (!m) return;
+          const k = 'wg:plays:' + m[1];
+          try {
+            const n = (Number(localStorage.getItem(k)) || 0) + 1;
+            localStorage.setItem(k, String(n));
+          } catch {}
+        }, { passive: true });
+      });
 
       // Per-card BEST badges — read each game's saved high score from localStorage
       // and overlay a small "BEST: N" chip on its card art. Games store under wg:hs:<gameId>.
@@ -3634,52 +3778,190 @@
         history.replaceState(null, '', location.pathname);
         setTimeout(gotoRandom, 50);
       }
-      // Hub search + category filter — combined filter on cards
+      // Hub search + category filter + sort — combined filter on cards.
+      // Supports fuzzy substring + per-character sequence match (so "bork"
+      // matches "BORK BATTLE", "btb" matches "BORK BATTLE", and "stealth"
+      // matches games tagged stealth even if the word isn't in the description).
       (function setupSearchAndCats() {
         const input = $('hub-search');
         if (!input) return;
         // Map game folder id to its category tag(s). Multi-tag allowed.
+        // These tags ALSO double as search terms — typing "stealth" matches
+        // every game with "stealth" in this list even if the description
+        // doesn't include the word.
         const CAT_MAP = {
-          'bork-battle':     ['action'],
-          'pugfort':         ['defense', 'action'],
-          'pug-heist':       ['stealth'],
-          'pug-cafe':        ['management'],
-          'rocket-pug':      ['action'],
-          'dungeon-diggers': ['mining'],
-          'mutation-lab':    ['puzzle'],
-          'delivery-pugs':   ['driving', 'action'],
-          'pugzilla':        ['action'],
-          'backrooms-pug':   ['horror', 'stealth'],
-          'backrooms-3d':    ['horror'],
-          'clown-forest':    ['horror'],
-          'floor-lava':      ['platform'],
-          'supermarket-pug': ['stealth'],
-          'pug-td':          ['defense'],
+          'bork-battle':     ['action', 'pvp', 'kart', 'arena'],
+          'pugfort':         ['defense', 'action', 'tower', 'zombie', 'survival'],
+          'pug-heist':       ['stealth', 'sneak', 'spy', 'top-down'],
+          'pug-cafe':        ['management', 'cooking', 'tycoon'],
+          'rocket-pug':      ['action', 'shooter', 'arena', 'multiplayer'],
+          'dungeon-diggers': ['mining', 'roguelite', 'dig'],
+          'mutation-lab':    ['puzzle', 'crafting', 'collection'],
+          'delivery-pugs':   ['driving', 'action', 'racing'],
+          'pugzilla':        ['action', 'destruction', 'kaiju'],
+          'backrooms-pug':   ['horror', 'stealth', 'liminal', 'spooky'],
+          'backrooms-3d':    ['horror', '3d', 'first-person', 'fps', 'liminal'],
+          'clown-forest':    ['horror', '3d', 'first-person', 'realistic', 'fps'],
+          'floor-lava':      ['platform', 'climber', 'jump'],
+          'supermarket-pug': ['stealth', 'comedy', 'cart'],
+          'pug-td':          ['defense', 'tower', 'wave'],
         };
+        // Game-specific metadata for sort modes — feature flags + last update.
+        // The "lastUpdate" field is a YYYY-MM-DD string used for the "Recently
+        // updated" sort and to drive the "NEW" badge (last 7 days).
+        const META = {
+          'bork-battle':     { lastUpdate: '2026-04-12' },
+          'pugfort':         { lastUpdate: '2026-04-12' },
+          'pug-heist':       { lastUpdate: '2026-04-12' },
+          'pug-cafe':        { lastUpdate: '2026-05-12' },
+          'rocket-pug':      { lastUpdate: '2026-04-12' },
+          'dungeon-diggers': { lastUpdate: '2026-04-12' },
+          'mutation-lab':    { lastUpdate: '2026-05-12' },
+          'delivery-pugs':   { lastUpdate: '2026-04-12' },
+          'pugzilla':        { lastUpdate: '2026-04-12' },
+          'backrooms-pug':   { lastUpdate: '2026-05-12' },
+          'backrooms-3d':    { lastUpdate: '2026-05-22' },
+          'clown-forest':    { lastUpdate: '2026-05-22' },
+          'floor-lava':      { lastUpdate: '2026-05-12' },
+          'supermarket-pug': { lastUpdate: '2026-04-12' },
+          'pug-td':          { lastUpdate: '2026-04-12' },
+        };
+        const gridEl = document.getElementById('hub-grid');
         const cards = [...document.querySelectorAll('.hub__grid .card, .hub__grid .card--coming')];
         // Pre-compute a SEARCH HAYSTACK per card from the title + description
-        // ONLY (NOT runtime-added stuff like card__best badges, which would
-        // otherwise match queries like "best" or "level 5").
+        // + tags so search-by-tag works. Keep card__best chips out so queries
+        // like "best" don't bring up everything.
         for (const c of cards) {
           const m = (c.getAttribute('href') || '').match(/\/games\/([^/]+)/);
-          c.dataset.cats = (m && CAT_MAP[m[1]] ? CAT_MAP[m[1]].join(' ') : '');
+          const gid = m ? m[1] : '';
+          const tags = (m && CAT_MAP[gid]) ? CAT_MAP[gid] : [];
+          c.dataset.gid = gid;
+          c.dataset.cats = tags.join(' ');
           const title = c.querySelector('.card__title')?.textContent?.trim() || '';
           const desc = c.querySelector('.card__desc')?.textContent?.trim() || '';
-          c.dataset.search = (title + ' ' + desc).toLowerCase();
+          c.dataset.title = title;
+          c.dataset.search = (title + ' ' + desc + ' ' + tags.join(' ')).toLowerCase();
+          // Stash original DOM position so we can restore the "featured" sort
+          // without re-querying the data.
+          c.dataset.defaultOrder = String(cards.indexOf(c));
+          // Stamp lastUpdate as a sortable numeric timestamp
+          c.dataset.updateTs = META[gid]?.lastUpdate
+            ? String(new Date(META[gid].lastUpdate).getTime())
+            : '0';
         }
+
+        // NEW badge: stamp the badge on games whose lastUpdate is within the
+        // past 7 days. Skip if the card already has the badge (HTML markup
+        // may have added it). Today is computed from system clock.
+        (function addNewBadges() {
+          const now = Date.now();
+          const SEVEN_DAYS = 7 * 24 * 60 * 60 * 1000;
+          for (const c of cards) {
+            const ts = Number(c.dataset.updateTs || 0);
+            if (!ts) continue;
+            if (now - ts > SEVEN_DAYS) continue;
+            // already has a NEW tag from HTML? skip
+            if (c.querySelector('.card__tag--new')) continue;
+            const body = c.querySelector('.card__body');
+            if (!body) continue;
+            // build a tags container if none exists
+            let tagsBox = body.querySelector('.card__tags');
+            if (!tagsBox) {
+              tagsBox = document.createElement('div');
+              tagsBox.className = 'card__tags';
+              body.insertBefore(tagsBox, body.firstChild);
+            }
+            const tag = document.createElement('span');
+            tag.className = 'card__tag card__tag--new';
+            tag.textContent = 'NEW';
+            tagsBox.appendChild(tag);
+          }
+        })();
+
+        // Fuzzy match: returns true when EVERY character of `q` appears in
+        // `h` in the same order (with any chars between). Used as a fallback
+        // when the substring miss yields zero results so typos still find games.
+        function fuzzy(h, q) {
+          if (!q) return true;
+          let qi = 0;
+          for (let i = 0; i < h.length && qi < q.length; i++) {
+            if (h[i] === q[qi]) qi++;
+          }
+          return qi === q.length;
+        }
+
         let activeCat = 'all';
+        let activeSort = 'default';
         let emptyEl = null;  // built lazily on first miss
         const header = document.querySelector('.hub__header');
+        const countEl = document.getElementById('hub-count');
+        const totalGames = cards.filter((c) => !c.classList.contains('card--coming')).length;
+
         const apply = () => {
           const q = input.value.trim().toLowerCase();
+          // Decide effective category given the sort dropdown's "horror only"
+          // mode — it overlays a horror filter without disturbing the chip.
+          let effectiveCat = activeCat;
+          if (activeSort === 'horror-only') effectiveCat = 'horror';
+
           let visible = 0;
+          // First pass: substring match. If zero hits, retry with fuzzy.
+          const visibleSet = [];
           for (const c of cards) {
-            const matchQ = !q || (c.dataset.search || '').includes(q);
-            const matchCat = activeCat === 'all' || (c.dataset.cats || '').includes(activeCat);
+            const hay = c.dataset.search || '';
+            const matchQ = !q || hay.includes(q);
+            const matchCat = effectiveCat === 'all' || (c.dataset.cats || '').includes(effectiveCat);
             const match = matchQ && matchCat;
             c.style.display = match ? '' : 'none';
-            if (match) visible++;
+            if (match) { visible++; visibleSet.push(c); }
           }
+          if (visible === 0 && q) {
+            // fuzzy retry
+            for (const c of cards) {
+              const matchCat = effectiveCat === 'all' || (c.dataset.cats || '').includes(effectiveCat);
+              const match = fuzzy(c.dataset.search || '', q) && matchCat;
+              c.style.display = match ? '' : 'none';
+              if (match) { visible++; visibleSet.push(c); }
+            }
+          }
+
+          // Sort: reorder DOM children based on the selected mode.
+          if (gridEl && activeSort && activeSort !== 'default' && activeSort !== 'horror-only') {
+            const sortable = [...cards];
+            sortable.sort((a, b) => {
+              if (activeSort === 'name') {
+                return (a.dataset.title || '').localeCompare(b.dataset.title || '');
+              }
+              if (activeSort === 'recent') {
+                return Number(b.dataset.updateTs || 0) - Number(a.dataset.updateTs || 0);
+              }
+              if (activeSort === 'most-played') {
+                // Read each game's play counter from localStorage
+                const ka = 'wg:plays:' + (a.dataset.gid || '');
+                const kb = 'wg:plays:' + (b.dataset.gid || '');
+                let pa = 0, pb = 0;
+                try { pa = Number(localStorage.getItem(ka) || 0); } catch {}
+                try { pb = Number(localStorage.getItem(kb) || 0); } catch {}
+                return pb - pa;
+              }
+              return 0;
+            });
+            for (const el of sortable) gridEl.appendChild(el);
+          } else if (gridEl && activeSort === 'default') {
+            // Restore original order
+            const sortable = [...cards].sort((a, b) =>
+              Number(a.dataset.defaultOrder || 0) - Number(b.dataset.defaultOrder || 0));
+            for (const el of sortable) gridEl.appendChild(el);
+          }
+
+          // Update the count display
+          if (countEl) {
+            countEl.textContent = visible + ' / ' + totalGames + ' GAMES';
+          }
+          // Live chip count too
+          const liveChip = document.getElementById('hub-live-chip');
+          if (liveChip) liveChip.textContent = `LIVE · ${totalGames} GAMES`;
+
           // Toggle the clear-button affordance + lazily build the empty state
           input.classList.toggle('has-text', !!q);
           if (visible === 0) {
@@ -3696,6 +3978,21 @@
           }
         };
         input.addEventListener('input', apply);
+
+        // Sort dropdown wiring — persists last choice in localStorage.
+        const sortEl = document.getElementById('hub-sort');
+        if (sortEl) {
+          try {
+            const saved = localStorage.getItem('wg:hub:sort') || 'default';
+            sortEl.value = saved;
+            activeSort = saved;
+          } catch {}
+          sortEl.addEventListener('change', () => {
+            activeSort = sortEl.value;
+            try { localStorage.setItem('wg:hub:sort', activeSort); } catch {}
+            apply();
+          });
+        }
         // ESC inside the search box clears + blurs (escape elsewhere closes modals)
         input.addEventListener('keydown', (e) => {
           if (e.key === 'Escape' && input.value) {
@@ -3809,6 +4106,166 @@
         const day = String(d.getUTCDate()).padStart(2, '0');
         seedEl.textContent = `DAILY ${y}-${m}-${day}`;
       }
+
+      // === Credits modal ===
+      $('credits-btn')?.addEventListener('click', (e) => openModal('credits-modal', e.currentTarget));
+      $('credits-close')?.addEventListener('click', () => closeModal('credits-modal'));
+      $('credits-modal')?.addEventListener('click', (e) => { if (e.target.id === 'credits-modal') closeModal('credits-modal'); });
+
+      // === GAMES STATS panel inside Settings modal ===
+      // Re-computes on every settings-open so the numbers stay fresh.
+      function populateSettingsStats() {
+        const cards = [...document.querySelectorAll('.hub__grid .card[href*="/games/"]')];
+        let played = 0, totalRuns = 0;
+        let topGid = null, topPlays = 0, topTitle = '—';
+        for (const card of cards) {
+          const m = (card.getAttribute('href') || '').match(/\/games\/([^/]+)/);
+          if (!m) continue;
+          const gid = m[1];
+          const title = card.querySelector('.card__title')?.textContent?.trim() || gid;
+          let raw = null; try { raw = localStorage.getItem('wg:hs:' + gid); } catch {}
+          if (raw) played++;
+          let plays = 0; try { plays = Number(localStorage.getItem('wg:plays:' + gid)) || 0; } catch {}
+          totalRuns += plays;
+          if (plays > topPlays) { topPlays = plays; topGid = gid; topTitle = title; }
+        }
+        const $$ = (id) => document.getElementById(id);
+        if ($$('ss-played')) $$('ss-played').textContent = played;
+        if ($$('ss-total')) $$('ss-total').textContent = totalRuns;
+        if ($$('ss-fav')) {
+          if (topPlays > 0) {
+            // Truncate long names
+            $$('ss-fav').textContent = topTitle.length > 14 ? topTitle.slice(0, 12) + '…' : topTitle;
+            $$('ss-fav').title = topTitle + ' · ' + topPlays + ' play' + (topPlays === 1 ? '' : 's');
+          } else {
+            $$('ss-fav').textContent = '—';
+            $$('ss-fav').title = '';
+          }
+        }
+      }
+      // Re-populate when settings opens — wrap openModal for the settings-btn.
+      const _origSettingsHook = $('settings-btn');
+      if (_origSettingsHook) {
+        _origSettingsHook.addEventListener('click', () => {
+          // The existing handler attached above already opens the modal;
+          // we just refresh the stats. Order is preserved because both
+          // listeners run on the same click event.
+          populateSettingsStats();
+        });
+      }
+      // Also populate on first paint so values are visible if the modal is opened from elsewhere
+      populateSettingsStats();
+
+      // === RESET ALL DATA — two-step confirm flow ===
+      const resetModal = $('reset-all-modal');
+      const resetStep2 = $('reset-all-step2');
+      const resetInput = $('reset-all-input');
+      const resetConfirm = $('reset-all-confirm');
+      let _resetStep = 1;
+      function openResetAllModal() {
+        _resetStep = 1;
+        if (resetStep2) resetStep2.hidden = true;
+        if (resetInput) { resetInput.hidden = true; resetInput.style.display = 'none'; resetInput.value = ''; }
+        if (resetConfirm) resetConfirm.textContent = "I'M SURE";
+        openModal('reset-all-modal');
+      }
+      $('opt-reset-all')?.addEventListener('click', () => {
+        closeModal('settings-modal');
+        openResetAllModal();
+      });
+      $('reset-all-cancel')?.addEventListener('click', () => closeModal('reset-all-modal'));
+      $('reset-all-modal')?.addEventListener('click', (e) => { if (e.target.id === 'reset-all-modal') closeModal('reset-all-modal'); });
+      $('reset-all-confirm')?.addEventListener('click', () => {
+        if (_resetStep === 1) {
+          _resetStep = 2;
+          if (resetStep2) resetStep2.hidden = false;
+          if (resetInput) {
+            resetInput.hidden = false;
+            resetInput.style.display = 'block';
+            resetInput.focus();
+          }
+          if (resetConfirm) resetConfirm.textContent = 'CONFIRM RESET';
+          return;
+        }
+        // Step 2: validate phrase + nuke storage
+        if ((resetInput?.value || '').toUpperCase().trim() !== 'RESET') {
+          resetInput?.classList.add('is-wrong');
+          setTimeout(() => resetInput?.classList.remove('is-wrong'), 600);
+          return;
+        }
+        try {
+          // Wipe ALL wg:* keys (profiles, scores, achievements, settings, cache)
+          const toRm = [];
+          for (let i = 0; i < localStorage.length; i++) {
+            const k = localStorage.key(i);
+            if (k && k.startsWith('wg:')) toRm.push(k);
+          }
+          for (const k of toRm) localStorage.removeItem(k);
+        } catch {}
+        closeModal('reset-all-modal');
+        alert('All local data wiped. Reloading…');
+        location.reload();
+      });
+
+      // === KONAMI CODE easter egg ===
+      // ↑↑↓↓←→←→BA — rainbow card-outline party for 30s. Re-arm on the
+      // last keystroke so it can be re-triggered. Skips if inside a form input.
+      (function konami() {
+        const SEQ = ['ArrowUp','ArrowUp','ArrowDown','ArrowDown','ArrowLeft','ArrowRight','ArrowLeft','ArrowRight','b','a'];
+        let pos = 0;
+        let timer = 0;
+        window.addEventListener('keydown', (e) => {
+          if (e.target && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
+          const k = e.key;
+          // Normalize lowercase letters
+          const want = SEQ[pos];
+          if (k === want || (k.length === 1 && k.toLowerCase() === want)) {
+            pos++;
+            if (pos === SEQ.length) {
+              pos = 0;
+              document.body.classList.add('konami-rainbow');
+              clearTimeout(timer);
+              timer = setTimeout(() => document.body.classList.remove('konami-rainbow'), 30000);
+              // Confetti chime
+              try { playUI('success'); } catch {}
+            }
+          } else {
+            pos = (k === SEQ[0] ? 1 : 0);
+          }
+        });
+      })();
+
+      // === Cloud sync indicator — small online/offline dot beside profile chip ===
+      // Only render when Supabase is configured. The status reflects the
+      // navigator.onLine flag + cloudSync's session presence.
+      (async function cloudIndicator() {
+        try {
+          const cs = await import('./src/shared/cloudSync.js');
+          if (!cs.isCloudEnabled || !cs.isCloudEnabled()) return;
+          // Build a tiny dot inside the LIVE chip area
+          const host = document.querySelector('.hub__chips');
+          if (!host) return;
+          const dot = document.createElement('span');
+          dot.className = 'hub__cloud-dot';
+          dot.title = 'Cloud sync status';
+          host.appendChild(dot);
+          const sync = async () => {
+            let online = navigator.onLine !== false;
+            let signedIn = false;
+            try {
+              const { user } = await cs.getSession();
+              signedIn = !!user;
+            } catch {}
+            dot.classList.toggle('is-online', online && signedIn);
+            dot.classList.toggle('is-offline', !online);
+            dot.classList.toggle('is-idle', online && !signedIn);
+            dot.textContent = !online ? '⬤ OFFLINE' : signedIn ? '⬤ CLOUD ON' : '⬤ CLOUD READY';
+          };
+          window.addEventListener('online', sync);
+          window.addEventListener('offline', sync);
+          sync();
+        } catch {}
+      })();
     </script>
   </body>
 </html>

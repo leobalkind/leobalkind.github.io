@@ -180,6 +180,45 @@ const WEAPONS = [
 ];
 let activePerkId = 'tough';
 
+// =============================================================================
+// WEAPON MASTERY — persistent per-weapon kill counts unlock small perks.
+// Lv 1: +5% knockback / Lv 2: -8% cooldown / Lv 3: +10% damage.
+// Kill thresholds: 10 → Lv1, 25 → Lv2, 50 → Lv3.
+// =============================================================================
+const MASTERY_KEY = 'rocket-pug:mastery';
+const MASTERY_THRESH = [10, 25, 50];
+function loadMastery() {
+  try { return JSON.parse(localStorage.getItem(MASTERY_KEY) || '{}'); } catch { return {}; }
+}
+function saveMastery(m) { try { localStorage.setItem(MASTERY_KEY, JSON.stringify(m)); } catch {} }
+let weaponMastery = loadMastery();
+function masteryLevel(weaponId) {
+  const kills = weaponMastery[weaponId] || 0;
+  let lv = 0;
+  for (const t of MASTERY_THRESH) if (kills >= t) lv++;
+  return lv;
+}
+function masteryRecordKill(weaponId) {
+  if (!weaponId) return;
+  const before = masteryLevel(weaponId);
+  weaponMastery[weaponId] = (weaponMastery[weaponId] || 0) + 1;
+  saveMastery(weaponMastery);
+  const after = masteryLevel(weaponId);
+  if (after > before && typeof popup === 'function' && pug) {
+    const w = WEAPONS.find((x) => x.id === weaponId);
+    const perkText = ['+5% KNOCKBACK', '-8% COOLDOWN', '+10% DAMAGE'][after - 1] || 'PERK';
+    popup(pug.x, pug.y - 36, `★ ${w ? w.name.toUpperCase() : weaponId} MASTERY LV ${after} ★`, '#ffd23f');
+    popup(pug.x, pug.y - 24, perkText, '#5ef38c');
+  }
+}
+function masteryGetMul(weaponId, kind) {
+  const lv = masteryLevel(weaponId);
+  if (lv >= 3 && kind === 'damage') return 1.10;
+  if (lv >= 2 && kind === 'cooldown') return 0.92;
+  if (lv >= 1 && kind === 'knockback') return 1.05;
+  return 1.0;
+}
+
 let pug, bots, projectiles, particles, popups, sparks, kills, running;
 let mouse = { x: 0, y: 0 };
 let shakeT = 0, shakeAmp = 0;
@@ -556,21 +595,26 @@ function fire(shooter, ang) {
   const w = shooter.weapon;
   // Perk: QUICKFIRE reduces shooter cooldown for player only
   const cdMul = (shooter === pug && activePerkId === 'quick') ? 0.85 : 1.0;
+  // MASTERY Lv2: -8% cooldown for the player's wielded weapon.
+  const masteryCdMul = (shooter === pug) ? masteryGetMul(w.id, 'cooldown') : 1.0;
+  const masteryKbMul = (shooter === pug) ? masteryGetMul(w.id, 'knockback') : 1.0;
+  const masteryDmgMul = (shooter === pug) ? masteryGetMul(w.id, 'damage') : 1.0;
   // POWER OUTLET (Polish R2): zero cooldown for the player while buff is active
   if (shooter === pug && infiniteAmmoT > 0) {
     shooter.fireCd = 0.04;  // tiny cooldown so we don't tank perf
   } else {
-    shooter.fireCd = w.cooldown * cdMul;
+    shooter.fireCd = w.cooldown * cdMul * masteryCdMul;
   }
   // Each weapon has unique recoil pattern (kicks the shooter back along -aim)
   if (w.recoil) {
-    shooter.vx -= Math.cos(ang) * 60 * w.recoil;
-    shooter.vy -= Math.sin(ang) * 60 * w.recoil;
+    shooter.vx -= Math.cos(ang) * 60 * w.recoil * masteryKbMul;
+    shooter.vy -= Math.sin(ang) * 60 * w.recoil * masteryKbMul;
   }
   projectiles.push({
     x: shooter.x + Math.cos(ang) * 22, y: shooter.y + Math.sin(ang) * 22,
     vx: Math.cos(ang) * w.speed, vy: Math.sin(ang) * w.speed,
-    owner: shooter, dmg: w.dmg, color: w.color, shape: w.shape, life: w.shape === 'bfg' ? 3.0 : 2.0, ang,
+    owner: shooter, dmg: w.dmg * masteryDmgMul, color: w.color, shape: w.shape, life: w.shape === 'bfg' ? 3.0 : 2.0, ang,
+    _weaponId: w.id,
   });
   // Accuracy tracking
   if (shooter === pug) shotsFired++;
@@ -947,6 +991,8 @@ function tick(dt) {
         if (target.hp <= 0) {
           if (pr.owner === pug && target !== pug) {
             kills++;
+            // MASTERY: credit the kill to the weapon used (from projectile metadata).
+            try { masteryRecordKill(pr._weaponId || (pug.weapon && pug.weapon.id)); } catch (e) { /* */ }
             // Polish R2: track "best kill" for the end-of-match highlight reel.
             // Heuristic: longest range player kill wins. We re-capture if a
             // newer kill is at a longer distance.

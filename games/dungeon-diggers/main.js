@@ -482,6 +482,31 @@ let masteryOffered = {};       // depth-key (50/100/150) -> true once shown
 let masteryActive = [];        // chosen perks for this run
 let masteryModalOpen = false;
 let _treasureRoomReveals = []; // {x, y, t, life} for golden light shaft anims
+// =============================================================================
+// TREASURE MAP — rare item (1.2% drop per loot tile mined). Reveals the 5
+// nearest unmined loot tiles for 30s as glowing pings on the map.
+// =============================================================================
+let treasureMapT = 0;            // seconds remaining of active reveal
+let treasureMapPings = [];       // [{row, col, x, y}] — snapshot when activated
+function _activateTreasureMap() {
+  treasureMapT = 30;
+  // Find 5 nearest unmined loot tiles to the player.
+  const found = [];
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const t = grid[r] && grid[r][c]; if (!t) continue;
+      const info = TILE_TYPES[t];
+      if (!info || !info.isLoot) continue;
+      const d = Math.hypot((c - pug.col) * TILE, (r - pug.row) * TILE);
+      found.push({ row: r, col: c, x: c * TILE + TILE / 2, y: r * TILE + TILE / 2, d });
+    }
+  }
+  found.sort((a, b) => a.d - b.d);
+  treasureMapPings = found.slice(0, 5);
+  popup(pug.x, pug.y - 30, '🗺 TREASURE MAP! 30s', '#ffd23f');
+  try { sfx.arp([523, 784, 1047, 1319], 'triangle', 0.08, 0.22, 0.16); } catch (e) { /* */ }
+  shake(4, 0.18);
+}
 let _digShakeT = 0;            // brief dig animation timer
 let _digShakeAmp = 0;
 let _confusionT = 0;           // fungal spore confusion (inverts inputs)
@@ -819,6 +844,10 @@ function tryMove(dc, dr) {
         }
         // Meta-gem accrual — accumulate per gem-quality pickup
         if (t === 'gem' || t === 'biscuit') pendingMetaGems += (r === 'epic' ? 2 : 1);
+        // TREASURE MAP — 1.5% chance (or 6% on legendary tiles) per loot pickup.
+        // Doesn't stack — re-activation refreshes timer + re-scans nearest 5.
+        const mapChance = r === 'legendary' ? 0.06 : 0.015;
+        if (Math.random() < mapChance) _activateTreasureMap();
       } else {
         popup(tileX, tileY - 8, 'BAG FULL', '#ff3a3a');
         sfx.tone(220, 'sawtooth', 0.1, 0.2); // bag full
@@ -1081,6 +1110,16 @@ function tick(dt) {
   if (combo > 0) {
     comboTimer += dt;
     if (comboTimer > COMBO_WINDOW) resetCombo();
+  }
+  // TREASURE MAP timer — clear pings that have been mined away.
+  if (treasureMapT > 0) {
+    treasureMapT = Math.max(0, treasureMapT - dt);
+    if (treasureMapPings.length) {
+      treasureMapPings = treasureMapPings.filter((p) => {
+        const t = grid[p.row] && grid[p.row][p.col];
+        return t && TILE_TYPES[t] && TILE_TYPES[t].isLoot;
+      });
+    }
   }
   if (comboBannerT > 0) comboBannerT = Math.max(0, comboBannerT - dt);
   if (achievementsT > 0) achievementsT = Math.max(0, achievementsT - dt);
@@ -2007,6 +2046,29 @@ function render() {
     ctx.fillRect(sx - 16, sy - 28, 32, 5);
     ctx.fillStyle = '#ff5050';
     ctx.fillRect(sx - 15, sy - 27, 30 * (rg.hp / rg.maxHp), 3);
+  }
+  // TREASURE MAP — pulsing gold "X" ring over each pinged tile (while active)
+  if (treasureMapT > 0 && treasureMapPings.length) {
+    const pulse = 0.5 + 0.5 * Math.sin(performance.now() * 0.008);
+    ctx.save();
+    for (const p of treasureMapPings) {
+      if (p.y < camY - 40 || p.y > camY + H + 40) continue;
+      ctx.globalAlpha = 0.55 + pulse * 0.35;
+      // pulsing ring
+      ctx.strokeStyle = '#ffd23f';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 14 + pulse * 6, 0, Math.PI * 2);
+      ctx.stroke();
+      // X marker
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(p.x - 6, p.y - 6); ctx.lineTo(p.x + 6, p.y + 6);
+      ctx.moveTo(p.x + 6, p.y - 6); ctx.lineTo(p.x - 6, p.y + 6);
+      ctx.stroke();
+    }
+    ctx.restore();
   }
   // POLISH ROUND 2 — TREASURE ROOM REVEAL: golden light shaft + sparkle ring
   for (const tr of _treasureRoomReveals) {

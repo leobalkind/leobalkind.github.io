@@ -204,6 +204,83 @@ renderPerks();
   window.__borkDaily = { key: dailyKey, challenge };
 })();
 
+// ===== DAILY MUTATOR — same modifier for everyone on a given UTC day =====
+// Picks one mutator deterministically from today's date string (so all players
+// share the same wrinkle on a given day). Effects are applied as light hooks
+// onto the running game instance — they piggy-back on existing systems
+// (player.hp / powerups / xp) so nothing else has to change.
+const MUTATORS = [
+  { id: 'low_grav', name: 'LOW GRAVITY',   icon: '🪶',  desc: 'Particles float — every kill leaves a chandelier of debris.', apply: (g) => { g._mutatorGravScale = 0.35; } },
+  { id: 'double_xp', name: 'DOUBLE XP',    icon: '⚡',  desc: '2× XP per kill. Evolve fast, become unstoppable.',           apply: (g) => { g._mutatorXpScale = 2.0; } },
+  { id: 'no_pickup', name: 'NO PICKUPS',   icon: '🚫',  desc: 'Power-ups disabled. Survive on your starting kit alone.',     apply: (g) => { g._mutatorNoPickup = true; } },
+  { id: 'vampire',   name: 'VAMPIRE PUG', icon: '🩸',  desc: 'Kills heal +5 HP. Stay aggressive, stay alive.',              apply: (g) => { g._mutatorVampire = 5; } },
+  { id: 'glass_can', name: 'GLASS CANNON', icon: '💎',  desc: 'You deal 2× damage… but take 2× as well. High-octane.',       apply: (g) => { g._mutatorDmgOut = 2.0; g._mutatorDmgIn = 2.0; } },
+  { id: 'treat_rain', name: 'TREAT RAIN', icon: '🍖',  desc: 'Bots drop 3× treats — go full money mode at the shop.',       apply: (g) => { g._mutatorTreatScale = 3.0; } },
+];
+const _todayMut = new Date().toISOString().slice(0, 10);
+const _mutSeed = _todayMut.split('').reduce((a, c) => a + c.charCodeAt(0) * 31, 7);
+const TODAYS_MUTATOR = MUTATORS[_mutSeed % MUTATORS.length];
+// Render a small banner above difficulty picker so the player sees it pre-match.
+(function _renderMutatorBanner() {
+  const panel = document.querySelector('#overlay .overlay__panel');
+  if (!panel) return;
+  const banner = document.createElement('div');
+  banner.id = 'daily-mutator-line';
+  banner.style.cssText = 'margin:8px auto 10px;padding:6px 10px;border:1px solid var(--neon-magenta,#ff2bd6);border-radius:6px;background:rgba(255,43,214,0.08);color:#fff;font-size:0.55rem;letter-spacing:0.05em;text-align:center;max-width:560px;';
+  banner.innerHTML = `<span style="color:var(--neon-magenta,#ff2bd6);">⚡ TODAY'S MUTATOR</span> · ${TODAYS_MUTATOR.icon} <b>${TODAYS_MUTATOR.name}</b> — ${TODAYS_MUTATOR.desc}`;
+  const dc = document.getElementById('daily-challenge-line');
+  if (dc && dc.parentNode) dc.parentNode.insertBefore(banner, dc.nextSibling);
+  else panel.insertBefore(banner, panel.firstChild);
+})();
+// Apply the mutator each time the game starts. Wraps original start().
+const _origStart = game.start.bind(game);
+game.start = async function(...args) {
+  const r = await _origStart(...args);
+  try { TODAYS_MUTATOR.apply(this); } catch (e) { /* */ }
+  // VAMPIRE: hook _handleKill to heal player on kill
+  if (this._mutatorVampire && !this._vampHooked) {
+    this._vampHooked = true;
+    const _origKill = this._handleKill.bind(this);
+    this._handleKill = (killer, victim, byZone) => {
+      _origKill(killer, victim, byZone);
+      if (killer === this.player && this.player.alive && this._mutatorVampire) {
+        this.player.hp = Math.min(this.player.maxHp, this.player.hp + this._mutatorVampire);
+        try { this.hud.updatePlayer(this.player); } catch (e) { /* */ }
+      }
+    };
+  }
+  // NO PICKUPS: gut the powerup spawner
+  if (this._mutatorNoPickup && this.powerups) {
+    if (this.powerups.maybeSpawnAt) this.powerups.maybeSpawnAt = () => {};
+  }
+  // DOUBLE XP: difficulty.xpMult adjusted post-spawn (Game reads each kill)
+  if (this._mutatorXpScale && this.difficulty) {
+    this.difficulty = Object.assign({}, this.difficulty, { xpMult: this.difficulty.xpMult * this._mutatorXpScale });
+  }
+  // TREAT RAIN: scale energy spawn (each treat = 1 unit, so we just spawn more)
+  if (this._mutatorTreatScale && this.energy && !this._treatHooked) {
+    this._treatHooked = true;
+    const _origBurst = this.energy.spawnBurst.bind(this.energy);
+    this.energy.spawnBurst = (x, y, count, ...rest) => _origBurst(x, y, Math.round(count * this._mutatorTreatScale), ...rest);
+  }
+  // GLASS CANNON: adjust player damage out + scale incoming damage handler
+  if (this._mutatorDmgOut && this.player && this.player.bonus) {
+    this.player.bonus.dmgMult = (this.player.bonus.dmgMult || 1) * this._mutatorDmgOut;
+  }
+  // LOW GRAVITY: scale all particle gravity in _updateParticles via setter trap
+  if (this._mutatorGravScale && !this._gravHooked) {
+    this._gravHooked = true;
+    const _origUpdate = this._updateParticles.bind(this);
+    this._updateParticles = (dt) => {
+      for (const p of this.particles) if (p && p.gravity && p._gravOrig == null) { p._gravOrig = p.gravity; p.gravity *= this._mutatorGravScale; }
+      _origUpdate(dt);
+    };
+  }
+  // HUD toast announcing the mutator
+  try { this.hud.toastMessage(`${TODAYS_MUTATOR.icon} ${TODAYS_MUTATOR.name} ACTIVE`, 'kill'); } catch (e) { /* */ }
+  return r;
+};
+
 function renderStarters() {
   starterChoices.innerHTML = '';
   for (const s of STARTERS) {

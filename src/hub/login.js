@@ -576,8 +576,15 @@ export function syncProfileChip() {
   const active = getActive();
   const name = active ? active.name : 'GUEST';
   const color = active ? profileColor(active.id) : '#8a90b1';
+  const initials = active ? profileInitials(active.name) : '?';
+  // Render with avatar circle: a solid colored dot AND text initials overlay.
+  // CSS layers them so the initials sit on top of the dot when active, and the
+  // dot stays muted/empty for GUEST. Backwards compatible with old selectors.
   chip.innerHTML = `
-    <span class="profile-chip__dot" style="background:${color}"></span>
+    <span class="profile-chip__avatar" aria-hidden="true">
+      <span class="profile-chip__dot" style="background:${color}"></span>
+      ${active ? `<span class="profile-chip__initials">${escapeHtml(initials)}</span>` : ''}
+    </span>
     <span class="profile-chip__name">${escapeHtml(name)}</span>
     <span class="profile-chip__chev">▾</span>
   `;

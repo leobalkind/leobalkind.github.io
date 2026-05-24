@@ -291,6 +291,179 @@ function refreshLockedSlots() {
 }
 renderUnlocksPanel();
 
+// =============================================================================
+// TECH TREE — persistent research points earned per night, spent between runs
+// on permanent tower upgrades. Live mirrored into BUILDABLES on game.start so
+// the existing turret-update path picks the bonuses up automatically.
+// =============================================================================
+const TECH_KEY = 'pugfort:tech';
+const TECH_NODES = [
+  { id: 'turret_dmg',    name: 'BORE-OUT BARRELS',    cost: 1, max: 4, icon: '🔫', desc: '+10% turret damage per level.',           apply: (b, lv) => { if (b.turret) b.turret.damage = Math.round(b.turret.damage * (1 + 0.10 * lv)); } },
+  { id: 'turret_rate',   name: 'RAPID LOADERS',       cost: 1, max: 3, icon: '⚙️', desc: '-8% turret reload per level.',             apply: (b, lv) => { if (b.turret) b.turret.fireCooldown = b.turret.fireCooldown * Math.pow(0.92, lv); } },
+  { id: 'sniper_range',  name: 'SCOPED OPTICS',       cost: 2, max: 3, icon: '🎯', desc: '+15% sniper range per level.',             apply: (b, lv) => { if (b.sniperTurret) b.sniperTurret.range = Math.round(b.sniperTurret.range * (1 + 0.15 * lv)); } },
+  { id: 'wall_hp',       name: 'REBAR REINFORCE',     cost: 1, max: 3, icon: '🧱', desc: '+25% wall/sandbag HP per level.',          apply: (b, lv) => { const m = 1 + 0.25 * lv; if (b.wall) b.wall.hp = Math.round(b.wall.hp * m); if (b.sandbag) b.sandbag.hp = Math.round(b.sandbag.hp * m); } },
+  { id: 'mine_dmg',      name: 'C4 PACKING',          cost: 2, max: 2, icon: '💣', desc: '+30% mine damage per level.',              apply: (b, lv) => { if (b.mine) b.mine.mineDamage = Math.round(b.mine.mineDamage * (1 + 0.30 * lv)); } },
+  { id: 'acid_dur',      name: 'SLOW DRIP TANKS',     cost: 2, max: 2, icon: '🧪', desc: '+50% acid pool duration per level.',       apply: (b, lv) => { if (b.acidTurret) b.acidTurret.acidPoolDur = b.acidTurret.acidPoolDur * (1 + 0.50 * lv); } },
+];
+function loadTech() {
+  try {
+    const raw = localStorage.getItem(TECH_KEY);
+    if (!raw) return { points: 0, ranks: {} };
+    const o = JSON.parse(raw);
+    return { points: o.points | 0, ranks: o.ranks || {} };
+  } catch { return { points: 0, ranks: {} }; }
+}
+function saveTech(s) { try { localStorage.setItem(TECH_KEY, JSON.stringify(s)); } catch {} }
+function awardResearch(nights) {
+  if (!nights || nights <= 0) return 0;
+  const s = loadTech();
+  const earned = nights; // 1 RP per night cleared — small, steady
+  s.points = (s.points | 0) + earned;
+  saveTech(s);
+  return earned;
+}
+function renderTechPanel() {
+  const root = document.getElementById('tech-tree-modal');
+  if (!root) return;
+  const s = loadTech();
+  const ptsEl = document.getElementById('tech-points');
+  if (ptsEl) ptsEl.textContent = s.points;
+  const list = document.getElementById('tech-list');
+  if (!list) return;
+  list.innerHTML = TECH_NODES.map((n) => {
+    const lv = s.ranks[n.id] | 0;
+    const maxed = lv >= n.max;
+    const canBuy = !maxed && s.points >= n.cost;
+    return `<div class="tech-row ${maxed ? 'maxed' : (canBuy ? 'can-buy' : 'locked')}">
+      <span class="tech-icon">${n.icon}</span>
+      <div class="tech-body">
+        <div class="tech-name"><b>${n.name}</b> <span class="tech-lv">Lv ${lv}/${n.max}</span></div>
+        <div class="tech-desc">${n.desc}</div>
+      </div>
+      <button data-tech="${n.id}" ${maxed || !canBuy ? 'disabled' : ''}>${maxed ? '★ MAX' : `${n.cost} RP`}</button>
+    </div>`;
+  }).join('');
+  list.querySelectorAll('button[data-tech]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const id = btn.getAttribute('data-tech');
+      const node = TECH_NODES.find((x) => x.id === id);
+      if (!node) return;
+      const st = loadTech();
+      const cur = st.ranks[id] | 0;
+      if (cur >= node.max) return;
+      if (st.points < node.cost) return;
+      st.points -= node.cost;
+      st.ranks[id] = cur + 1;
+      saveTech(st);
+      renderTechPanel();
+    });
+  });
+}
+// Inject the tech-tree button + modal into the start overlay.
+(function _injectTechUI() {
+  const panel = startOverlay?.querySelector('.overlay__panel');
+  if (!panel) return;
+  const btn = document.createElement('button');
+  btn.id = 'tech-tree-btn';
+  btn.className = 'overlay__btn overlay__btn--ghost';
+  btn.type = 'button';
+  btn.style.cssText = 'margin:6px;';
+  btn.innerHTML = '🔬 TECH TREE';
+  btn.addEventListener('click', () => {
+    const m = document.getElementById('tech-tree-modal');
+    if (m) { m.hidden = false; renderTechPanel(); }
+  });
+  // Insert before the back-to-hub link so it sits with action buttons.
+  const back = panel.querySelector('.overlay__back');
+  if (back) panel.insertBefore(btn, back); else panel.appendChild(btn);
+  // Build the modal (once)
+  const modal = document.createElement('div');
+  modal.id = 'tech-tree-modal';
+  modal.hidden = true;
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(8,4,18,0.9);z-index:9000;display:flex;align-items:center;justify-content:center;padding:20px;';
+  modal.innerHTML = `<div style="max-width:560px;width:100%;background:#15101e;border:2px solid var(--neon-cyan,#4cc9f0);border-radius:8px;padding:18px;color:#fff;font-family:inherit;max-height:80vh;overflow:auto;">
+    <h2 style="margin:0 0 10px;color:var(--neon-cyan,#4cc9f0);text-align:center;">🔬 RESEARCH LAB</h2>
+    <p style="text-align:center;margin:0 0 12px;font-size:0.6rem;letter-spacing:0.05em;">RESEARCH POINTS: <b id="tech-points" style="color:var(--neon-yellow,#ffd23f);">0</b> · Earn 1 RP per night cleared.</p>
+    <div id="tech-list" style="display:flex;flex-direction:column;gap:8px;"></div>
+    <button id="tech-close" style="margin:14px auto 0;display:block;padding:8px 18px;background:var(--neon-magenta,#ff2bd6);color:#fff;border:0;border-radius:4px;font-family:inherit;cursor:pointer;">CLOSE</button>
+    <style>
+      .tech-row{display:flex;align-items:center;gap:10px;padding:8px;border:1px solid #2a2540;border-radius:5px;background:rgba(0,0,0,0.3);}
+      .tech-row.maxed{border-color:var(--neon-yellow,#ffd23f);}
+      .tech-row.can-buy{border-color:var(--neon-green,#5ef38c);}
+      .tech-row.locked{opacity:0.6;}
+      .tech-row .tech-icon{font-size:1.4rem;}
+      .tech-row .tech-body{flex:1;font-size:0.55rem;letter-spacing:0.04em;}
+      .tech-row .tech-lv{color:var(--neon-cyan,#4cc9f0);margin-left:6px;}
+      .tech-row .tech-desc{opacity:0.8;margin-top:3px;}
+      .tech-row button{padding:6px 10px;background:var(--neon-cyan,#4cc9f0);color:#000;border:0;border-radius:4px;font-family:inherit;font-size:0.55rem;cursor:pointer;}
+      .tech-row button:disabled{background:#444;color:#aaa;cursor:not-allowed;}
+    </style>
+  </div>`;
+  document.body.appendChild(modal);
+  document.getElementById('tech-close')?.addEventListener('click', () => { modal.hidden = true; });
+  modal.addEventListener('click', (e) => { if (e.target === modal) modal.hidden = true; });
+})();
+// Apply tech bonuses to BUILDABLES at game.start (snapshot+restore so rematches
+// don't compound). Also award RP on end (hooked alongside recordSurvival).
+const _origStart_pft = game.start.bind(game);
+game.start = async function(...args) {
+  // Snapshot relevant numeric stats on each def so we can revert later.
+  this._techSnap = {};
+  for (const id of Object.keys(BUILDABLES)) {
+    this._techSnap[id] = {
+      damage: BUILDABLES[id].damage,
+      fireCooldown: BUILDABLES[id].fireCooldown,
+      range: BUILDABLES[id].range,
+      hp: BUILDABLES[id].hp,
+      mineDamage: BUILDABLES[id].mineDamage,
+      acidPoolDur: BUILDABLES[id].acidPoolDur,
+    };
+  }
+  const st = loadTech();
+  for (const node of TECH_NODES) {
+    const lv = st.ranks[node.id] | 0;
+    if (lv > 0) { try { node.apply(BUILDABLES, lv); } catch (e) { /* */ } }
+  }
+  const r = await _origStart_pft(...args);
+  return r;
+};
+// Hook end-screen observer to award RP from this run's nights.
+(function _hookResearchAward() {
+  const ov = document.getElementById('end-overlay');
+  if (!ov) return;
+  let last = 0;
+  new MutationObserver(() => {
+    if (ov.hidden || ov.classList.contains('is-hidden')) {
+      // Restore def stats on overlay-hide (i.e., user closed end / went back).
+      if (game?._techSnap) {
+        for (const id of Object.keys(game._techSnap)) {
+          const snap = game._techSnap[id];
+          for (const k of Object.keys(snap)) {
+            if (snap[k] != null) BUILDABLES[id][k] = snap[k];
+          }
+        }
+        game._techSnap = null;
+      }
+      return;
+    }
+    const now = performance.now();
+    if (now - last < 1500) return;
+    last = now;
+    const nights = parseInt(document.getElementById('end-nights')?.textContent || '0', 10);
+    const earned = awardResearch(nights);
+    if (earned > 0) {
+      const stats = document.querySelector('#end-overlay .end-stats');
+      if (stats && !document.getElementById('end-tech-banner')) {
+        const div = document.createElement('div');
+        div.id = 'end-tech-banner';
+        div.style.cssText = 'margin:10px 0;padding:6px 10px;background:rgba(76,201,240,0.12);border:1px solid var(--neon-cyan,#4cc9f0);border-radius:4px;color:var(--neon-cyan,#4cc9f0);font-size:0.6rem;text-align:center;';
+        div.innerHTML = `🔬 +${earned} RESEARCH POINT${earned === 1 ? '' : 'S'} EARNED — spend in 🔬 TECH TREE on start screen.`;
+        stats.after(div);
+      }
+    }
+  }).observe(ov, { attributes: true, attributeFilter: ['hidden', 'class'] });
+})();
+
 // Restore accessibility preferences from hub-wide settings
 if (localStorage.getItem('wg:large-text') === '1') document.body.classList.add('large-text');
 if (localStorage.getItem('wg:reduced-motion') === '1') document.body.classList.add('reduced-motion');

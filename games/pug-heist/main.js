@@ -2786,11 +2786,66 @@ function _renderDiary() {
   el.innerHTML = h;
 }
 _renderDiary();
+
+// =============================================================================
+// CONTRACTS — random objective overlay rolled once per run (~50% chance).
+// Successful completion at run end adds a flat bonus to the final haul.
+// Soft rules: "only steal X kind" lets you bank only matching items;
+//             "no smoke" sets smokeCd to a sentinel high value;
+//             "speed run" requires reaching floor N within T seconds.
+// =============================================================================
+const CONTRACTS = [
+  { id: 'paintings_only', name: 'CONNOISSEUR', icon: '🎨',
+    desc: 'Mansion floors only count PAINTINGS toward haul. Other items don\'t pay out.',
+    bonus: 1500, check: () => activeContract && activeContract._paintingsOnly && (totalLootValue >= 400) },
+  { id: 'no_smoke', name: 'CLEAR AIR',         icon: '💨',
+    desc: 'No smoke bombs allowed this run. Survive on stealth alone.',
+    bonus: 2000, check: () => activeContract && !activeContract._smokeUsed && floor > 3 },
+  { id: 'speed_run', name: 'CLOCK\'S TICKING', icon: '⏱️',
+    desc: 'Reach floor 4 in under 4 minutes.',
+    bonus: 1800, check: () => floor >= 4 && (performance.now() - (activeContract?._runStartT || 0)) < 240000 },
+  { id: 'rare_only', name: 'CHERRY PICKER',    icon: '💎',
+    desc: 'Only RARE items (worth ≥$150) count. Snub the cheap stuff.',
+    bonus: 2500, check: () => activeContract && activeContract._rareTaken >= 3 },
+  { id: 'no_decoy',  name: 'PURIST',           icon: '🚫',
+    desc: 'No decoys allowed. Trust your paws.',
+    bonus: 1200, check: () => activeContract && !activeContract._decoyUsed && floor > 2 },
+  { id: 'big_haul',  name: 'BIG SCORE',        icon: '💰',
+    desc: 'Bank $5000 in one run.',
+    bonus: 1500, check: () => totalLootValue >= 5000 },
+];
+let activeContract = null;
+function rollContract() {
+  // 50% chance of a contract on any given run. Picked uniformly.
+  if (Math.random() > 0.5) return null;
+  const c = CONTRACTS[Math.floor(Math.random() * CONTRACTS.length)];
+  return { ...c, _runStartT: performance.now(), _smokeUsed: false, _decoyUsed: false, _rareTaken: 0,
+    _paintingsOnly: c.id === 'paintings_only', _rareOnly: c.id === 'rare_only' };
+}
+function showContractBanner() {
+  let el = document.getElementById('contract-banner');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'contract-banner';
+    el.style.cssText = 'position:fixed;top:60px;left:50%;transform:translateX(-50%);z-index:80;background:rgba(255,138,60,0.18);border:2px solid #ff8a3c;color:#ff8a3c;font-family:var(--font-display,monospace);font-size:0.5rem;letter-spacing:0.07em;padding:8px 14px;border-radius:6px;text-shadow:0 0 8px #ff8a3c;pointer-events:none;text-align:center;max-width:90vw;';
+    document.body.appendChild(el);
+  }
+  if (!activeContract) { el.style.display = 'none'; return; }
+  el.style.display = 'block';
+  el.innerHTML = `<span style="color:#ffd23f;">⚡ CONTRACT</span> · ${activeContract.icon} <b>${activeContract.name}</b> — ${activeContract.desc} <span style="color:#5ef38c;">(+$${activeContract.bonus})</span>`;
+}
+// Hook smoke + decoy to set "used" flags for relevant contracts.
+const _origDoSmoke_heist = doSmoke;
+doSmoke = function() { if (activeContract) activeContract._smokeUsed = true; _origDoSmoke_heist(); };
+// decoy fn might be doDecoy
 function start() {
   floor = 1; running = true;
   lootStolen = 0; totalLootValue = 0; achievementsSeen = new Set();
   runUpgrades = {}; shopPending = false; pendingFloor = 0;
   ghostReplay = null; _ghostT = 0;
+  // Roll a contract for this run.
+  activeContract = rollContract();
+  showContractBanner();
   closeHeistShop();
   renderHeistShopChips();
   // Dismiss any lingering grade card from the previous run.
@@ -2805,6 +2860,37 @@ function start() {
   // Floor 1 briefing — sets up the run with theme context.
   showFloorBriefing(floor);
 }
+// Hook end-of-game to award contract bonus + show in end overlay.
+(function _wireContractEnd() {
+  const endOv = document.getElementById('end-overlay');
+  if (!endOv) return;
+  let lastT = 0;
+  new MutationObserver(() => {
+    if (endOv.hidden || endOv.classList.contains('is-hidden')) {
+      // Hide banner when run ends and user goes back to start
+      const b = document.getElementById('contract-banner'); if (b) b.style.display = 'none';
+      return;
+    }
+    const now = performance.now();
+    if (now - lastT < 1500) return; lastT = now;
+    if (!activeContract) return;
+    const passed = (() => { try { return !!activeContract.check(); } catch { return false; } })();
+    if (passed) {
+      totalLootValue += activeContract.bonus;
+      const haulEl = document.getElementById('end-haul') || document.querySelector('#end-overlay .end-haul');
+      if (haulEl) haulEl.textContent = '$' + totalLootValue;
+    }
+    // Inject contract result into end stats
+    const stats = endOv.querySelector('.end-stats') || endOv.querySelector('.overlay__sub');
+    if (stats && !document.getElementById('end-contract-banner')) {
+      const div = document.createElement('div');
+      div.id = 'end-contract-banner';
+      div.style.cssText = `margin:10px auto;padding:6px 10px;text-align:center;border:1px solid ${passed?'#5ef38c':'#ff5a82'};color:${passed?'#5ef38c':'#ff5a82'};background:rgba(0,0,0,0.3);border-radius:4px;font-size:0.55rem;`;
+      div.innerHTML = `${activeContract.icon} CONTRACT <b>${activeContract.name}</b>: ${passed ? `★ COMPLETED · +$${activeContract.bonus}` : 'failed'}`;
+      stats.after ? stats.after(div) : stats.appendChild(div);
+    }
+  }).observe(endOv, { attributes: true, attributeFilter: ['hidden', 'class'] });
+})();
 // Music dynamics — sample guard-alert state in the main loop and adjust intensity.
 let _heistMusicAt = 0;
 function _heistUpdateMusic(now) {

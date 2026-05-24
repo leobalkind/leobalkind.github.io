@@ -28,6 +28,7 @@ import { createMobileControls, isLowPowerDevice } from '../../src/shared/mobileC
 import { createSettingsMenu, caption as wgCaption } from '../../src/shared/settingsMenu.js';
 import { submitRun, loadBest } from '../../src/persistence/highScores.js';
 import { profileKey } from '../../src/shared/profile.js';
+import { createAchievements } from '../../src/shared/achievements.js';
 
 // =============================================================================
 // BOOT — async IIFE because top-level await isn't in our build target.
@@ -167,6 +168,80 @@ const RANDOM_EVENT_MAX_GAP  = 150;
 
 // Ambush state — clown stalks from behind after item pickup, for this long.
 const AMBUSH_DURATION       = 60;
+
+// =============================================================================
+// ROUND-4: DIFFICULTY + ACHIEVEMENT + STATS + ENDINGS + EXTRAS
+// =============================================================================
+// Difficulty presets — snapshot at startGame() into `diffCfg` so the run-tick
+// reads a stable struct.
+const DIFFICULTY_PRESETS = {
+  easy:      { label:'EASY',      itemsRequired:4, flashlightDrainMul:0.75, flashlightInfinite:false, clownSpeedMul:0.88, chaseTriggerMul:0.85, huntAfter:420, stalkGapMul:1.35, needsTapesForTrueEscape:false, flickerMul:0.7, description:'Forgiving: longer battery, milder clown, 4 items.' },
+  normal:    { label:'NORMAL',    itemsRequired:5, flashlightDrainMul:1.0,  flashlightInfinite:false, clownSpeedMul:1.0,  chaseTriggerMul:1.0,  huntAfter:300, stalkGapMul:1.0,  needsTapesForTrueEscape:false, flickerMul:1.0, description:'Standard run: 5 items, beacon escape, normal clown.' },
+  nightmare: { label:'NIGHTMARE', itemsRequired:5, flashlightDrainMul:0,    flashlightInfinite:true,  clownSpeedMul:1.20, chaseTriggerMul:1.20, huntAfter:60,  stalkGapMul:0.7,  needsTapesForTrueEscape:true,  flickerMul:2.2, description:'No mercy: 60s to hunt, torch flickers heavily, all items + 3 tapes for TRUE ESCAPE.' },
+};
+const DIFF_KEY = (() => {
+  try { return profileKey('clown-forest:difficulty'); }
+  catch { return 'wg:clown-forest:difficulty'; }
+})();
+// Snapshot of the active preset for the current run — set in startGame().
+let diffCfg = DIFFICULTY_PRESETS.normal;
+
+// Lifetime run statistics — persisted per profile. Read at boot for the start
+// screen; written at endGame().
+const STATS_KEY = (() => {
+  try { return profileKey('clown-forest:stats'); }
+  catch { return 'wg:clown-forest:stats'; }
+})();
+function _loadLifetimeStats() {
+  let o = null;
+  try { o = JSON.parse(localStorage.getItem(STATS_KEY) || 'null'); } catch {}
+  o = o && typeof o === 'object' ? o : {};
+  return {
+    runs: o.runs | 0, escapes: o.escapes | 0, deaths: o.deaths | 0,
+    fastestEscape: Number(o.fastestEscape) || 0,
+    itemsLifetime: o.itemsLifetime | 0,
+    endings: (o.endings && typeof o.endings === 'object') ? o.endings : {},
+  };
+}
+function _saveLifetimeStats(s) {
+  try { localStorage.setItem(STATS_KEY, JSON.stringify(s)); } catch {}
+}
+
+// 12 possible item-landmark positions per run. We shuffle this list and pick
+// `itemsRequired` per run, biased so a couple of items land in "dense trees"
+// (not directly at the landmark center) for the treasure-hunt feel.
+const ITEM_POOL_SIZE = 12;
+
+// Caffeine pickup constants — small thermal mug. One per run. Gives +30%
+// stamina cap when picked up.
+const CAFFEINE_STAMINA_BONUS = 0.30;
+
+// Hand-drawn map item — 1-in-4 chance to spawn per run. Using = "time wasted".
+const MAP_SPAWN_CHANCE        = 0.25;
+const MAP_TIME_WASTED_SECONDS = 30;  // clown gets 30s head-start
+const MAP_OVERLAY_DURATION    = 4.0; // seconds shown on screen
+
+// NPC encounter — 20% chance per run.
+const NPC_SPAWN_CHANCE       = 0.20;
+const NPC_LINE_DURATION      = 4.0;
+
+// Defiant confrontation — E within 2m of clown = struggle; 5% kill chance.
+const DEFIANT_RANGE         = 2.0;
+const DEFIANT_KILL_CHANCE   = 0.05;
+
+// Adrenaline (panic mode): when within this distance during a chase, stamina
+// drains at a reduced rate.
+const ADRENALINE_RANGE      = 8.0;
+const ADRENALINE_DRAIN_MUL  = 0.55;
+
+// Fog roll — random thick drifting fog patch that briefly cuts vision ~40%.
+const FOG_ROLL_MIN_GAP      = 70;
+const FOG_ROLL_MAX_GAP      = 160;
+const FOG_ROLL_DURATION     = 18;     // seconds at peak
+const FOG_ROLL_DENSITY_PEAK = 0.075;  // density during a roll (vs base 0.022)
+
+// Wind direction — randomised per run; leaves drift this way.
+let windDirX = 0, windDirZ = 0;
 
 // =============================================================================
 // PROCEDURAL CANVAS TEXTURES — desaturated, organic. Zero image assets.
@@ -1949,9 +2024,12 @@ function recycleLeaf(leaf) {
     player.pos.y + LEAF_SPAWN_HEIGHT + Math.random() * 4,
     player.pos.z + (Math.random() - 0.5) * 30
   );
-  leaf.vx = (Math.random() - 0.5) * 0.7;
+  // ROUND-4: bias horizontal velocity toward the wind direction so leaves
+  // visibly drift the same way (subtle but informative).
+  const windBias = 0.5;
+  leaf.vx = (Math.random() - 0.5) * 0.7 + windDirX * windBias;
   leaf.vy = -(0.35 + Math.random() * 0.5);
-  leaf.vz = (Math.random() - 0.5) * 0.7;
+  leaf.vz = (Math.random() - 0.5) * 0.7 + windDirZ * windBias;
   leaf.swayPhase = Math.random() * Math.PI * 2;
   leaf.rotSpeed = (Math.random() - 0.5) * 1.2;
   leaf.life = 0;
@@ -2225,52 +2303,74 @@ const items = []; // { label, sprite, baseOpacity, x, z, picked }
 }
 
 // ---------------------------------------------------------------------------
-// resetItemsForRun() — reseed item positions onto Agent A's landmarks if
-// exposed via `window.world.landmarks`; otherwise falls back to original ring.
+// resetItemsForRun() — reseed item positions per run.
+//
+// Round-4 procedural variance:
+//   1. Build a pool of up to 12 candidate positions (landmarks first, then
+//      "hidden in dense trees" spots derived from tree clusters).
+//   2. Shuffle and pick `diffCfg.itemsRequired` of them.
+//   3. ~30% chance per pick uses a dense-tree spot rather than a landmark
+//      (so some items feel genuinely lost in the woods, not just placed at
+//      memorable spots).
+// Items beyond `diffCfg.itemsRequired` (e.g. when EASY needs only 4) are
+// hidden so the player can't accidentally grab a 5th and trigger the beacon.
 // ---------------------------------------------------------------------------
 function resetItemsForRun() {
+  const required = (diffCfg && diffCfg.itemsRequired) || ITEMS_TO_ESCAPE;
+  const pool = [];
+  // 1) Landmarks (jittered, not hidden).
   let landmarks = null;
-  try {
-    const w = (typeof window !== 'undefined') ? window.world : null;
-    landmarks = (w && Array.isArray(w.landmarks)) ? w.landmarks.slice() : null;
-  } catch { landmarks = null; }
-  const positions = [];
-  if (landmarks && landmarks.length) {
-    for (let i = landmarks.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [landmarks[i], landmarks[j]] = [landmarks[j], landmarks[i]];
-    }
+  try { landmarks = (window.world && Array.isArray(window.world.landmarks)) ? window.world.landmarks.slice() : null; } catch {}
+  if (landmarks) {
     for (const lm of landmarks) {
-      if (typeof lm?.x === 'number' && typeof lm?.z === 'number') {
-        positions.push({
-          x: lm.x + (Math.random() - 0.5) * 1.6,
-          z: lm.z + (Math.random() - 0.5) * 1.6,
-        });
-      }
-      if (positions.length >= ITEMS_TO_ESCAPE) break;
+      if (typeof lm?.x !== 'number') continue;
+      pool.push({ x: lm.x + (Math.random() - 0.5) * 1.6, z: lm.z + (Math.random() - 0.5) * 1.6, hidden: false });
     }
   }
-  for (let i = positions.length; i < ITEMS_TO_ESCAPE; i++) {
-    const ang = (i / ITEMS_TO_ESCAPE) * Math.PI * 2 + Math.random() * 0.8;
-    const r = 40 + Math.random() * 90;
-    positions.push({ x: Math.cos(ang) * r, z: Math.sin(ang) * r });
+  // 2) Dense-tree "hidden" spots — sample sparsely (cheap; one tree-pass).
+  if (treeData?.length) {
+    const step = Math.max(1, Math.floor(treeData.length / 30));
+    for (let i = 0; i < treeData.length && pool.length < ITEM_POOL_SIZE; i += step) {
+      const t = treeData[i];
+      const d = Math.hypot(t.x, t.z);
+      if (d < 30 || d > 120) continue;
+      const ang = Math.random() * Math.PI * 2;
+      pool.push({ x: t.x + Math.cos(ang) * 1.6, z: t.z + Math.sin(ang) * 1.6, hidden: true });
+    }
   }
+  // 3) Top up with ring fallback.
+  while (pool.length < ITEM_POOL_SIZE) {
+    const ang = Math.random() * Math.PI * 2;
+    const r = 40 + Math.random() * 90;
+    pool.push({ x: Math.cos(ang) * r, z: Math.sin(ang) * r, hidden: false });
+  }
+  // Shuffle + pick first N.
+  for (let i = pool.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [pool[i], pool[j]] = [pool[j], pool[i]];
+  }
+  const positions = pool.slice(0, required);
   for (let i = 0; i < items.length; i++) {
     const it = items[i];
-    const pos = positions[i];
-    it.x = pos.x; it.z = pos.z;
-    it.picked = false;
-    it.sprite.visible = true;
-    it.sprite.material.opacity = 0.35;
-    it.sprite.scale.setScalar(1.4);
-    it.sprite.position.set(pos.x, groundY(pos.x, pos.z) + 0.9, pos.z);
+    if (i < required) {
+      const pos = positions[i];
+      it.x = pos.x; it.z = pos.z;
+      it.picked = false;
+      it.sprite.visible = true;
+      it.sprite.material.opacity = 0.35;
+      it.sprite.scale.setScalar(1.4);
+      it.sprite.position.set(pos.x, groundY(pos.x, pos.z) + 0.9, pos.z);
+    } else {
+      // Disable surplus items so they don't trigger pickups (EASY uses 4/5).
+      it.picked = true;
+      it.sprite.visible = false;
+    }
   }
 }
 
 // =============================================================================
-// HIDDEN CASSETTE TAPES — 3 lore collectibles. Found tape count persists across
-// runs in localStorage (`wg:clown-forest:tapes:lifetime`) and is published on
-// `window.clownForestTapesFound` so Agent C's start-screen UI can show TAPES X/3.
+// HIDDEN CASSETTE TAPES — 3 lore collectibles, lifetime tally persists in
+// localStorage and is published on window.clownForestTapesFound.
 // =============================================================================
 const tapes = []; // { sprite, x, z, picked }
 
@@ -2304,6 +2404,18 @@ const tapeTex = makeTapeTexture();
     tapes.push({ sprite, x: 0, z: 0, picked: false });
   }
 }
+
+// ROUND-4: ACHIEVEMENTS — shared profile-scoped store. Triggers gate on edge
+// events (endGame, tape pickup, defiant ending), never in tight tick loops.
+const ach = createAchievements('clown-forest', {
+  first_night:  { name:'FIRST NIGHT',   desc:'Complete a run alive (any ending).',    icon:'★' },
+  completionist:{ name:'COMPLETIONIST', desc:'Find all 5 items and 3 cassette tapes.', icon:'✦' },
+  speed_demon:  { name:'SPEED DEMON',   desc:'Escape in under 7 minutes.',             icon:'⚡' },
+  pacifist:     { name:'PACIFIST',      desc:'Survive a full run without sprinting.',  icon:'☮' },
+  brave:        { name:'BRAVE',         desc:'Five minutes without the flashlight on.',icon:'🕯' },
+  exorcist:     { name:'EXORCIST',      desc:'Kill the clown in the defiant ending.',  icon:'✟' },
+  sleepless:    { name:'SLEEPLESS',     desc:'Survive five runs in total.',            icon:'☾' },
+});
 
 const TAPE_LIFETIME_KEY = 'wg:clown-forest:tapes:lifetime';
 function _loadTapesLifetime() {
@@ -2377,6 +2489,218 @@ try {
     window.clownForestNightPct = 0;
   }
 } catch {}
+
+// =============================================================================
+// ROUND-4: CAFFEINE MUG + HAND-DRAWN MAP pickups. Drawn as compact 64px sprites
+// (steam-mug + folded parchment with red X). Each placed at a landmark-derived
+// position; map only spawns on a MAP_SPAWN_CHANCE roll per run.
+// =============================================================================
+function _haloSprite(drawFn, haloColor) {
+  const c = document.createElement('canvas'); c.width = 64; c.height = 64;
+  const g = c.getContext('2d');
+  const halo = g.createRadialGradient(32, 32, 0, 32, 32, 30);
+  halo.addColorStop(0, haloColor.replace('0)', '0.55)'));
+  halo.addColorStop(1, haloColor);
+  g.fillStyle = halo; g.fillRect(0, 0, 64, 64);
+  drawFn(g);
+  const tex = new THREE.CanvasTexture(c);
+  const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false, fog: true, opacity: 0.55 });
+  const s = new THREE.Sprite(mat);
+  s.scale.set(0.55, 0.55, 1); s.visible = false;
+  scene.add(s);
+  return s;
+}
+const caffeineSprite = _haloSprite((g) => {
+  g.fillStyle = '#8a8a92'; g.fillRect(22, 22, 20, 28);
+  g.fillStyle = '#5a5a64'; g.fillRect(22, 22, 4, 28);
+  g.fillStyle = '#3a3a44'; g.fillRect(22, 22, 20, 5);
+  g.strokeStyle = '#5a5a64'; g.lineWidth = 2;
+  g.beginPath(); g.arc(46, 36, 6, -Math.PI / 2, Math.PI / 2); g.stroke();
+  g.strokeStyle = 'rgba(220,230,245,0.8)'; g.lineWidth = 1.4;
+  for (let i = 0; i < 3; i++) {
+    g.beginPath();
+    const sx = 28 + i * 4;
+    g.moveTo(sx, 22);
+    g.bezierCurveTo(sx + 3, 18, sx - 3, 14, sx + 2, 10);
+    g.stroke();
+  }
+}, 'rgba(255,180,80,0)');
+const mapItemSprite = _haloSprite((g) => {
+  g.fillStyle = '#d5bf8a'; g.fillRect(18, 22, 28, 22);
+  g.strokeStyle = '#5a4818'; g.lineWidth = 1;
+  g.strokeRect(18, 22, 28, 22);
+  g.beginPath(); g.moveTo(32, 22); g.lineTo(32, 44); g.stroke();
+  g.fillStyle = '#9a1414';
+  g.fillRect(38, 32, 4, 1); g.fillRect(39, 30, 2, 5);
+}, 'rgba(220,200,150,0)');
+const caffeineState = { x: 0, z: 0, picked: false };
+const mapItemState = { x: 0, z: 0, picked: false, spawned: false };
+
+function resetExtraPickupsForRun() {
+  let lm = null;
+  try {
+    const arr = window.world?.landmarks;
+    if (arr?.length) lm = arr[Math.floor(Math.random() * arr.length)];
+  } catch {}
+  // Caffeine — always spawns near a random landmark.
+  const a1 = Math.random() * Math.PI * 2;
+  const cx = (lm?.x ?? 0) + Math.cos(a1) * (4 + Math.random() * 4);
+  const cz = (lm?.z ?? 0) + Math.sin(a1) * (4 + Math.random() * 4);
+  Object.assign(caffeineState, { x: cx, z: cz, picked: false });
+  caffeineSprite.material.opacity = 0.55;
+  caffeineSprite.position.set(cx, groundY(cx, cz) + 0.6, cz);
+  caffeineSprite.visible = true;
+  // Map — MAP_SPAWN_CHANCE per run, ring position to feel further away.
+  if (Math.random() < MAP_SPAWN_CHANCE) {
+    const a2 = Math.random() * Math.PI * 2;
+    const r2 = 55 + Math.random() * 35;
+    const mx = Math.cos(a2) * r2, mz = Math.sin(a2) * r2;
+    Object.assign(mapItemState, { x: mx, z: mz, picked: false, spawned: true });
+    mapItemSprite.material.opacity = 0.55;
+    mapItemSprite.position.set(mx, groundY(mx, mz) + 0.45, mz);
+    mapItemSprite.visible = true;
+  } else {
+    mapItemState.spawned = false; mapItemState.picked = true;
+    mapItemSprite.visible = false;
+  }
+}
+
+// ROUND-4: MAP OVERLAY — pickup paints a sketch for 4s; using = +30s clown lead.
+const mapOverlayEl = document.getElementById('map-overlay');
+const mapCanvas    = document.getElementById('map-canvas');
+let _mapHideAt = 0;
+function drawMapSketch(ctx) {
+  const W = mapCanvas.width, H = mapCanvas.height;
+  ctx.fillStyle = '#e2cb95'; ctx.fillRect(0, 0, W, H);
+  // Forest border + perimeter scribble.
+  ctx.strokeStyle = '#4a3010'; ctx.lineWidth = 2;
+  ctx.strokeRect(14, 14, W - 28, H - 28);
+  ctx.strokeStyle = '#3a280a'; ctx.lineWidth = 1.3;
+  ctx.beginPath();
+  for (let i = 0; i <= 32; i++) {
+    const a = (i / 32) * Math.PI * 2;
+    const r = (W / 2 - 40) + Math.sin(a * 5) * 8;
+    const x = W / 2 + Math.cos(a) * r, y = H / 2 + Math.sin(a) * r;
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  }
+  ctx.closePath(); ctx.stroke();
+  // Player + landmarks.
+  ctx.font = '10px serif'; ctx.fillStyle = '#3a280a';
+  let lms = []; try { lms = window.world?.landmarks || []; } catch {}
+  const plot = (x, z, color, label) => {
+    const sx = W / 2 + (x / 400) * (W - 60);
+    const sy = H / 2 + (z / 400) * (H - 60);
+    ctx.fillStyle = color;
+    ctx.beginPath(); ctx.arc(sx, sy, 4, 0, Math.PI * 2); ctx.fill();
+    if (label) { ctx.fillStyle = '#3a280a'; ctx.fillText(label, sx + 6, sy + 4); }
+  };
+  for (const lm of lms) if (typeof lm?.x === 'number') plot(lm.x, lm.z, '#3a280a', String(lm.name || '?').toUpperCase());
+  if (beaconPos) plot(beaconPos.x, beaconPos.z, '#9a1414', 'BEACON');
+  plot(player.pos.x, player.pos.z, '#1a3858', 'YOU');
+  ctx.fillStyle = '#5a1a14'; ctx.font = 'italic 11px serif';
+  ctx.fillText("don't trust the clearing", 30, H - 24);
+}
+function _toggleOverlay(el, on, fadeMs) {
+  if (!el) return;
+  if (on) { el.hidden = false; void el.offsetWidth; el.classList.add('is-shown'); }
+  else {
+    el.classList.remove('is-shown');
+    if (fadeMs === 0) { el.hidden = true; return; }
+    setTimeout(() => { if (!el.classList.contains('is-shown')) el.hidden = true; }, fadeMs);
+  }
+}
+function showMapOverlay() {
+  if (!mapOverlayEl || !mapCanvas) return;
+  drawMapSketch(mapCanvas.getContext('2d'));
+  _toggleOverlay(mapOverlayEl, true);
+  _mapHideAt = now() + MAP_OVERLAY_DURATION;
+}
+function hideMapOverlay(instant) { _toggleOverlay(mapOverlayEl, false, instant ? 0 : 400); _mapHideAt = 0; }
+
+// =============================================================================
+// ROUND-4: NPC ENCOUNTER — 20% chance per run; a hooded figure who says one
+// line and vanishes. Compact 64x128 texture; bubble drawn via DOM overlay.
+// =============================================================================
+const npcSprite = (() => {
+  const c = document.createElement('canvas'); c.width = 64; c.height = 128;
+  const g = c.getContext('2d');
+  g.fillStyle = '#2a2a30';
+  g.beginPath();
+  g.moveTo(17, 60); g.lineTo(47, 60); g.lineTo(51, 115); g.lineTo(13, 115);
+  g.closePath(); g.fill();
+  g.beginPath(); g.ellipse(32, 55, 15, 18, 0, 0, Math.PI * 2); g.fill();
+  g.fillStyle = '#dcc8b0';
+  g.beginPath(); g.ellipse(32, 58, 9, 12, 0, 0, Math.PI * 2); g.fill();
+  g.fillStyle = '#0a0608';
+  g.fillRect(27, 55, 2, 3); g.fillRect(35, 55, 2, 3);
+  const tex = new THREE.CanvasTexture(c);
+  const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false, fog: true, opacity: 0 });
+  const s = new THREE.Sprite(mat);
+  s.scale.set(1.0, 2.0, 1); s.visible = false;
+  scene.add(s);
+  return s;
+})();
+const npcState = { x: 0, z: 0, present: false, triggered: false, fadeOutAt: 0 };
+const NPC_LINES = [
+  "He's coming. Run.",
+  "Don't look at him.",
+  "Find the beacon. Don't stop.",
+  "I never got out. Maybe you will.",
+];
+
+function resetNpcForRun() {
+  npcState.present = false; npcState.triggered = false; npcState.fadeOutAt = 0;
+  npcSprite.material.opacity = 0; npcSprite.visible = false;
+  if (Math.random() > NPC_SPAWN_CHANCE) return;
+  let lm = null;
+  try {
+    const arr = window.world?.landmarks;
+    if (arr?.length) lm = arr.find((l) => l.name === 'cabin') || arr[Math.floor(Math.random() * arr.length)];
+  } catch {}
+  const a = Math.random() * Math.PI * 2;
+  const r = 5 + Math.random() * 4;
+  const nx = (lm?.x ?? 30) + Math.cos(a) * r;
+  const nz = (lm?.z ?? 30) + Math.sin(a) * r;
+  npcState.x = nx; npcState.z = nz; npcState.present = true;
+  npcSprite.position.set(nx, groundY(nx, nz) + 1.0, nz);
+}
+
+const npcOverlayEl = document.getElementById('npc-overlay');
+const npcLineEl = document.getElementById('npc-line');
+let _npcHideAt = 0;
+function showNpcOverlay(line) {
+  if (!npcOverlayEl || !npcLineEl) return;
+  npcLineEl.textContent = line;
+  _toggleOverlay(npcOverlayEl, true);
+  _npcHideAt = now() + NPC_LINE_DURATION;
+}
+function hideNpcOverlay(instant) { _toggleOverlay(npcOverlayEl, false, instant ? 0 : 600); _npcHideAt = 0; }
+
+// =============================================================================
+// ROUND-4: FOG ROLLS — periodic dense fog beats. Just rides the scene fog
+// density target (no extra mesh — driftingFog patches already provide the
+// ground-level visual). When active, tickAtmosphere clamps density up to
+// FOG_ROLL_DENSITY_PEAK, cutting visibility ~40% from the base distance.
+// =============================================================================
+const fogRollState = { active: false, startAt: 0, peakUntil: 0, fadeOutUntil: 0, nextAt: 0 };
+function maybeTriggerFogRoll(t) {
+  if (fogRollState.active || t < fogRollState.nextAt) return;
+  fogRollState.active = true;
+  fogRollState.startAt = t;
+  fogRollState.peakUntil = t + FOG_ROLL_DURATION;
+  fogRollState.fadeOutUntil = t + FOG_ROLL_DURATION + 8;
+  fogRollState.nextAt = t + FOG_ROLL_DURATION + 25 + FOG_ROLL_MIN_GAP + Math.random() * (FOG_ROLL_MAX_GAP - FOG_ROLL_MIN_GAP);
+  showSubtitle('Fog rolls in...', 3);
+  try { wgCaption?.('FOG BANK', 1500); } catch {}
+}
+function tickFogRoll(t) {
+  if (!fogRollState.active) return 0;
+  let k = 1;
+  if (t < fogRollState.peakUntil - (FOG_ROLL_DURATION - 4)) k = Math.min(1, (t - fogRollState.startAt) / 4);
+  else if (t > fogRollState.peakUntil) k = Math.max(0, 1 - (t - fogRollState.peakUntil) / 8);
+  if (t > fogRollState.fadeOutUntil) fogRollState.active = false;
+  return k;
+}
 
 // =============================================================================
 // EXIT BEACON — appears only after all 5 items are picked up. A faint red
@@ -2501,6 +2825,12 @@ const player = {
   distanceWalked: 0,          // metres traversed this run (for end-screen stat)
   pendingInteract: null,      // {item} when an item is in range and pressable
   deathLandmark: null,        // populated at kill time for the death-screen subtitle
+  // ---- Round-4 additions ----
+  difficulty: 'normal',       // 'easy' | 'normal' | 'nightmare'
+  staminaMax: STAMINA_MAX,    // mutable cap (caffeine raises by 30%)
+  sprintedThisRun: false,     // for PACIFIST achievement
+  caffeineConsumed: false,    // limit one mug per run
+  mapUsed: false,             // map item only paid the time-cost once
 };
 
 // =============================================================================
@@ -2519,6 +2849,13 @@ window.addEventListener('keydown', (e) => {
     } else if (gameState === 'paused') {
       // Second press = resume (the spec wants ESC to be symmetric).
       resumeGame();
+    } else if (gameState === 'winCine') {
+      // ROUND-4 — ESC mid-cutscene now offers a quit-confirm instead of being
+      // a dead key (was silently ignored before).
+      openCutscenePauseConfirm();
+    } else if (gameState === 'intro') {
+      // ESC during the intro = skip directly to the start screen.
+      try { skipIntro(); } catch {}
     }
   }
   // F toggles flashlight — only when battery > 0 (off→on blocked when dead).
@@ -2558,9 +2895,14 @@ window.addEventListener('keydown', (e) => {
   const k = (e.key || '').toLowerCase();
   // E — interact with nearby item (Agent D ownership: input wiring; pickup
   // resolution lives in tickPlay's items loop where pendingInteract is set).
+  // ROUND-4: also handles the DEFIANT confrontation (E within DEFIANT_RANGE
+  // of a visible clown = struggle, 5% kill chance, else instant death).
   if (k === 'e' && gameState === 'play') {
     if (player.pendingInteract) {
       tryInteractPickup(player.pendingInteract);
+    } else if (clownState.isVisible) {
+      const cd = Math.hypot(clownState.pos.x - player.pos.x, clownState.pos.z - player.pos.z);
+      if (cd <= DEFIANT_RANGE) tryDefiantConfront();
     }
   }
   // R — restart, but only when on the death screen (avoids accidental
@@ -2802,6 +3144,52 @@ function refreshStartBest() {
 }
 refreshStartBest();
 
+// =============================================================================
+// ROUND-4 — DIFFICULTY SELECTOR + STATS LINE on start screen.
+// =============================================================================
+const startDiffEl   = document.getElementById('start-diff');
+const startDiffDesc = document.getElementById('start-diff-desc');
+const startStatsEl  = document.getElementById('start-stats');
+function _loadDifficulty() {
+  try {
+    const v = localStorage.getItem(DIFF_KEY);
+    if (v && DIFFICULTY_PRESETS[v]) return v;
+  } catch {}
+  return 'normal';
+}
+function _saveDifficulty(d) {
+  try { localStorage.setItem(DIFF_KEY, d); } catch {}
+}
+function setDifficulty(d) {
+  if (!DIFFICULTY_PRESETS[d]) d = 'normal';
+  player.difficulty = d;
+  _saveDifficulty(d);
+  if (startDiffEl) {
+    for (const b of startDiffEl.querySelectorAll('.start-diff__btn')) {
+      const active = b.dataset.diff === d;
+      b.classList.toggle('is-active', active);
+      b.setAttribute('aria-checked', active ? 'true' : 'false');
+    }
+  }
+  if (startDiffDesc) startDiffDesc.textContent = DIFFICULTY_PRESETS[d].description;
+}
+// Wire the three buttons.
+if (startDiffEl) {
+  for (const b of startDiffEl.querySelectorAll('.start-diff__btn')) {
+    b.addEventListener('click', () => setDifficulty(b.dataset.diff));
+  }
+}
+// Initial paint — restore previously chosen difficulty.
+setDifficulty(_loadDifficulty());
+
+function refreshStartStats() {
+  if (!startStatsEl) return;
+  const s = _loadLifetimeStats();
+  const fastest = s.fastestEscape > 0 ? formatTime(s.fastestEscape) : '—';
+  startStatsEl.textContent = `RUNS: ${s.runs} / ESCAPES: ${s.escapes} / FASTEST: ${fastest}`;
+}
+refreshStartStats();
+
 function formatTime(secs) {
   const m = Math.floor(secs / 60);
   const s = Math.floor(secs % 60);
@@ -2941,11 +3329,16 @@ function showStartScreen() {
   pauseOverlay.hidden = true;
   startOverlay.hidden = false;
   refreshStartBest();
+  refreshStartStats();
   flashEl.className = '';
   flashEl.style.opacity = '';
   killCamEl.classList.remove('is-on');
   document.body.classList.remove('is-playing');
   endOverlay.classList.remove('is-escape');
+  // Hide any leftover round-4 overlays from the previous run.
+  hideMapOverlay(true);
+  hideNpcOverlay(true);
+  document.body.classList.remove('is-breathing');
 }
 
 function openControlsHelp() {
@@ -3007,18 +3400,44 @@ function requestRestart(source) {
   confirmOverlay.hidden = false;
 }
 function confirmRestart() {
+  // ROUND-4: when source is the mid-cutscene pause prompt, "Yes" abandons
+  // the cinematic and returns to the start screen rather than restarting.
+  const wasCutscene = _restartConfirmSource === 'cutscene';
   closeConfirm(true);
+  if (wasCutscene) {
+    // Force a clean abort: clear flash + return to menu without writing stats.
+    flashEl.className = '';
+    flashEl.style.opacity = '';
+    document.body.classList.remove('is-playing');
+    document.body.classList.remove('is-breathing');
+    if (hudEl) hudEl.hidden = true;
+    // Reset confirm copy to its default so the next restart-confirm is correct.
+    const ctEl = document.getElementById('confirm-title');
+    const csEl = document.getElementById('confirm-sub');
+    if (ctEl) ctEl.textContent = 'RESTART RUN?';
+    if (csEl) csEl.textContent = 'Your progress will be lost.';
+    showStartScreen();
+    return;
+  }
   startGame();
 }
 function closeConfirm(restarting = false) {
   if (gameState !== 'confirm' && !restarting) return;
   confirmOverlay.hidden = true;
   if (!restarting) {
-    if (_restartConfirmSource === 'pause' || priorGameState === 'paused') {
+    if (_restartConfirmSource === 'cutscene') {
+      // Restore the prior in-flight cutscene state.
+      gameState = priorGameState || 'winCine';
+    } else if (_restartConfirmSource === 'pause' || priorGameState === 'paused') {
       gameState = 'paused';
     } else {
       gameState = priorGameState || 'play';
     }
+    // Reset the confirm copy in all paths so the next restart-confirm reads right.
+    const ctEl = document.getElementById('confirm-title');
+    const csEl = document.getElementById('confirm-sub');
+    if (ctEl) ctEl.textContent = 'RESTART RUN?';
+    if (csEl) csEl.textContent = 'Your progress will be lost.';
   }
   _restartConfirmSource = null;
   priorGameState = null;
@@ -3026,6 +3445,23 @@ function closeConfirm(restarting = false) {
 
 function openSettings() {
   try { settingsHandle?.open?.(); } catch {}
+}
+
+// ROUND-4 — mid-cutscene quit confirmation. Repurposes the existing confirm
+// overlay (just swaps the copy + Yes-action). Confirming = back to the start
+// screen (the cutscene was either escape or defiant; abandoning it isn't
+// destructive since the run-stats only persist after endGame).
+function openCutscenePauseConfirm() {
+  if (!confirmOverlay) return;
+  if (gameState === 'confirm') return;
+  priorGameState = gameState;
+  _restartConfirmSource = 'cutscene';
+  gameState = 'confirm';
+  confirmOverlay.hidden = false;
+  const ctEl = document.getElementById('confirm-title');
+  const csEl = document.getElementById('confirm-sub');
+  if (ctEl) ctEl.textContent = 'QUIT THE CUTSCENE?';
+  if (csEl) csEl.textContent = 'Your run will end without a score.';
 }
 
 function showObjectives(on) {
@@ -3036,9 +3472,10 @@ function showObjectives(on) {
     if (objItems) objItems.textContent = String(player.itemsFound);
     const objBeacon = document.getElementById('obj-beacon-row');
     if (objBeacon) {
+      const req = (diffCfg && diffCfg.itemsRequired) || ITEMS_TO_ESCAPE;
       objBeacon.textContent = beaconPos
         ? 'Reach the beacon (red light)'
-        : `Find ${ITEMS_TO_ESCAPE - player.itemsFound} more lost items`;
+        : `Find ${req - player.itemsFound} more lost items`;
     }
     el.hidden = false;
   } else {
@@ -3065,8 +3502,9 @@ function tryInteractPickup(itemRef) {
   // patch hasn't merged yet.
   try { if (typeof triggerItemPersonality === 'function') triggerItemPersonality(itemRef.label); } catch {}
   try { if (typeof maybeTriggerAmbush === 'function') maybeTriggerAmbush(); } catch {}
-  const remaining = ITEMS_TO_ESCAPE - player.itemsFound;
-  if (remaining === 0) {
+  const requiredItems = (diffCfg && diffCfg.itemsRequired) || ITEMS_TO_ESCAPE;
+  const remaining = requiredItems - player.itemsFound;
+  if (remaining <= 0) {
     showSubtitle('All items found. Run.', 6);
     try { showObjective?.('BEACON ACTIVATED', 4); } catch {}
     spawnBeacon();
@@ -3080,6 +3518,74 @@ function updateInteractPrompt() {
   const want = !!player.pendingInteract && gameState === 'play';
   if (interactPromptEl) interactPromptEl.classList.toggle('is-shown', want);
   if (mobileInteractBtn) mobileInteractBtn.style.display = want ? '' : 'none';
+}
+
+// ROUND-4 — caffeine + map pickups + defiant confrontation.
+function tryPickupCaffeine() {
+  if (caffeineState.picked) return false;
+  const d = Math.hypot(caffeineState.x - player.pos.x, caffeineState.z - player.pos.z);
+  if (d > ITEM_PICKUP_DIST) return false;
+  caffeineState.picked = true;
+  caffeineSprite.visible = false;
+  player.caffeineConsumed = true;
+  player.staminaMax = STAMINA_MAX * (1 + CAFFEINE_STAMINA_BONUS);
+  player.stamina = player.staminaMax;
+  try { playPickup?.(); } catch {}
+  showPopup('<b>CAFFEINE</b> · stamina +30%', 3);
+  showSubtitle('Hot. Bitter.', 2.5);
+  try { wgCaption?.('CAFFEINE PICKUP', 1500); } catch {}
+  return true;
+}
+function tryPickupMap() {
+  if (!mapItemState.spawned || mapItemState.picked) return false;
+  const d = Math.hypot(mapItemState.x - player.pos.x, mapItemState.z - player.pos.z);
+  if (d > ITEM_PICKUP_DIST) return false;
+  mapItemState.picked = true;
+  mapItemSprite.visible = false;
+  try { playPickup?.(); } catch {}
+  showMapOverlay();
+  // ROUND-4: using the map = TIME WASTED. Push the clown's curve forward by
+  // MAP_TIME_WASTED_SECONDS so the gates trip earlier this run. We can't
+  // edit totalElapsed past the curve boundaries directly without breaking
+  // other systems, so we shift it forward bounded by the chase-gate.
+  if (!player.mapUsed) {
+    player.mapUsed = true;
+    totalElapsed = Math.max(totalElapsed, totalElapsed + MAP_TIME_WASTED_SECONDS);
+    // Also reduce the next stalk gap so the player feels the cost immediately.
+    clownState.nextStalkEvent = now() + 1.5;
+  }
+  showSubtitle('A map. You study it.', 3);
+  try { wgCaption?.('READING MAP — clown gains ground', 2400); } catch {}
+  return true;
+}
+function tryDefiantConfront() {
+  if (gameState !== 'play') return;
+  // Lock the run-flow so a second E press during the struggle is a no-op.
+  gameState = 'winCine'; // reuse sentinel; tickPlay won't run during this
+  document.exitPointerLock?.();
+  showObjective('YOU TURN AROUND', 1.6);
+  try { playGasp?.(); } catch {}
+  triggerHitFlash();
+  // Brief struggle window — then roll for the kill.
+  setTimeout(() => {
+    if (Math.random() < DEFIANT_KILL_CHANCE) {
+      // Player killed the clown.
+      try { audio?.playKill?.(); } catch {}
+      flashEl.className = 'is-sunrise';
+      setTimeout(() => {
+        if (gameState !== 'winCine' && gameState !== 'escaped') return;
+        flashEl.className = 'is-white';
+      }, 900);
+      setTimeout(() => {
+        gameState = 'play'; // for endGame's guard
+        endGame('defiant');
+      }, 2000);
+    } else {
+      // Instant death — show kill cinematic.
+      gameState = 'play';
+      triggerKillCinematic();
+    }
+  }, 900);
 }
 
 function pickDeathLandmark() {
@@ -3256,7 +3762,8 @@ function tickHeartRate(dt, clownDist) {
 function tickCompass() {
   if (!compassEl || !compassArrow) return;
   // Hide when no beacon yet.
-  if (!beaconPos || player.itemsFound < ITEMS_TO_ESCAPE) {
+  const requiredItems = (diffCfg && diffCfg.itemsRequired) || ITEMS_TO_ESCAPE;
+  if (!beaconPos || player.itemsFound < requiredItems) {
     compassEl.classList.remove('is-shown');
     return;
   }
@@ -3376,11 +3883,22 @@ function startGame() {
   flashEl.style.opacity = '';
   killCamEl.classList.remove('is-on');
   endOverlay.classList.remove('is-escape');
+  hideMapOverlay(true);
+  hideNpcOverlay(true);
+
+  // ROUND-4: snapshot the active difficulty preset so this run reads a stable
+  // config even if the player flips the setting elsewhere (impossible from
+  // gameplay UI, but cheap insurance).
+  diffCfg = DIFFICULTY_PRESETS[player.difficulty] || DIFFICULTY_PRESETS.normal;
+  // Refresh the HUD denominator since difficulty can change itemsRequired.
+  const itemsTotalEl = document.getElementById('hud-items-total');
+  if (itemsTotalEl) itemsTotalEl.textContent = String(diffCfg.itemsRequired);
 
   // Reset player.
   player.pos.set(0, PLAYER_H, 0);
   player.yaw = 0; player.pitch = 0;
-  player.stamina = STAMINA_MAX;
+  player.staminaMax = STAMINA_MAX;
+  player.stamina = player.staminaMax;
   player.flashlightOn = true;
   flashlight.visible = true;
   player.flashlightBattery = 100;
@@ -3388,6 +3906,15 @@ function startGame() {
   player.isSprinting = false;
   player.itemsFound = 0;
   player.twigSnapCooldown = 0;
+  // ROUND-4 trackers.
+  player.sprintedThisRun = false;
+  player.caffeineConsumed = false;
+  player.mapUsed = false;
+  // Randomise wind direction per run (cosmetic — drives leaves + rain skew).
+  {
+    const a = Math.random() * Math.PI * 2;
+    windDirX = Math.cos(a); windDirZ = Math.sin(a);
+  }
   // Reset Agent D tracker variables.
   player.distanceWalked = 0;
   player.pendingInteract = null;
@@ -3408,6 +3935,19 @@ function startGame() {
   resetItemsForRun();
   // Reset cassette tapes + load persisted tally for the start-screen flag.
   resetTapesForRun();
+  // ROUND-4 pickups (caffeine + handheld map). Caffeine spawns every run.
+  // The map spawns ~25% of runs. Both rely on the world.landmarks list.
+  resetExtraPickupsForRun();
+  // ROUND-4 — maybe spawn the NPC stranger this run (20% chance, places a
+  // sprite at a cabin-adjacent spot). Independent of items/caffeine/map.
+  resetNpcForRun();
+  // ROUND-4 — schedule fog rolls + per-run achievement trackers.
+  fogRollState.active = false;
+  fogRollState.peakUntil = 0;
+  fogRollState.fadeOutUntil = 0;
+  fogRollState.nextAt = now() + FOG_ROLL_MIN_GAP + Math.random() * (FOG_ROLL_MAX_GAP - FOG_ROLL_MIN_GAP);
+  _achNoFlashlightAccum = 0;
+  _achNoFlashlightFired = false;
   // Remove existing beacon if any. Dispose both geometry + material to avoid
   // leaking GPU resources across many restart cycles.
   if (beacon) {
@@ -3551,11 +4091,31 @@ function resumeGame() {
   playAmbience(0.55);
 }
 
+// ROUND-4: endings the run can resolve to.
+//   'escape'  = beacon reached, all required items, no tapes -> DAWN BREAKS
+//   'true'    = beacon reached, items + 3 tapes -> TRUE ESCAPE (richer copy)
+//   'tragic'  = night reached 100% without all items -> YOU SURVIVED... ending
+//   'defiant' = player confronted the clown and won the 5% roll -> EXORCIST
+//   'caught'  = anything else (kill cinematic or defiant-loss)
 function endGame(reason) {
   if (gameState === 'dead' || gameState === 'escaped') return;
   document.body.classList.remove('is-playing');
   document.exitPointerLock?.();
-  const escaped = reason === 'escape';
+  document.body.classList.remove('is-breathing');
+  hideMapOverlay(true);
+  hideNpcOverlay(true);
+  // Normalise legacy callers: anything that's not a death string is treated
+  // as an escape kind. The kill cinematic still calls with 'caught'.
+  const escapeKinds = new Set(['escape', 'true', 'tragic', 'defiant']);
+  const isEscape = escapeKinds.has(reason);
+  // Legacy 'escape' callers (playWinCinematic / nightclock) — upgrade to
+  // 'true' if the player also found all 3 cassette tapes this run.
+  let ending = reason;
+  if (reason === 'escape' && player.tapesFound >= TAPE_COUNT) ending = 'true';
+  // NIGHTMARE requires the true ending to count as a true escape — otherwise
+  // it stays as the basic escape branding even though they reached the beacon.
+  // (We just keep the branding logic below honest by reading `ending`.)
+  const escaped = isEscape;
   gameState = escaped ? 'escaped' : 'dead';
   const elapsed = now() - runStartTs;
 
@@ -3564,17 +4124,16 @@ function endGame(reason) {
   updateInteractPrompt();
   endOverlay.classList.toggle('is-escape', escaped);
 
-  if (escaped) {
-    // Win cutscene — see playWinCinematic() for the staged sequence. The
-    // escape sting was already played there; don't double-trigger it here.
-    endTitle.textContent = 'DAWN BREAKS';
-    endSub.textContent = 'He stayed in the woods.';
-  } else {
-    // Death — landmark-flavored subtitle. The huge red title is set in the
-    // CSS layout; we just supply the lines.
-    endTitle.textContent = 'YOU WERE FOUND';
-    endSub.textContent = player.deathLandmark || pickDeathLandmark();
-  }
+  // Title + subtitle copy per ending.
+  const ENDING_COPY = {
+    'true':    ['TRUE ESCAPE',     'The tapes told the truth. He vanished in the light.'],
+    'escape':  ['DAWN BREAKS',     'He stayed in the woods.'],
+    'tragic':  ['YOU SURVIVED',    "...but he's still out there."],
+    'defiant': ['YOU KILLED HIM',  'The forest is quiet for once.'],
+  };
+  const cp = ENDING_COPY[ending];
+  endTitle.textContent = cp ? cp[0] : 'YOU WERE FOUND';
+  endSub.textContent   = cp ? cp[1] : (player.deathLandmark || pickDeathLandmark());
   endItems.textContent = String(player.itemsFound);
   endTime.textContent  = formatTime(elapsed);
   if (endDistance) endDistance.textContent = `${Math.round(player.distanceWalked)} m`;
@@ -3584,7 +4143,11 @@ function endGame(reason) {
     escaped,
     itemsFound: player.itemsFound,
     time: elapsed,
-    score: (escaped ? 1000 : 0) + player.itemsFound * 10 - Math.floor(elapsed / 10),
+    ending,
+    difficulty: player.difficulty,
+    tapesFound: player.tapesFound,
+    score: (escaped ? 1000 : 0) + (ending === 'true' ? 500 : 0)
+           + player.itemsFound * 10 - Math.floor(elapsed / 10),
     ts: Date.now(),
   };
   const result = submitRun('clown-forest', run, (a, b) => {
@@ -3597,8 +4160,12 @@ function endGame(reason) {
   if (best.escaped) {
     endBest.innerHTML = `BEST <b>TIME ${formatTime(best.time)}</b>${newBest}`;
   } else {
-    endBest.innerHTML = `BEST <b>${best.itemsFound || 0}/5 ITEMS</b>${newBest}`;
+    const reqI = (diffCfg && diffCfg.itemsRequired) || ITEMS_TO_ESCAPE;
+    endBest.innerHTML = `BEST <b>${best.itemsFound || 0}/${reqI} ITEMS</b>${newBest}`;
   }
+
+  // ---- ROUND-4: lifetime stats + achievement unlocks ----
+  try { updateLifetimeStatsAndAchievements({ escaped, ending, elapsed }); } catch {}
 
   // Show the overlay AFTER the kill / sunrise cinematic completes.
   // The kill cinematic already fades to black for ~0.85s before calling here;
@@ -3613,13 +4180,48 @@ function endGame(reason) {
   playAmbience(0);
 }
 
+// Round-4 helper — lifetime stats + achievement unlocks (called from endGame).
+function updateLifetimeStatsAndAchievements({ escaped, ending, elapsed }) {
+  const s = _loadLifetimeStats();
+  s.runs++;
+  if (escaped) s.escapes++;
+  else s.deaths++;
+  s.itemsLifetime += player.itemsFound | 0;
+  if (escaped && (s.fastestEscape === 0 || elapsed < s.fastestEscape)) {
+    s.fastestEscape = elapsed;
+  }
+  s.endings = s.endings || {};
+  s.endings[ending] = (s.endings[ending] | 0) + 1;
+  _saveLifetimeStats(s);
+
+  // Achievements — emit one-shots based on the just-finished run.
+  // FIRST NIGHT — any ending that the player walked away from alive.
+  if (escaped) ach.unlock('first_night');
+  // COMPLETIONIST — all items + 3 tapes (regardless of survived).
+  const requiredItems = (diffCfg && diffCfg.itemsRequired) || ITEMS_TO_ESCAPE;
+  if (player.itemsFound >= requiredItems && player.tapesFound >= TAPE_COUNT) {
+    ach.unlock('completionist');
+  }
+  // SPEED DEMON — escape under 7 minutes.
+  if (escaped && elapsed < 420) ach.unlock('speed_demon');
+  // PACIFIST — never sprinted across the whole run AND survived.
+  if (escaped && !player.sprintedThisRun) ach.unlock('pacifist');
+  // BRAVE — handled separately during gameplay (5min torch-off flag).
+  if (_achNoFlashlightFired) ach.unlock('brave');
+  // EXORCIST — defiant ending only.
+  if (ending === 'defiant') ach.unlock('exorcist');
+  // SLEEPLESS — 5 total survived runs.
+  if (s.escapes >= 5) ach.unlock('sleepless');
+}
+
 // =============================================================================
 // AGENT D — WIN CUTSCENE. Called when the player reaches the beacon. Stages:
 //   0.0s  freeze input + start sunrise gradient + auto-walk
-//   1.8s  swap sunrise → full white wash
-//   3.0s  call endGame('escape') which paints the DAWN BREAKS panel
+//   1.8s  swap sunrise → full white wash (or extended ending burst for TRUE)
+//   3.0s  call endGame('escape') / endGame('true') based on tape collection
 // We use a distinct internal sentinel ('winCine') so endGame won't early-out
-// when we hand off to it.
+// when we hand off to it. ROUND-4: NIGHTMARE difficulty needs all 3 tapes for
+// TRUE; otherwise we keep the basic DAWN BREAKS branding.
 // =============================================================================
 function playWinCinematic() {
   if (gameState !== 'play') return;
@@ -3647,20 +4249,32 @@ function playWinCinematic() {
     requestAnimationFrame(stepFn);
   };
   requestAnimationFrame(stepFn);
-  // 1.8s in, swap to white wash.
+  // ROUND-4: pick ending kind ahead of time so the cinematic length can
+  // stretch on TRUE (clown vanishes in light — extra beat).
+  const hasAllTapes = player.tapesFound >= TAPE_COUNT;
+  const needsTapes = !!(diffCfg && diffCfg.needsTapesForTrueEscape);
+  // TRUE escape: all required items implicitly true (beacon spawned only when
+  // items met), PLUS all tapes. On NIGHTMARE the tapes are strictly required.
+  const isTrue = hasAllTapes && (!needsTapes || hasAllTapes);
+  const swapAtMs  = isTrue ? 2400 : 1800;
+  const endAtMs   = isTrue ? 4200 : 3000;
+  // 1.8/2.4s in, swap to white wash.
   setTimeout(() => {
     if (gameState !== 'winCine' && gameState !== 'escaped') return;
     flashEl.className = 'is-white';
-  }, 1800);
-  // 3.0s total: trigger endGame so the stats panel arrives over the white.
+    if (isTrue) {
+      // Add a clown-vanish caption beat for the secret ending.
+      try { wgCaption?.('THE CLOWN BURNS AWAY IN THE LIGHT', 2200); } catch {}
+    }
+  }, swapAtMs);
   setTimeout(() => {
     if (gameState !== 'winCine' && gameState !== 'escaped') return;
     // Reset to 'play' just for endGame's guard, which expects to transition
     // from 'play' to 'escaped'. (gameState is internal; the player can't
     // observe this momentary flicker.)
     gameState = 'play';
-    endGame('escape');
-  }, 3000);
+    endGame(isTrue ? 'true' : 'escape');
+  }, endAtMs);
 }
 
 // ---- KILL CINEMATIC -------------------------------------------------------
@@ -3862,6 +4476,10 @@ function tickPlay(dt) {
   // crouch, not just because the player started listening — listening is a
   // partial-crouch and shouldn't trigger the creak).
   if (!wasCrouching && player.isCrouching && keys.has('c')) playCrouch();
+  // ROUND-4: visible breath puff while crouched (cosmetic, sells cold night).
+  if (wasCrouching !== player.isCrouching) {
+    document.body.classList.toggle('is-breathing', player.isCrouching);
+  }
   // Sprint — Shift held + stamina + not crouching + not exhausted.
   const sprintRequested = keys.has('shift');
   const exhausted = now() < player.exhaustedUntil;
@@ -3874,8 +4492,20 @@ function tickPlay(dt) {
   if (exhausted) targetSpeed = Math.min(targetSpeed, WALK_SPEED * 0.6);
 
   // Stamina drain / regen. Hitting 0 triggers an EXHAUSTED lockout.
+  // ROUND-4: adrenaline panic mode — within ADRENALINE_RANGE of clown during
+  // hunt/chase, drain is reduced (panic-fight response). Also tracks
+  // sprintedThisRun for the PACIFIST achievement check.
   if (player.isSprinting) {
-    player.stamina = Math.max(0, player.stamina - dt);
+    player.sprintedThisRun = true;
+    let drain = 1.0;
+    const cdx = clownState.pos.x - player.pos.x;
+    const cdz = clownState.pos.z - player.pos.z;
+    const cdist = Math.hypot(cdx, cdz);
+    const inDanger = (clownState.phase === 'hunt' || clownState.phase === 'chase') && clownState.isVisible;
+    if (inDanger && cdist < ADRENALINE_RANGE) {
+      drain = ADRENALINE_DRAIN_MUL;
+    }
+    player.stamina = Math.max(0, player.stamina - dt * drain);
     if (player.stamina <= 0 && player.exhaustedUntil < now()) {
       player.exhaustedUntil = now() + STAMINA_EXHAUST_TIME;
       showSubtitle('EXHAUSTED', 1.5);
@@ -3884,7 +4514,7 @@ function tickPlay(dt) {
       playGasp();
     }
   } else {
-    player.stamina = Math.min(STAMINA_MAX, player.stamina + dt * STAMINA_REGEN);
+    player.stamina = Math.min(player.staminaMax, player.stamina + dt * STAMINA_REGEN);
   }
 
   // Convert input to world-space velocity.
@@ -4007,6 +4637,41 @@ function tickPlay(dt) {
     playRainOnShelter(0);
   }
 
+  // ---- ROUND-4 — caffeine + map pickups + NPC reveal ----
+  tryPickupCaffeine();
+  tryPickupMap();
+  // NPC stranger — reveal when within range. Sprite eases visible in then
+  // shows the one-liner; after NPC_LINE_DURATION it vanishes for the rest
+  // of the run.
+  if (npcState.present && !npcState.triggered) {
+    const ndx = npcState.x - player.pos.x;
+    const ndz = npcState.z - player.pos.z;
+    const ndist = Math.hypot(ndx, ndz);
+    if (ndist < 14) {
+      npcState.triggered = true;
+      npcSprite.visible = true;
+      npcSprite.material.opacity = 0.85;
+      npcState.fadeOutAt = now() + NPC_LINE_DURATION;
+      const line = NPC_LINES[Math.floor(Math.random() * NPC_LINES.length)];
+      showNpcOverlay(line);
+      try { audio?.playClownLaugh?.(0, 35); } catch {}
+    }
+  }
+  if (npcState.triggered && npcState.fadeOutAt) {
+    if (now() > npcState.fadeOutAt) {
+      // Fade the sprite out, then mark complete so we stop ticking it.
+      npcSprite.material.opacity = Math.max(0, npcSprite.material.opacity - dt * 0.8);
+      if (npcSprite.material.opacity <= 0.02) {
+        npcSprite.visible = false;
+        npcState.present = false;
+      }
+    }
+  }
+  // Auto-hide the map overlay.
+  if (_mapHideAt && now() > _mapHideAt) hideMapOverlay(false);
+  // Auto-hide NPC overlay bubble.
+  if (_npcHideAt && now() > _npcHideAt) hideNpcOverlay(false);
+
   // ---- Cassette tapes: glow when near + pickup (lore, persistent) ----
   for (const tp of tapes) {
     if (tp.picked) continue;
@@ -4025,10 +4690,37 @@ function tickPlay(dt) {
           window.clownForestTapesTotal = TAPE_COUNT;
         }
       } catch {}
-      // Audio: try a whisper/voice clip; fall back to pickup ding if absent.
-      try { audio?.playClownLaugh?.(0, 30); } catch {}
-      try { wgCaption?.(`CASSETTE TAPE FOUND (${player.tapesFound}/${TAPE_COUNT})`, 2500); } catch {}
-      showPopup(`<b>TAPE FOUND</b> · ${player.tapesFound}/${TAPE_COUNT}`, 3);
+      // ROUND-4 — tape voice variety. Three distinct synthesised "voice"
+      // clips chosen by tape index so each cassette is genuinely different:
+      //   tape 1 = distorted laugh (close)
+      //   tape 2 = whisper from behind
+      //   tape 3 = breath + child humming pitch
+      const tapeIdx = player.tapesFound; // 1, 2, or 3 after the increment
+      try {
+        if (tapeIdx === 1) {
+          audio?.playClownLaugh?.(-0.3, 4);
+        } else if (tapeIdx === 2) {
+          audio?.playClownBreath?.(2);
+          setTimeout(() => { try { audio?.playClownLaugh?.(0.6, 12); } catch {} }, 600);
+        } else {
+          audio?.playClownBreath?.(1);
+          setTimeout(() => { try { audio?.playClownStep?.(0, 6); } catch {} }, 350);
+          setTimeout(() => { try { audio?.playClownLaugh?.(0, 10); } catch {} }, 1100);
+        }
+      } catch {}
+      const tapeLore = [
+        '"This is the third night. He stayed at the trees."',
+        '"He won\'t leave until I do. He never tires."',
+        '"If you find this, run east. The beacon helps."',
+      ];
+      const lore = tapeLore[Math.min(tapeIdx - 1, tapeLore.length - 1)];
+      try { wgCaption?.(`TAPE ${tapeIdx}/${TAPE_COUNT}: ${lore}`, 4200); } catch {}
+      showPopup(`<b>TAPE ${tapeIdx}/${TAPE_COUNT}</b> · ${lore}`, 4.5);
+      // COMPLETIONIST achievement triggers immediately if items also done.
+      const requiredItemsT = (diffCfg && diffCfg.itemsRequired) || ITEMS_TO_ESCAPE;
+      if (player.tapesFound >= TAPE_COUNT && player.itemsFound >= requiredItemsT) {
+        ach.unlock('completionist');
+      }
     } else if (d < ITEM_GLOW_DIST) {
       const t = 1 - d / ITEM_GLOW_DIST;
       tp.sprite.material.opacity = 0.45 + t * 0.35;
@@ -4278,10 +4970,20 @@ function randomEventObjectDisturbance() {
   try { playTwigSnap(); } catch {}
   try { wgCaption?.('TWIG SNAP', 1000); } catch {}
 }
+// Round-4 — BRAVE-achievement run trackers (reset in startGame()).
+let _achNoFlashlightAccum = 0;
+let _achNoFlashlightFired = false;
 function tickPlayerBehaviorTrackers(dt) {
   if (player.isSprinting) player.playerSprintTime += dt;
   if (player.isCrouching) player.playerCrouchTime += dt;
-  if (!player.flashlightOn) player.flashlightOffTime += dt;
+  if (!player.flashlightOn) {
+    player.flashlightOffTime += dt;
+    // BRAVE: 5 continuous minutes torch-off in a single run.
+    _achNoFlashlightAccum += dt;
+    if (!_achNoFlashlightFired && _achNoFlashlightAccum >= 300) _achNoFlashlightFired = true;
+  } else {
+    _achNoFlashlightAccum = 0;
+  }
   let target = 0;
   if (player.playerCrouchTime > 5) target = Math.min(1, (player.playerCrouchTime - 5) / 12);
   if (player.flashlightOffTime > 8) target = Math.max(target, Math.min(1, (player.flashlightOffTime - 8) / 15));
@@ -4294,11 +4996,14 @@ function tickPlayerBehaviorTrackers(dt) {
 function tickClown(dt) {
   // Player behavior trackers — bias HUNT-trigger and CHASE distance via these.
   tickPlayerBehaviorTrackers(dt);
-  // Curve-aware phase entry.
-  const huntFromCurve = totalElapsed > CLOWN_HUNT_AFTER || totalElapsed > CURVE_STALK_RAMP;
+  // Curve-aware phase entry. ROUND-4: difficulty overrides huntAfter (60s in
+  // NIGHTMARE) and shifts the items-required threshold for the chase gate.
+  const huntAfter = (diffCfg && diffCfg.huntAfter) || CLOWN_HUNT_AFTER;
+  const requiredItems = (diffCfg && diffCfg.itemsRequired) || ITEMS_TO_ESCAPE;
+  const huntFromCurve = totalElapsed > huntAfter || totalElapsed > CURVE_STALK_RAMP;
   const huntFromBehavior = clownState.ranAwayCount >= 3 || clownState.searchInterest > 0.7;
   const playerHuntStart = huntFromCurve || huntFromBehavior;
-  const chaseAllowed = totalElapsed > CURVE_CHASE_ALLOW_AT || player.itemsFound >= ITEMS_TO_ESCAPE;
+  const chaseAllowed = totalElapsed > CURVE_CHASE_ALLOW_AT || player.itemsFound >= requiredItems;
   const inQuietWindow = totalElapsed < CURVE_QUIET_UNTIL;
 
   // Compute basics.
@@ -4365,13 +5070,14 @@ function tickClown(dt) {
     playHuntMusic();
     showSubtitle('Something is following you.', 5);
   }
+  const chaseTrigger = CLOWN_CHASE_TRIGGER * ((diffCfg && diffCfg.chaseTriggerMul) || 1);
   if (clownState.phase !== 'chase' && chaseAllowed &&
-      dist < CLOWN_CHASE_TRIGGER && sees && clownState.isVisible) {
+      dist < chaseTrigger && sees && clownState.isVisible) {
     clownState.phase = 'chase';
     playChaseMusic();
     showSubtitle('RUN.', 3);
   }
-  if (clownState.phase === 'chase' && dist > CLOWN_CHASE_TRIGGER * 2.5 && !sees) {
+  if (clownState.phase === 'chase' && dist > chaseTrigger * 2.5 && !sees) {
     // Lost the player — back to hunt.
     clownState.phase = playerHuntStart ? 'hunt' : 'stalk';
     if (clownState.phase === 'hunt') playHuntMusic(); else playStalkMusic();
@@ -4485,8 +5191,10 @@ function tickClown(dt) {
         else                     { playClownStep(pan, d);  try { wgCaption?.('FOOTSTEPS NEAR', 1400); } catch {} }
         clownState.lastStalkEvent = now();
         // Stalk frequency scales with search interest.
+        // ROUND-4: difficulty `stalkGapMul` scales (NIGHTMARE shortens, EASY widens).
         const baseGap = CLOWN_STALK_INTERVAL_MIN + Math.random() * (CLOWN_STALK_INTERVAL_MAX - CLOWN_STALK_INTERVAL_MIN);
-        const gap = baseGap * (1 - 0.35 * clownState.searchInterest);
+        const diffGap = (diffCfg && diffCfg.stalkGapMul) || 1;
+        const gap = baseGap * (1 - 0.35 * clownState.searchInterest) * diffGap;
         clownState.nextStalkEvent = now() + Math.max(8, gap);
       }
     }
@@ -4526,8 +5234,10 @@ function tickClown(dt) {
       }
     } else if (!frozen) {
       // Sprint bias — clown closes faster if player has sprinted a lot.
+      // ROUND-4: difficulty multiplier stacks on top.
       const sprintBias = Math.min(0.5, player.playerSprintTime * 0.02);
-      moveClownToward(player.pos.x, player.pos.z, CLOWN_HUNT_SPEED * (1 + sprintBias), dt);
+      const diffMul = (diffCfg && diffCfg.clownSpeedMul) || 1;
+      moveClownToward(player.pos.x, player.pos.z, CLOWN_HUNT_SPEED * (1 + sprintBias) * diffMul, dt);
     }
     if (Math.random() < dt * 0.4) {
       const a = Math.atan2(dz, dx) - player.yaw;
@@ -4545,8 +5255,9 @@ function tickClown(dt) {
     clownState.isVisible = true;
     clownSprite.visible = true;
     clownState.chaseWeavePhase += dt * 2.0;
-    const aggressive = player.itemsFound >= ITEMS_TO_ESCAPE;
-    const speed = CLOWN_CHASE_SPEED * (aggressive ? 1.15 : 1.0);
+    const aggressive = player.itemsFound >= requiredItems;
+    const diffMulC = (diffCfg && diffCfg.clownSpeedMul) || 1;
+    const speed = CLOWN_CHASE_SPEED * (aggressive ? 1.15 : 1.0) * diffMulC;
     const perpX = -Math.cos(player.yaw), perpZ = Math.sin(player.yaw);
     const wob = Math.sin(clownState.chaseWeavePhase) * 1.3;
     const tx = player.pos.x + perpX * wob;
@@ -4681,14 +5392,18 @@ function tickFlashlight(dt) {
     applyCutoutOverlay();
     return;
   }
-  // Battery drain.
-  player.flashlightBattery = Math.max(0, player.flashlightBattery - FLASHLIGHT_DRAIN * dt);
-  if (player.flashlightBattery <= 0) {
-    player.flashlightOn = false;
-    flashlight.visible = false;
-    playFlashlight(false);
-    showSubtitle('Flashlight is dead.', 4);
-    return;
+  // Battery drain. ROUND-4: NIGHTMARE = infinite battery (no drain) but the
+  // flashlight flickers far more often (handled below in the flicker tier).
+  if (!diffCfg.flashlightInfinite) {
+    player.flashlightBattery = Math.max(0,
+      player.flashlightBattery - FLASHLIGHT_DRAIN * (diffCfg.flashlightDrainMul ?? 1) * dt);
+    if (player.flashlightBattery <= 0) {
+      player.flashlightOn = false;
+      flashlight.visible = false;
+      playFlashlight(false);
+      showSubtitle('Flashlight is dead.', 4);
+      return;
+    }
   }
   const bat01 = player.flashlightBattery / 100;
   const lowBat = bat01 < 0.30;
@@ -4731,8 +5446,10 @@ function tickFlashlight(dt) {
 
   // ---- Compute flicker tier ----
   // Base probabilities; doubled when below 30% battery.
-  let pDim    = 0.04;
-  let pBlink  = 0.01;
+  // ROUND-4: NIGHTMARE multiplies both by ~2.2x so the torch is unreliable
+  // even when "infinite" (this is what trades for no battery drain).
+  let pDim    = 0.04 * (diffCfg.flickerMul ?? 1);
+  let pBlink  = 0.01 * (diffCfg.flickerMul ?? 1);
   if (lowBat) { pDim *= 2; pBlink *= 2; }
   const r = Math.random();
   let intensityMul;
@@ -4792,13 +5509,20 @@ function tickAtmosphere(dt) {
     targetDensity = FOG_DENSITY_CHASE;
   }
   // Near-dawn (all items collected): fog lifts slightly.
-  if (player.itemsFound >= ITEMS_TO_ESCAPE) {
+  const _reqI = (diffCfg && diffCfg.itemsRequired) || ITEMS_TO_ESCAPE;
+  if (player.itemsFound >= _reqI) {
     targetDensity = Math.min(targetDensity, FOG_DENSITY_DAWN);
   }
   // Lightning override — punches density down for a single beat.
   if (t < lightningState.fogOverrideUntil) {
     targetDensity = lightningState.fogOverrideDensity;
   }
+  // ROUND-4: fog rolls increase target density during the roll.
+  const rollK = tickFogRoll(t);
+  if (rollK > 0) {
+    targetDensity = Math.max(targetDensity, FOG_DENSITY_BASE + (FOG_ROLL_DENSITY_PEAK - FOG_DENSITY_BASE) * rollK);
+  }
+  maybeTriggerFogRoll(t);
   // Smooth toward target so density changes don't pop.
   scene.fog.density += (targetDensity - scene.fog.density) * Math.min(1, dt * 1.5);
 
@@ -4843,12 +5567,22 @@ function tickNightClock(dt) {
     showSubtitle('The sky is paling. Dawn is near.', 5);
   }
   // Alternate win at 100% — only if we haven't already escaped some other way.
+  // ROUND-4: when the player reached 100% night-clock WITHOUT collecting all
+  // required items, route to the TRAGIC ending ("YOU SURVIVED... BUT HE'S
+  // STILL OUT THERE"). With items collected this is still the standard escape.
   if (player.nightPercent >= NIGHT_DAWN_PCT && !_nightDawnTriggered && gameState === 'play') {
     _nightDawnTriggered = true;
-    showSubtitle('Dawn breaks. The forest is empty.', 5);
-    // Hide clown so the dawn moment is clean.
+    const requiredItems = (diffCfg && diffCfg.itemsRequired) || ITEMS_TO_ESCAPE;
+    const hasAll = player.itemsFound >= requiredItems;
+    if (hasAll) {
+      showSubtitle('Dawn breaks. The forest is empty.', 5);
+    } else {
+      showSubtitle('Dawn breaks. You wake in a field.', 5);
+    }
     if (clownSprite) { clownSprite.visible = false; clownState.isVisible = false; }
-    setTimeout(() => { if (gameState === 'play') endGame('escape'); }, 1600);
+    setTimeout(() => {
+      if (gameState === 'play') endGame(hasAll ? 'escape' : 'tragic');
+    }, 1600);
   }
 }
 
@@ -4889,12 +5623,14 @@ function tickHUD(dt) {
   _tickPopups();
 
   // Stamina bar — show when actively sprinting or stamina < max.
-  const stamPct = Math.round((player.stamina / STAMINA_MAX) * 100);
+  // ROUND-4: divide by current cap (caffeine raises by 30%) so the bar reads
+  // correctly when the player has the bonus.
+  const stamPct = Math.round((player.stamina / player.staminaMax) * 100);
   if (stamPct !== lastStamPct) {
     staminaFill.style.width = stamPct + '%';
     lastStamPct = stamPct;
   }
-  const showStam = player.isSprinting || player.stamina < STAMINA_MAX - 0.1;
+  const showStam = player.isSprinting || player.stamina < player.staminaMax - 0.1;
   staminaBox.classList.toggle('is-shown', showStam);
   staminaBox.classList.toggle('is-low', stamPct < 30);
   staminaBox.classList.toggle('is-crit', stamPct < 20);

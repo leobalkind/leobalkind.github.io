@@ -1217,6 +1217,34 @@ let autoCookT = 0;
 let hireGrabT = 0;
 let karenFightCheckT = 0;
 let shiftStats = {};
+// =============================================================================
+// STAFF ROSTER — per-staff stats shown at run end. Adds personality + makes the
+// AUTO-COOK / HIRE STAFF upgrades feel like crew members, not generic perks.
+// 'YOU' = the player; 'CHEF' = auto-cook robot; 'CAPTAIN' = hired helper.
+// Each entry tracks ingredients-supplied / orders-served / tips-earned.
+// =============================================================================
+const STAFF_ROSTER = [
+  { id: 'YOU',     name: 'YOU',          icon: '🐶', body: '#c8854a', desc: 'The boss. Every order on your shoulders.' },
+  { id: 'CHEF',    name: 'CHEF AUTO',    icon: '🤖', body: '#7a8aac', desc: 'AUTO-COOK upgrade. Pre-loads ingredients.' },
+  { id: 'CAPTAIN', name: 'CAPTAIN PAWS', icon: '🐶', body: '#5ef38c', desc: 'HIRED 2nd server. Grabs items for oldest order.' },
+];
+let staffStats = {};
+function _resetStaffStats() {
+  staffStats = {};
+  for (const s of STAFF_ROSTER) staffStats[s.id] = { ingredientsSupplied: 0, ordersServed: 0, tipsEarned: 0, active: false };
+}
+function _staffCredit(staffId, amount) {
+  if (!staffStats[staffId]) return;
+  staffStats[staffId].active = true;
+  staffStats[staffId].ingredientsSupplied++;
+}
+function _staffCreditServe(amount) {
+  // Player always credited for the serve action.
+  if (!staffStats.YOU) return;
+  staffStats.YOU.active = true;
+  staffStats.YOU.ordersServed++;
+  staffStats.YOU.tipsEarned += amount;
+}
 function reset() {
   orders = []; bench = []; money = 0; served = 0; lives = 4;
   spawnT = 1.5; eventT = 5;
@@ -1224,6 +1252,7 @@ function reset() {
   upgrades = {}; autoCookT = 5;
   hireGrabT = 4; karenFightCheckT = 1.5;
   shiftStats = { bestTip: 0, longestChain: 0, specialsServed: 0, vipsServed: 0, karensCalmed: 0, criticsServed: 0, familiesServed: 0, burnt: 0, mostChaotic: '', startedAt: performance.now() };
+  _resetStaffStats();
   // POLISH ROUND 2 — reset family + pause state per run
   _upcomingFamily = 0; _familyCounter = 0; _familyServes = {};
   _isPaused = false; _resumeCountdown = 0;
@@ -1684,6 +1713,7 @@ function serve(idx) {
   const pay = Math.round((o.recipe.pay + comboBonus) * chainMult * freshnessMult * ct.tipMult * cafeMult * specialMult * sotdMult);
   money += pay;
   served++;
+  _staffCreditServe(pay);
   // Wave 1F: track shift stats for end-of-shift summary
   shiftStats.bestTip = Math.max(shiftStats.bestTip || 0, pay);
   shiftStats.longestChain = Math.max(shiftStats.longestChain || 0, comboCount || 0);
@@ -1922,6 +1952,7 @@ function tick(dt) {
             const ing = INGREDIENTS.find((g) => g.id === missing);
             popup(80, window.innerHeight - 120, `🤖 +${ing ? ing.name : missing}`, '#b055ff');
             renderBench();
+            _staffCredit('CHEF', 1);
           }
         }
       }
@@ -1950,6 +1981,7 @@ function tick(dt) {
             const ing = INGREDIENTS.find((g) => g.id === missing);
             popup(140, window.innerHeight - 120, `🐶 +${ing ? ing.name : missing}`, '#5ef38c');
             renderBench();
+            _staffCredit('CAPTAIN', 1);
           }
         }
       }
@@ -2110,6 +2142,15 @@ function end() {
     <div class="cafe-shift-summary__row"><span>Most chaotic moment</span><b>${sh.mostChaotic || 'none'}</b></div>
     <div class="cafe-shift-summary__row"><span>Shift duration</span><b>${durMin} min</b></div>
     <div class="cafe-shift-summary__row" style="margin-top:6px;border-top:1px dashed var(--border);padding-top:4px;"><span>Total tips ever</span><b>$${metaTotalTips}</b></div>
+    <div class="cafe-shift-summary__row" style="margin-top:8px;border-top:1px dashed var(--border);padding-top:6px;color:var(--neon-cyan,#4cc9f0);"><span><b>★ STAFF ROSTER ★</b></span><span></span></div>
+    ${STAFF_ROSTER.map((s) => {
+      const st = staffStats[s.id] || { ingredientsSupplied: 0, ordersServed: 0, tipsEarned: 0, active: false };
+      if (!st.active) return '';
+      const detail = s.id === 'YOU'
+        ? `${st.ordersServed} orders · $${st.tipsEarned} earned`
+        : `${st.ingredientsSupplied} ingredients supplied`;
+      return `<div class="cafe-shift-summary__row" title="${s.desc}"><span>${s.icon} <b>${s.name}</b></span><span style="font-size:0.42rem;opacity:0.9;">${detail}</span></div>`;
+    }).join('')}
   `;
   document.getElementById('hud').hidden = true;
   document.getElementById('cafe').hidden = true;

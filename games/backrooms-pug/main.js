@@ -656,6 +656,17 @@ let lastHoundSeenIds = new Set(); // hound entity refs that have triggered first
 let firstHoundJump = false;   // first hound-jumpscare per match
 let lastSmilerJumpAt = -999;  // last time we fired smiler jump-scare (gameTime)
 let gameTime = 0;             // total seconds elapsed in current run
+// =============================================================================
+// PSYCHIC FLASH — every 10-15 min of game time (relative wall clock), a brief
+// 1-second white flash reveals the level map: walls + cans + exit pinged in
+// neon as a top-down overlay. Helps players who've been wandering for ages.
+// =============================================================================
+let psychicFlashT = 0;          // seconds remaining of active reveal (0..1)
+let nextPsychicFlashAt = 0;     // gameTime at which next flash fires
+function _schedulePsychicFlash() {
+  // 10-15 min into the run (or relative to the last flash). Random-ish.
+  nextPsychicFlashAt = gameTime + 600 + Math.random() * 300;
+}
 let nextAmbientAt = 999999;   // scheduled time for next ambient fake scare
 let ambientEvent = null;      // { x, y, t, life } silhouette doorway
 let nextDoorSlamAt = 999999;  // scheduled time for next far-off door slam
@@ -2506,6 +2517,14 @@ function tick(dt) {
   if (jumpScareCooldown > 0) jumpScareCooldown -= dt;
   if (jumpScareT > 0) jumpScareT -= dt;
   if (redFlashT > 0) redFlashT -= dt;
+  // PSYCHIC FLASH — fire when scheduled time passes; reschedule afterward.
+  if (nextPsychicFlashAt === 0) _schedulePsychicFlash();
+  if (psychicFlashT > 0) psychicFlashT = Math.max(0, psychicFlashT - dt);
+  if (psychicFlashT === 0 && gameTime >= nextPsychicFlashAt) {
+    psychicFlashT = 1.0;
+    _schedulePsychicFlash();
+    try { sfx.tone(180, 'sine', 0.4, 0.18); sfx.tone(60, 'sine', 0.5, 0.25); } catch (e) { /* */ }
+  }
   // -------------------------------------------------------------------------
   // NOCLIP CHAIN TRANSITION — when active, FREEZE all gameplay (player can't
   // move, monsters can't damage you, no can pickups). At the midpoint, swap
@@ -4851,6 +4870,44 @@ function render() {
     ctx.fillStyle = '#7a6a4a';
     ctx.fillText('CLICK or press ANY KEY to continue', cx + cw / 2, cy + ch - 22);
     ctx.restore();
+  }
+  // ===== PSYCHIC FLASH overlay — brief top-down map reveal =====
+  // Drawn as a 1s SCREEN-SPACE pass after everything else. White out the
+  // viewport for ~0.15s, then fade in a top-down schematic with cans + exit.
+  if (psychicFlashT > 0) {
+    const phase = 1 - psychicFlashT; // 0..1
+    // Initial bright flash (first 25% of duration)
+    const flashA = phase < 0.25 ? (1 - phase / 0.25) * 0.75 : 0;
+    if (flashA > 0) { ctx.fillStyle = `rgba(255,255,255,${flashA})`; ctx.fillRect(0, 0, W, H); }
+    // Minimap reveal (after the flash, fades over remaining time)
+    if (phase > 0.15) {
+      const a = Math.min(1, (1 - phase) * 2.5);
+      const mmW = Math.min(W * 0.55, 380), mmH = Math.min(H * 0.55, 280);
+      const mmX = (W - mmW) / 2, mmY = (H - mmH) / 2;
+      ctx.save();
+      ctx.globalAlpha = a;
+      ctx.fillStyle = 'rgba(8,12,20,0.85)'; ctx.fillRect(mmX, mmY, mmW, mmH);
+      ctx.strokeStyle = '#5ef38c'; ctx.lineWidth = 2;
+      ctx.strokeRect(mmX + 0.5, mmY + 0.5, mmW - 1, mmH - 1);
+      const sxS = mmW / (cols * TILE), syS = mmH / (rows * TILE);
+      // walls
+      ctx.fillStyle = 'rgba(255,255,255,0.4)';
+      for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) {
+        if (grid[y][x] === 1) ctx.fillRect(mmX + x * TILE * sxS, mmY + y * TILE * syS, Math.max(1, TILE * sxS), Math.max(1, TILE * syS));
+      }
+      // cans (pulse)
+      const pulse = 0.5 + 0.5 * Math.sin(performance.now() * 0.012);
+      ctx.fillStyle = `rgba(76,201,240,${0.6 + pulse * 0.4})`;
+      for (const c of cans || []) if (!c.taken) ctx.fillRect(mmX + c.x * sxS - 3, mmY + c.y * syS - 3, 6, 6);
+      // exit
+      if (exitTile) { ctx.fillStyle = '#ffd23f'; ctx.fillRect(mmX + exitTile.tx * TILE * sxS - 4, mmY + exitTile.ty * TILE * syS - 4, 8, 8); }
+      // pug
+      if (pug) { ctx.fillStyle = '#ff3aa1'; ctx.fillRect(mmX + pug.x * sxS - 3, mmY + pug.y * sxS - 3, 6, 6); }
+      // label
+      ctx.fillStyle = '#5ef38c'; ctx.font = "10px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
+      ctx.fillText('PSYCHIC FLASH', mmX + mmW / 2, mmY - 8);
+      ctx.restore();
+    }
   }
 }
 

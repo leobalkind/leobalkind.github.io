@@ -144,10 +144,10 @@ window.addEventListener('resize', resize); resize();
 
 const WORLD_W = 2200, WORLD_H = 1600;
 const FORMS = [
-  { name: 'Tiny Pugzilla',   r: 28, smash: 1, color: '#c8854a', passive: null },
-  { name: 'Chonk Pugzilla',  r: 40, smash: 2, color: '#eac888', passive: 'extraReach' },     // +30% smash reach
-  { name: 'Mega Pugzilla',   r: 56, smash: 3, color: '#ff8e3c', passive: 'titanBork' },      // bork radius +20%
-  { name: 'GIGA-BORK GOD',   r: 78, smash: 5, color: '#b055ff', passive: 'kaijuBreath' },    // fire breath aura damages
+  { name: 'Tiny Pugzilla',   r: 28, smash: 1, color: '#c8854a', passive: null,        weakness: 'CHOPPERS',  weaknessIcon: '🚁', tactic: 'Stay low — jets miss tiny targets.' },
+  { name: 'Chonk Pugzilla',  r: 40, smash: 2, color: '#eac888', passive: 'extraReach', weakness: 'TANKS',     weaknessIcon: '🚜', tactic: 'Tanks track slow. Bork them when stacked.' },     // +30% smash reach
+  { name: 'Mega Pugzilla',   r: 56, smash: 3, color: '#ff8e3c', passive: 'titanBork',  weakness: 'JETS',      weaknessIcon: '✈️',  tactic: 'Big silhouette = easy missile lock. Strafe!' },      // bork radius +20%
+  { name: 'GIGA-BORK GOD',   r: 78, smash: 5, color: '#b055ff', passive: 'kaijuBreath', weakness: 'BOMBERS',  weaknessIcon: '🛩️',  tactic: 'Bombers hit hardest now — anti-air your priority.' },    // fire breath aura damages
 ];
 
 // === ENVIRONMENTS — 3 selectable cities ===
@@ -2649,6 +2649,31 @@ function render() {
     ctx.fillText('RAMPAGE', rmX + 4, rmY + 10);
     ctx.textAlign = 'right';
     ctx.fillText(Math.round(rampageMeter) + '%', rmX + 126, rmY + 10);
+  }
+  // TARGET PRIORITY overlay — shows the current form's military weakness so
+  // the player has tactical context for the threats spawning. Mil intelligence
+  // banner styled like a HUD ticker; updates when formIdx changes.
+  {
+    const f = form();
+    if (f && f.weakness) {
+      const tpX = 10, tpY = 84;
+      const tpW = 200, tpH = 32;
+      ctx.fillStyle = 'rgba(40,10,10,0.85)'; ctx.fillRect(tpX, tpY, tpW, tpH);
+      ctx.strokeStyle = '#ff8e3c'; ctx.lineWidth = 1;
+      ctx.strokeRect(tpX + 0.5, tpY + 0.5, tpW - 1, tpH - 1);
+      // Diagonal warning stripes top-bar
+      ctx.fillStyle = '#ff8e3c'; ctx.fillRect(tpX, tpY, tpW, 6);
+      ctx.fillStyle = 'rgba(0,0,0,0.35)';
+      for (let i = -2; i < tpW / 6 + 2; i++) {
+        ctx.fillRect(tpX + i * 6, tpY, 3, 6);
+      }
+      ctx.fillStyle = '#fff'; ctx.font = "6px 'Press Start 2P', monospace"; ctx.textAlign = 'left';
+      ctx.fillText('★ MIL INTEL: ' + f.weaknessIcon + ' ' + f.weakness + ' MOST EFFECTIVE', tpX + 4, tpY + 14);
+      ctx.fillStyle = '#ffd23f'; ctx.font = "6px 'Press Start 2P', monospace";
+      // Truncate long tactics gracefully
+      const tac = f.tactic.length > 38 ? f.tactic.slice(0, 35) + '...' : f.tactic;
+      ctx.fillText(tac, tpX + 4, tpY + 25);
+    }
   }
   // Polish R2: MINIMAP — buildings + military positions
   {

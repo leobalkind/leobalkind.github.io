@@ -2331,3 +2331,510 @@ body.reduced-motion .profile-chip__dot { animation: none; }
   .mydata-last { display: none; }   /* drop the 5th column on phones */
   .mydata-table thead th:nth-child(5) { display: none; }
 }
+
+/* =========================================================================
+   HUB UX FINAL POLISH — v2.2
+   - Horror card visual distinction (darker + red glow on hover)
+   - NEW / 3D / REALISTIC / HORROR tag chips on card bodies
+   - Toolbar (sort dropdown + total count)
+   - Footer meta row (credits / discord / build version)
+   - Credits modal
+   - Sortable stats-table headers
+   - Settings stats panel + danger zone
+   - Tablet/phone responsive grid (2-col tablet, 1-col phone)
+   - Profile chip: avatar circle with initials
+   - Cloud sync indicator dot
+   - Konami code rainbow easter egg
+   - SVG hover cinematic
+   ========================================================================= */
+
+/* ---- HORROR cards: darker, oppressive frame, red glow on hover ---- */
+/* Targets the three horror art classes we already have. We keep the
+   existing inset glow tokens but layer a darker mask + red border. */
+.card__art--backrooms,
+.card__art--backrooms3d,
+.card__art--clownforest {
+  /* slight darken on the artwork so they read as horror at a glance */
+  filter: saturate(0.85) brightness(0.92);
+}
+.card:has(.card__art--backrooms),
+.card:has(.card__art--backrooms3d),
+.card:has(.card__art--clownforest) {
+  background:
+    linear-gradient(135deg, rgba(120, 16, 16, 0.10), transparent 50%),
+    linear-gradient(180deg, #0a0610, #100808);
+  border-color: #2b1010;
+}
+.card:has(.card__art--backrooms):hover,
+.card:has(.card__art--backrooms3d):hover,
+.card:has(.card__art--clownforest):hover,
+.card:has(.card__art--backrooms):focus-visible,
+.card:has(.card__art--backrooms3d):focus-visible,
+.card:has(.card__art--clownforest):focus-visible {
+  border-color: #b81818;
+  box-shadow:
+    0 14px 40px rgba(184, 24, 24, 0.45),
+    0 0 0 1px #b81818,
+    inset 0 0 30px rgba(184, 24, 24, 0.12);
+  animation: none;  /* override the cyan-pink shimmer */
+}
+.card:has(.card__art--backrooms):hover .card__svg,
+.card:has(.card__art--backrooms3d):hover .card__svg,
+.card:has(.card__art--clownforest):hover .card__svg {
+  filter: saturate(0.95) brightness(1.0) contrast(1.05);
+}
+.card:has(.card__art--backrooms):hover .card__cta,
+.card:has(.card__art--backrooms3d):hover .card__cta,
+.card:has(.card__art--clownforest):hover .card__cta {
+  color: #ff5a5a;
+  text-shadow: 0 0 10px rgba(184, 24, 24, 0.7);
+}
+.card:has(.card__art--backrooms):hover .card__cta::after,
+.card:has(.card__art--backrooms3d):hover .card__cta::after,
+.card:has(.card__art--clownforest):hover .card__cta::after {
+  background: linear-gradient(90deg, #ff5a5a, #4a0808);
+}
+/* Card-art accent classes for the two new horror cards */
+.card__art--backrooms3d { border-bottom: 2px solid rgba(184, 24, 24, 0.55); box-shadow: inset 0 -6px 14px rgba(184, 164, 74, 0.2); }
+.card__art--clownforest { border-bottom: 2px solid rgba(184, 24, 24, 0.7);  box-shadow: inset 0 -6px 14px rgba(184, 24, 24, 0.22); }
+
+/* ---- TAG chips inside card body (NEW / 3D / REALISTIC / HORROR) ---- */
+.card__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: -4px 0 4px;
+}
+.card__tag {
+  font-family: var(--font-display);
+  font-size: 0.36rem;
+  letter-spacing: 0.14em;
+  padding: 3px 6px;
+  border-radius: 3px;
+  border: 1px solid transparent;
+  text-transform: uppercase;
+  line-height: 1;
+}
+.card__tag--new {
+  background: linear-gradient(180deg, var(--neon-yellow), #c89c20);
+  color: #1a0d05;
+  border-color: var(--neon-yellow-soft);
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.3);
+  box-shadow: 0 0 10px rgba(255, 210, 63, 0.4);
+  animation: newTagPulse 2.2s ease-in-out infinite;
+}
+@keyframes newTagPulse {
+  0%, 100% { box-shadow: 0 0 10px rgba(255, 210, 63, 0.4); }
+  50%      { box-shadow: 0 0 18px rgba(255, 210, 63, 0.75); }
+}
+body.reduced-motion .card__tag--new { animation: none; }
+.card__tag--horror {
+  background: rgba(184, 24, 24, 0.18);
+  color: #ff5a5a;
+  border-color: #b81818;
+}
+.card__tag--3d {
+  background: rgba(76, 201, 240, 0.14);
+  color: var(--neon-cyan);
+  border-color: var(--neon-cyan);
+}
+.card__tag--realistic {
+  background: rgba(176, 85, 255, 0.14);
+  color: var(--neon-purple);
+  border-color: var(--neon-purple);
+}
+
+/* ---- Cinematic preview: tiny per-card SVG layer animations on hover ---- */
+/* The base .card__svg already scales+saturates on hover. Add a slow drift to
+ * sky elements so clouds/embers gently move. We piggy-back on whatever
+ * "background" group exists in each card's SVG by animating the WHOLE svg
+ * with a parallax-style nudge. */
+@keyframes cardSvgDrift {
+  0%   { transform: scale(1.06) translateX(0); }
+  100% { transform: scale(1.08) translateX(-4px); }
+}
+.card:hover .card__svg {
+  animation: cardSvgDrift 8s ease-in-out infinite alternate;
+}
+body.reduced-motion .card:hover .card__svg { animation: none; }
+
+/* ---- Toolbar (sort dropdown + total count) ---- */
+.hub__toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  margin: 18px auto 0;
+  max-width: 760px;
+  padding: 0 12px;
+  flex-wrap: wrap;
+}
+.hub__count {
+  font-family: var(--font-display);
+  font-size: 0.45rem;
+  letter-spacing: 0.14em;
+  color: var(--text-soft);
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.45);
+}
+.hub__sort-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(10, 7, 22, 0.6);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 3px 4px 3px 12px;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.hub__sort-wrap:focus-within {
+  border-color: var(--neon-cyan);
+  box-shadow: 0 0 12px rgba(76, 201, 240, 0.35);
+}
+.hub__sort-lbl {
+  font-family: var(--font-display);
+  font-size: 0.42rem;
+  letter-spacing: 0.16em;
+  color: var(--muted);
+}
+.hub__sort {
+  background: transparent;
+  border: 0;
+  color: var(--text);
+  font-family: var(--font-display);
+  font-size: 0.5rem;
+  letter-spacing: 0.08em;
+  padding: 5px 8px;
+  cursor: pointer;
+  outline: none;
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--neon-cyan) 50%),
+    linear-gradient(135deg, var(--neon-cyan) 50%, transparent 50%);
+  background-position:
+    calc(100% - 12px) 50%,
+    calc(100% - 7px) 50%;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+  padding-right: 24px;
+}
+.hub__sort option {
+  background: #1a0f2e;
+  color: var(--text);
+  font-family: var(--font-body);
+  font-size: 0.85rem;
+}
+
+/* ---- HORROR category chip — more prominent (red border + glow) ---- */
+.hub__cat--horror {
+  border-color: rgba(184, 24, 24, 0.55);
+  color: #ff7a7a;
+}
+.hub__cat--horror:hover { border-color: #ff3a3a; color: #ff8a8a; }
+.hub__cat--horror.is-active {
+  border-color: #ff3a3a;
+  color: #ff6a6a;
+  background: rgba(184, 24, 24, 0.16);
+  box-shadow: 0 0 12px rgba(184, 24, 24, 0.45), inset 0 0 8px rgba(184, 24, 24, 0.15);
+  text-shadow: 0 0 6px rgba(255, 58, 58, 0.45);
+}
+
+/* ---- Footer META row (credits / discord / version) ---- */
+.hub__meta {
+  flex-basis: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-family: var(--font-display);
+  font-size: 0.42rem;
+  letter-spacing: 0.14em;
+  color: var(--muted);
+  margin-top: 12px;
+  padding: 0 8px;
+}
+.hub__meta-link {
+  color: var(--text-soft);
+  text-decoration: none;
+  background: transparent;
+  border: 1px solid var(--border);
+  padding: 6px 10px;
+  border-radius: 999px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: inherit;
+  letter-spacing: inherit;
+  transition: border-color 0.15s, color 0.15s, box-shadow 0.15s, background 0.15s;
+}
+.hub__meta-link:hover,
+.hub__meta-link:focus-visible {
+  border-color: var(--neon-cyan);
+  color: var(--neon-cyan);
+  background: rgba(76, 201, 240, 0.08);
+  box-shadow: 0 0 10px rgba(76, 201, 240, 0.3);
+  outline: none;
+}
+.hub__meta-sep { color: var(--border); }
+.hub__meta-version {
+  color: var(--muted);
+  font-family: 'VT323', monospace;
+  letter-spacing: 0.05em;
+  font-size: 0.85rem;
+  opacity: 0.7;
+}
+
+/* ---- Profile chip avatar circle ---- */
+.profile-chip__avatar {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.45);
+  border: 1.5px solid rgba(255, 255, 255, 0.15);
+  flex-shrink: 0;
+  box-shadow: inset 0 -2px 3px rgba(0, 0, 0, 0.3), 0 0 6px rgba(0, 0, 0, 0.4);
+  position: relative;
+  overflow: hidden;
+}
+.profile-chip__avatar .profile-chip__dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  box-shadow: none;
+  animation: none;
+  flex-shrink: 0;
+}
+.profile-chip__avatar .profile-chip__initials {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-display);
+  font-size: 0.36rem;
+  color: #fff;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.6);
+  letter-spacing: 0;
+  line-height: 1;
+}
+
+/* ---- Cloud sync indicator (online/offline dot) ---- */
+.hub__cloud-dot {
+  font-family: var(--font-display);
+  font-size: 0.45rem;
+  letter-spacing: 0.12em;
+  padding: 5px 10px;
+  height: var(--chip-height);
+  line-height: var(--chip-height);
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.45);
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+.hub__cloud-dot.is-online { color: var(--neon-green); border-color: var(--neon-green); animation: livePulse 2.2s ease-in-out infinite; }
+.hub__cloud-dot.is-offline { color: var(--crimson); border-color: var(--crimson); }
+.hub__cloud-dot.is-idle { color: var(--neon-cyan); border-color: var(--neon-cyan); }
+body.reduced-motion .hub__cloud-dot { animation: none; }
+
+/* ---- Sortable stats-table headers ---- */
+.stats-table thead th.is-sortable {
+  cursor: pointer;
+  user-select: none;
+}
+.stats-table thead th.is-sortable:hover { color: var(--neon-cyan); }
+.stats-table thead th.is-sortable:focus-visible { outline: 2px solid var(--neon-cyan); outline-offset: 2px; }
+.stats-table thead th .th-arrow {
+  color: var(--neon-pink);
+  font-size: 0.55rem;
+  margin-left: 2px;
+}
+
+/* ---- Credits modal ---- */
+.credits-list {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 14px;
+  font-size: 0.85rem;
+  color: var(--text-soft);
+  line-height: 1.55;
+  max-height: 50vh;
+  overflow-y: auto;
+}
+.credits-list li {
+  padding: 8px 12px;
+  border-left: 3px solid var(--neon-cyan);
+  margin-bottom: 6px;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 0 4px 4px 0;
+}
+.credits-list b {
+  display: inline-block;
+  font-family: var(--font-display);
+  font-size: 0.5rem;
+  letter-spacing: 0.08em;
+  color: var(--neon-yellow);
+  margin-right: 6px;
+}
+.credits-list a {
+  color: var(--neon-cyan);
+  text-decoration: none;
+  border-bottom: 1px dotted rgba(76, 201, 240, 0.4);
+}
+.credits-list a:hover { color: var(--neon-pink); border-bottom-color: var(--neon-pink); }
+.credits-foot {
+  text-align: center;
+  font-family: var(--font-display);
+  font-size: 0.42rem;
+  letter-spacing: 0.18em;
+  color: var(--muted);
+  margin: 0 0 4px;
+}
+
+/* ---- Settings stats panel ---- */
+.settings-sec {
+  font-family: var(--font-display);
+  font-size: 0.55rem;
+  letter-spacing: 0.14em;
+  color: var(--neon-yellow);
+  margin: 18px 0 6px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+.settings-sec--danger { color: var(--crimson); border-bottom-color: rgba(255, 58, 58, 0.4); margin-top: 22px; }
+.settings-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  margin: 8px 0 4px;
+}
+.settings-stat {
+  background: rgba(76, 201, 240, 0.08);
+  border: 1px solid var(--neon-cyan);
+  border-radius: 6px;
+  padding: 8px 6px;
+  text-align: center;
+}
+.settings-stat__val {
+  display: block;
+  font-family: var(--font-display);
+  font-size: 1.0rem;
+  color: var(--neon-yellow);
+  text-shadow: 0 0 8px rgba(255, 210, 63, 0.3);
+}
+.settings-stat__lbl {
+  display: block;
+  font-family: var(--font-display);
+  font-size: 0.36rem;
+  letter-spacing: 0.12em;
+  color: var(--text-soft);
+  margin-top: 4px;
+}
+
+/* ---- Reset All input shake when wrong text ---- */
+#reset-all-input.is-wrong {
+  border-color: var(--crimson) !important;
+  animation: pinShake 0.4s;
+}
+
+/* ---- Konami rainbow easter egg ---- */
+@keyframes konamiCycle {
+  0%   { border-color: #ff3a3a; box-shadow: 0 0 24px rgba(255, 58, 58, 0.6); }
+  16%  { border-color: #ff8e3c; box-shadow: 0 0 24px rgba(255, 142, 60, 0.6); }
+  33%  { border-color: #ffd23f; box-shadow: 0 0 24px rgba(255, 210, 63, 0.6); }
+  50%  { border-color: #5ef38c; box-shadow: 0 0 24px rgba(94, 243, 140, 0.6); }
+  66%  { border-color: #4cc9f0; box-shadow: 0 0 24px rgba(76, 201, 240, 0.6); }
+  83%  { border-color: #b055ff; box-shadow: 0 0 24px rgba(176, 85, 255, 0.6); }
+  100% { border-color: #ff3aa1; box-shadow: 0 0 24px rgba(255, 58, 161, 0.6); }
+}
+body.konami-rainbow .card {
+  animation: konamiCycle 4s linear infinite;
+}
+body.konami-rainbow .hub__header h1 {
+  filter: hue-rotate(0deg);
+  animation:
+    titleShimmer 5s linear infinite,
+    hubHeaderFloat 6s ease-in-out infinite,
+    konamiHue 2s linear infinite;
+}
+@keyframes konamiHue {
+  from { filter: hue-rotate(0deg); }
+  to   { filter: hue-rotate(360deg); }
+}
+body.reduced-motion.konami-rainbow .card { animation: none; }
+body.reduced-motion.konami-rainbow .hub__header h1 { animation: none; }
+
+/* =========================================================================
+   RESPONSIVE — tablet 2-col, phone 1-col, larger profile dd touch targets
+   ========================================================================= */
+
+/* Tablet portrait (601-900): 2 columns (already covered by existing rule).
+   Tablet landscape gets 3 columns at 901-1100. */
+@media (min-width: 901px) and (max-width: 1100px) {
+  .hub__grid { grid-template-columns: repeat(3, 1fr); }
+}
+
+/* Phone portrait: enforce 1 column at <=520, 2 if held landscape, 1 strict */
+@media (max-width: 520px) and (orientation: portrait) {
+  .hub__grid { grid-template-columns: 1fr !important; }
+}
+
+/* Larger profile dropdown touch targets on mobile */
+@media (max-width: 600px) {
+  .profile-dd { min-width: 240px; padding: 10px; }
+  .profile-dd__item { padding: 12px 12px; min-height: 44px; font-size: 0.95rem; }
+  .profile-dd__manage { padding: 12px 12px; min-height: 44px; font-size: 0.95rem; }
+  .profile-dd__hdr { font-size: 0.46rem; padding: 6px 10px 10px; }
+  .hub__toolbar { gap: 8px; margin-top: 12px; }
+  .hub__count { font-size: 0.4rem; padding: 4px 8px; }
+  .hub__sort-lbl { font-size: 0.38rem; }
+  .hub__sort { font-size: 0.45rem; padding: 4px 6px; padding-right: 22px; }
+  .hub__meta { font-size: 0.36rem; gap: 6px; }
+  .hub__meta-link { padding: 8px 10px; min-height: 32px; }
+  .hub__meta-version { font-size: 0.75rem; }
+  .card__tag { font-size: 0.32rem; padding: 2px 5px; }
+  /* Bigger settings stats blocks on phones (was clipping) */
+  .settings-stat__val { font-size: 0.85rem; }
+  .settings-stat__lbl { font-size: 0.32rem; }
+}
+
+/* High-contrast also recolors the new elements */
+body.high-contrast .card__tag--new,
+body.high-contrast .card__tag--horror,
+body.high-contrast .card__tag--3d,
+body.high-contrast .card__tag--realistic {
+  background: #000 !important;
+  color: #fff !important;
+  border-color: #fff !important;
+}
+body.high-contrast .hub__count,
+body.high-contrast .hub__sort-wrap,
+body.high-contrast .hub__sort,
+body.high-contrast .hub__meta,
+body.high-contrast .hub__meta-link,
+body.high-contrast .hub__meta-version,
+body.high-contrast .hub__cloud-dot,
+body.high-contrast .credits-list li,
+body.high-contrast .credits-list a {
+  background: #000 !important;
+  color: #fff !important;
+  border-color: #fff !important;
+}
+body.high-contrast .settings-stat {
+  background: #000 !important;
+  border-color: #fff !important;
+  color: #fff !important;
+}
+body.high-contrast .settings-stat__val,
+body.high-contrast .settings-stat__lbl,
+body.high-contrast .settings-sec {
+  color: #fff !important;
+}

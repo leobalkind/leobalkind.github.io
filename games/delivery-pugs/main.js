@@ -429,6 +429,12 @@ function spawnPowerup() {
   powerups.push({ x: rand(80, WORLD_W - 80), y: rand(80, WORLD_H - 80), type: t });
 }
 function newMarker() {
+  // If a pre-built ROUTE is active and has more stops, use the next stop.
+  if (activeRoute && activeRoute.stops && activeRoute.index < activeRoute.stops.length) {
+    const m = activeRoute.stops[activeRoute.index];
+    activeRoute.index++;
+    return { x: m[0], y: m[1] };
+  }
   // Place at random spot 400-800 from pug
   for (let i = 0; i < 50; i++) {
     const ang = Math.random() * Math.PI * 2;
@@ -439,6 +445,56 @@ function newMarker() {
   }
   return { x: WORLD_W / 2, y: WORLD_H / 2 };
 }
+
+// =============================================================================
+// ROUTES — pre-built delivery sequences. Each route has 5 stops chained as a
+// loop or chain. Hitting all stops awards a bonus payout. After the route ends
+// markers go back to random spawning.
+// =============================================================================
+const ROUTES = [
+  { id: 'free', name: 'FREE-ROAM', icon: '🎲', desc: 'Default — markers spawn anywhere.', target: 0, bonus: 0, stops: null },
+  { id: 'downtown', name: 'DOWNTOWN LOOP', icon: '🏙️', desc: '5 dense stops in the city core. Target: 5 deliveries.', target: 5, bonus: 250,
+    stops: [[WORLD_W*0.30, WORLD_H*0.20], [WORLD_W*0.55, WORLD_H*0.25], [WORLD_W*0.70, WORLD_H*0.18], [WORLD_W*0.45, WORLD_H*0.12], [WORLD_W*0.25, WORLD_H*0.28]] },
+  { id: 'suburb', name: 'SUBURB CHAIN', icon: '🏡', desc: '5 stops zigzagging through suburbs. Target: 5 deliveries.', target: 5, bonus: 300,
+    stops: [[WORLD_W*0.20, WORLD_H*0.50], [WORLD_W*0.40, WORLD_H*0.55], [WORLD_W*0.60, WORLD_H*0.45], [WORLD_W*0.80, WORLD_H*0.55], [WORLD_W*0.50, WORLD_H*0.65]] },
+  { id: 'industrial', name: 'INDUSTRIAL RUN', icon: '🏭', desc: 'Long-haul through warehouses. Target: 5 deliveries.', target: 5, bonus: 350,
+    stops: [[WORLD_W*0.18, WORLD_H*0.82], [WORLD_W*0.45, WORLD_H*0.85], [WORLD_W*0.75, WORLD_H*0.80], [WORLD_W*0.85, WORLD_H*0.70], [WORLD_W*0.30, WORLD_H*0.78]] },
+  { id: 'gauntlet', name: 'CROSS-CITY GAUNTLET', icon: '🚀', desc: 'Long diagonals from corner to corner. Target: 4 deliveries.', target: 4, bonus: 500,
+    stops: [[WORLD_W*0.10, WORLD_H*0.10], [WORLD_W*0.90, WORLD_H*0.90], [WORLD_W*0.90, WORLD_H*0.10], [WORLD_W*0.10, WORLD_H*0.90]] },
+];
+let activeRoute = null; // {id, name, icon, target, bonus, stops, index, awarded}
+let selectedRouteId = 'free';
+// Inject UI into the start overlay.
+(function _injectRoutesUI() {
+  const panel = document.querySelector('#overlay .overlay__panel');
+  if (!panel) return;
+  const earn = document.getElementById('dp-earn');
+  const wrap = document.createElement('div');
+  wrap.id = 'dp-routes';
+  wrap.style.cssText = 'margin:8px auto;padding:8px;background:rgba(0,0,0,0.4);border:1px solid var(--border);border-radius:6px;max-width:520px;';
+  wrap.innerHTML = `<div style="font-family:var(--font-display);font-size:0.5rem;color:var(--neon-cyan);text-align:center;letter-spacing:0.08em;margin-bottom:6px;">📍 ROUTE</div>
+    <div id="dp-routes-list" style="display:flex;gap:6px;flex-wrap:wrap;justify-content:center;"></div>
+    <div id="dp-route-desc" style="font-size:0.42rem;color:var(--text-soft);text-align:center;margin-top:6px;letter-spacing:0.04em;"></div>`;
+  if (earn && earn.parentNode) earn.parentNode.insertBefore(wrap, earn);
+  else panel.insertBefore(wrap, panel.firstChild);
+  function paint() {
+    const list = document.getElementById('dp-routes-list');
+    const desc = document.getElementById('dp-route-desc');
+    if (!list) return;
+    list.innerHTML = ROUTES.map((r) => {
+      const active = selectedRouteId === r.id;
+      return `<button data-route="${r.id}" style="padding:6px 10px;background:${active?'rgba(94,243,140,0.18)':'rgba(0,0,0,0.5)'};border:2px solid ${active?'#5ef38c':'var(--border)'};color:${active?'#5ef38c':'var(--text-soft)'};border-radius:4px;font-family:var(--font-display);font-size:0.45rem;cursor:pointer;letter-spacing:0.05em;">${r.icon} ${r.name}</button>`;
+    }).join('');
+    const sel = ROUTES.find((r) => r.id === selectedRouteId);
+    if (desc && sel) {
+      desc.innerHTML = sel.id === 'free' ? sel.desc : `${sel.desc} <b style="color:var(--neon-yellow);">Bonus: $${sel.bonus}</b>`;
+    }
+    list.querySelectorAll('button[data-route]').forEach((b) => {
+      b.addEventListener('click', () => { selectedRouteId = b.getAttribute('data-route'); paint(); });
+    });
+  }
+  paint();
+})();
 function spawnObstacle() {
   const type = Math.random();
   let o;
@@ -972,6 +1028,16 @@ function tick(dt) {
       return;
     }
     deliveries++;
+    // ROUTE bonus — first time we hit `target` deliveries on a route, pay out.
+    if (activeRoute && !activeRoute.awarded && deliveries >= activeRoute.target) {
+      activeRoute.awarded = true;
+      totalEarnings += activeRoute.bonus;
+      saveEarnings();
+      time = Math.min(time + 20, 60);
+      addPopup(marker.x, marker.y - 50, `★ ROUTE CLEARED +$${activeRoute.bonus} ★`, '#5ef38c');
+      try { __deliveryFeed.push(`★ ${activeRoute.name} CLEARED · +$${activeRoute.bonus}`, '#5ef38c'); } catch (e) { /* */ }
+      try { sfx.arp([523, 784, 1047, 1320], 'triangle', 0.08, 0.22, 0.18); } catch (e) { /* */ }
+    }
     // Combo: deliveries within 12s chain
     if (comboT > 0) combo = Math.min(99, combo + 1); else combo = 1;
     if (combo > maxComboThisRun) maxComboThisRun = combo;
@@ -2792,10 +2858,16 @@ document.getElementById('pause-restart')?.addEventListener('click', () => { togg
 document.getElementById('start-btn').addEventListener('click', start);
 document.getElementById('end-restart').addEventListener('click', start);
 function start() {
+  // Set up the chosen route (if any) BEFORE reset() so the first marker uses it.
+  const chosen = ROUTES.find((r) => r.id === selectedRouteId) || ROUTES[0];
+  activeRoute = chosen.stops ? { ...chosen, index: 0, awarded: false } : null;
   reset(); running = true;
   keys.clear(); touchAim = null; invuln = 0; // wipe stuck inputs / invuln from prior match
   // Wipe stale delivery-feed lines from a previous match.
   try { __deliveryFeed.clear(); } catch (e) { /* */ }
+  if (activeRoute) {
+    try { __deliveryFeed.push(`📍 ROUTE: ${activeRoute.name} · target ${activeRoute.target}`, '#5ef38c'); } catch (e) { /* */ }
+  }
   document.getElementById('overlay').hidden = true; document.getElementById('overlay').classList.add('is-hidden');
   document.getElementById('end-overlay').hidden = true; document.getElementById('end-overlay').classList.add('is-hidden');
   document.getElementById('hud').hidden = false;

@@ -1274,10 +1274,31 @@ function handleClick(x, y) {
   }
 }
 
+// =============================================================================
+// WAVE MODIFIER — picked each wave (waves 2+) for strategic depth.
+// Picks 1 of 3 random modifiers; player sees it in the wave-preview banner.
+// Modifiers tweak enemy stats at spawn time so existing tower logic just works.
+// =============================================================================
+const WAVE_MODIFIERS = [
+  { id: 'armored',   name: 'ARMORED',     icon: '🛡️', desc: '+50% HP',          hpMul: 1.50, speedMul: 1.0,  splitOnDeath: false },
+  { id: 'swift',     name: 'SWIFT',       icon: '💨', desc: '+30% speed',       hpMul: 1.0,  speedMul: 1.30, splitOnDeath: false },
+  { id: 'splitter',  name: 'SPLITTER',    icon: '💥', desc: 'Spawn 2 squirrels on death', hpMul: 0.85, speedMul: 1.0, splitOnDeath: true },
+  { id: 'horde',     name: 'HORDE',       icon: '🐀', desc: '+50% count · -20% HP', hpMul: 0.80, speedMul: 1.0, countMul: 1.5 },
+  { id: 'tough',     name: 'TOUGH BREED', icon: '💎', desc: '+100% HP · -15% speed', hpMul: 2.0, speedMul: 0.85 },
+];
+let activeWaveMod = null;
+function _rollWaveModifier() {
+  // No modifier on wave 1 (tutorial-friendly), then 70% chance to roll.
+  if (waveIdx < 1 || Math.random() > 0.7) { activeWaveMod = null; return; }
+  activeWaveMod = WAVE_MODIFIERS[Math.floor(Math.random() * WAVE_MODIFIERS.length)];
+}
+
 function startWave() {
   if (inWave) return;
   // After campaign waves: keep generating endless waves.
   if (waveIdx >= WAVES.length && !endlessMode) return;
+  // Roll the wave modifier before spawn-queue is built (countMul affects size).
+  _rollWaveModifier();
   // Bonus money for calling early (Kingdom Rush mechanic). Pop a yellow text
   // near the vault so the player sees the reward.
   if (betweenWaveT > 0) {
@@ -1292,8 +1313,10 @@ function startWave() {
   // Pick from campaign waves or generate endless wave
   const wv = waveIdx < WAVES.length ? WAVES[waveIdx] : generateEndlessWave(waveIdx + 1);
   spawnQueue = [];
+  const countMul = (activeWaveMod && activeWaveMod.countMul) || 1;
   for (const [type, count] of Object.entries(wv)) {
-    for (let i = 0; i < count; i++) spawnQueue.push(type);
+    const adjusted = Math.max(1, Math.round(count * countMul));
+    for (let i = 0; i < adjusted; i++) spawnQueue.push(type);
   }
   // Shuffle spawn order
   spawnQueue.sort(() => Math.random() - 0.5);
@@ -1317,7 +1340,11 @@ function startWave() {
     if (oneBased === 5 || oneBased === 10 || oneBased === 15) {
       enemyList.push({ icon: '★', count: 1, label: 'MINI-BOSS' });
     }
-    showWavePreview({ wave: waveIdx, enemies: enemyList, duration: 2400, color: oneBased === 15 ? '#b055ff' : '#ff3aa1' });
+    // Inject the wave modifier into the title so the player has tactical context.
+    const titleSuffix = activeWaveMod ? ` · ${activeWaveMod.icon} ${activeWaveMod.name}` : '';
+    showWavePreview({ wave: waveIdx, enemies: enemyList, duration: 2400, color: oneBased === 15 ? '#b055ff' : '#ff3aa1',
+      title: `WAVE ${waveIdx}${titleSuffix}`,
+      subtitle: activeWaveMod ? activeWaveMod.desc : 'INCOMING' });
   } catch (e) { /* preview is non-critical */ }
   buildBar();
 }
@@ -1351,16 +1378,34 @@ function spawnMiniBoss() {
 
 function spawnEnemy(typeId) {
   const def = ENEMIES[typeId];
+  const m = activeWaveMod;
+  const hpMul = m ? m.hpMul : 1;
+  const spdMul = m ? m.speedMul : 1;
+  const baseHp = def.hp * (1 + waveIdx * 0.05);
   enemies.push({
     type: typeId, def,
-    hp: def.hp * (1 + waveIdx * 0.05),
-    maxHp: def.hp * (1 + waveIdx * 0.05),
-    speed: def.speed,
+    hp: baseHp * hpMul,
+    maxHp: baseHp * hpMul,
+    speed: def.speed * spdMul,
     slowT: 0, slowMul: 1,
     pathIdx: 0,
     x: currentMap.path[0][0] + 0.5, y: currentMap.path[0][1] + 0.5,
     alive: true,
+    _waveModSplit: m && m.splitOnDeath,
   });
+}
+// Hook enemy death to perform SPLITTER modifier (spawn 2 squirrels).
+function _waveModOnEnemyKilled(e) {
+  if (!e || !e._waveModSplit) return;
+  if (e.miniboss) return; // mini-bosses already handle their own SPLITTER
+  for (let k = 0; k < 2; k++) {
+    enemies.push({
+      type: 'squirrel', def: ENEMIES.squirrel,
+      hp: ENEMIES.squirrel.hp * 0.6, maxHp: ENEMIES.squirrel.hp * 0.6,
+      speed: ENEMIES.squirrel.speed * 1.1, slowT: 0, slowMul: 1,
+      pathIdx: e.pathIdx, x: e.x + (k - 0.5) * 0.2, y: e.y, alive: true,
+    });
+  }
 }
 
 function tick(dt) {
@@ -1820,6 +1865,8 @@ function tick(dt) {
           money += goldDrop;
           _totalKills++;
           sfx.tone(660, 'triangle', 0.05, 0.16);
+          // WAVE MODIFIER: SPLITTER — spawn 2 squirrels on each kill.
+          try { _waveModOnEnemyKilled(e); } catch (er) { /* */ }
           const ex = e.x * TILE + gridOffsetX();
           const ey = e.y * TILE + gridOffsetY();
           // Floating "+$N" popup
