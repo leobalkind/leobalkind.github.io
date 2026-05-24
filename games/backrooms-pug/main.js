@@ -12,8 +12,22 @@ import { drawIcon } from '../../src/shared/icons.js';
 import { drawPug, drawMonsterPug } from '../../src/shared/pugSprite.js';
 import { createMobileControls } from '../../src/shared/mobileControls.js';
 import { profileKey } from '../../src/shared/profile.js';
-import { createSettingsMenu, caption } from '../../src/shared/settingsMenu.js';
+import { createSettingsMenu, caption, getMasterGain } from '../../src/shared/settingsMenu.js';
 import { getShakeMul as _shakeMul } from '../../src/shared/screenShake.js';
+import {
+  showIntro as _cutIntro,
+  showLevelCard as _cutLevelCard,
+  showDeath as _cutDeath,
+  showWin as _cutWin,
+  showTutorial as _cutTutorial,
+  showLevelSelect as _cutLevelSelect,
+  isShowing as _cutIsShowing,
+  hasSeenIntro as _cutHasSeenIntro,
+  hasSeenTutorial as _cutHasSeenTutorial,
+  loadLevelUnlocks as _cutLoadUnlocks,
+  recordLevelReached as _cutRecordReached,
+  recordLevelBestTime as _cutRecordBest,
+} from './cutscenes.js';
 
 const canvas = document.getElementById('game-canvas');
 const ctx = canvas.getContext('2d');
@@ -144,23 +158,149 @@ const LEVELS = {
       { wall: '#0e1e2a', light: '#1a3a50', dark: '#020608', label: 'ink' },
       { wall: '#0a141c', light: '#1a3848', dark: '#020608', label: 'rust on black' },
       { wall: '#0c1c1c', light: '#1a4040', dark: '#020608', label: 'oxide' },
+      { wall: '#0a1820', light: '#244c66', dark: '#020608', label: 'submerged' },
+      { wall: '#0e2832', light: '#286a78', dark: '#020608', label: 'deep cyan' },
+    ],
+  },
+  // ===========================================================================
+  // LEVEL 5 · POOLROOMS — pale blue tiles, shallow water everywhere, drips
+  // echo down endless wet corridors. Water tiles slow you to a paw-paddle.
+  // ===========================================================================
+  poolrooms: {
+    name: 'LEVEL 5 · POOLROOMS',
+    sub: 'Endless tiled chambers. Shallow water. Something splashes far away.',
+    floor: '#9abad0',
+    floorAlt: '#86a8c0',
+    floorGrout: '#3a5a72',
+    wall: '#c4d6e0',
+    wallLight: '#e0ecf2',
+    wallDark: '#6a8294',
+    fog: '#1a2832',
+    hum: 110,
+    lightTint: '#bce8ff',
+    stainTint: 'rgba(40,70,90,$A)',
+    wallPattern: 'tile',
+    floorPattern: 'tile',
+    spawnHounds: 1,
+    spawnSmilers: 2,
+    spawnCrawlers: 2,
+    spawnWhisperers: 1,
+    monsterSpeed: 1.3,
+    wallpaperVariants: [
+      { wall: '#c4d6e0', light: '#e6f0f6', dark: '#7a92a4', label: 'pale tile' },
+      { wall: '#a8c4d4', light: '#d2e2ec', dark: '#5e7a8c', label: 'cool tile' },
+      { wall: '#b8d2dc', light: '#dceaf0', dark: '#6e8898', label: 'chlorinated' },
+      { wall: '#9eb8c4', light: '#c8dce4', dark: '#506878', label: 'wet tile' },
+      { wall: '#aac0c8', light: '#d4e4e8', dark: '#5c7080', label: 'mildew tile' },
+    ],
+  },
+  // ===========================================================================
+  // LEVEL 6 · PARKING GARAGE — grey concrete pillars, oil-stained asphalt,
+  // abandoned cars hulking in the dark. Half the strip lights are out cold.
+  // ===========================================================================
+  garage: {
+    name: 'LEVEL 6 · PARKING GARAGE',
+    sub: 'Concrete pillars. Oil pools. Distant drips. A car door slams.',
+    floor: '#3a3e44',
+    floorAlt: '#2c3036',
+    floorGrout: '#14161a',
+    wall: '#4a4e54',
+    wallLight: '#686c74',
+    wallDark: '#1a1c20',
+    fog: '#0e1014',
+    hum: 80,
+    lightTint: '#e8eaf0',
+    stainTint: 'rgba(8,8,10,$A)',
+    wallPattern: 'concrete',
+    floorPattern: 'parking',
+    spawnHounds: 3,
+    spawnSmilers: 1,
+    spawnCrawlers: 2,
+    spawnWhisperers: 2,
+    monsterSpeed: 1.45,
+    wallpaperVariants: [
+      { wall: '#4a4e54', light: '#686c74', dark: '#1a1c20', label: 'raw concrete' },
+      { wall: '#454850', light: '#6a6c74', dark: '#181a1e', label: 'oil-streaked' },
+      { wall: '#42464c', light: '#5e6068', dark: '#16181c', label: 'soot' },
+      { wall: '#4c4844', light: '#706a64', dark: '#1a1816', label: 'rusted rebar' },
+      { wall: '#3e4248', light: '#5a5e64', dark: '#14161a', label: 'graffiti grime' },
+    ],
+  },
+  // ===========================================================================
+  // LEVEL 7+ · THE END — sparse vast red-lit office plain. Few walls, huge
+  // rooms, a deep dental-drill drone. The exit is barely visible. Final.
+  // ===========================================================================
+  the_end: {
+    name: 'LEVEL 7 · THE END',
+    sub: 'Sparse red corridors stretching forever. The hum is a drill in your skull.',
+    floor: '#2a0808',
+    floorAlt: '#200606',
+    floorGrout: '#080202',
+    wall: '#3a0a0a',
+    wallLight: '#5a1414',
+    wallDark: '#0e0202',
+    fog: '#080000',
+    hum: 38,                     // dental-drill bass
+    lightTint: '#ff3a3a',
+    stainTint: 'rgba(20,0,0,$A)',
+    wallPattern: 'wallpaper',
+    floorPattern: 'carpet',
+    spawnHounds: 3,
+    spawnSmilers: 3,
+    spawnCrawlers: 2,
+    spawnWhisperers: 2,
+    monsterSpeed: 1.6,
+    wallpaperVariants: [
+      { wall: '#3a0a0a', light: '#5a1414', dark: '#0e0202', label: 'blood crimson' },
+      { wall: '#380c08', light: '#601a14', dark: '#0c0202', label: 'arterial' },
+      { wall: '#420808', light: '#5e1010', dark: '#100000', label: 'oxidized' },
+      { wall: '#2c0606', light: '#481010', dark: '#080000', label: 'black-red' },
+      { wall: '#3e1010', light: '#682020', dark: '#100404', label: 'fevered' },
     ],
   },
 };
 // Cycle through archetypes as the player chains noclip-jumps. Order chosen for
-// escalating dread — lobby's the soft start, voidpool the worst. After running
-// out, wraps but keeps monster scaling climbing (see monsterScaleFor()).
-const ARCHETYPE_CYCLE = ['lobby', 'warehouse', 'pipes', 'voidpool'];
+// escalating dread — lobby is the soft start, the_end is the final pit.
+// lvl 1=lobby, 2=warehouse, 3=pipes, 4=voidpool, 5=poolrooms, 6=garage, 7+=the_end.
+const ARCHETYPE_CYCLE = ['lobby', 'warehouse', 'pipes', 'voidpool', 'poolrooms', 'garage', 'the_end'];
+// Agent C: 7-level meta progression with a thematic name per floor. The
+// archetype palette/AI still comes from LEVELS[archKey], but each "floor"
+// gets its own name/intro line/difficulty rating for the cutscene + select UI.
+// (Agent B updated 5/6/7 keys to point at the new dedicated archetypes.)
+const LEVEL_LIST = [
+  { idx: 1, key: 'lobby',     theme: 'lobby',     name: 'THE LOBBY',         diff: 1, sub: 'Endless yellow hallways. Damp tan carpet. The hum never stops.' },
+  { idx: 2, key: 'warehouse', theme: 'warehouse', name: 'THE WAREHOUSE',     diff: 2, sub: 'Concrete walls and exposed beams. Something growls in the dark.' },
+  { idx: 3, key: 'pipes',     theme: 'pipes',     name: 'PIPE DREAMS',       diff: 3, sub: 'Hissing pipes. Steam blocks vision. Watch the dark.' },
+  { idx: 4, key: 'voidpool',  theme: 'voidpool',  name: 'THE VOID POOL',     diff: 4, sub: 'Cold inky water. Things swim under the floor.' },
+  { idx: 5, key: 'poolrooms', theme: 'poolrooms', name: 'POOLROOMS',         diff: 4, sub: 'Blue-tiled corridors. Always wet. Always echoing.' },
+  { idx: 6, key: 'garage',    theme: 'parking',   name: 'PARKING GARAGE',    diff: 5, sub: 'Concrete columns. Fluorescent dread. They circle in pairs.' },
+  { idx: 7, key: 'the_end',   theme: 'end',       name: 'THE END',           diff: 5, sub: 'No more floors. Only the way out.' },
+];
+const MAX_LEVEL = LEVEL_LIST.length; // 7 — finishing this triggers the win cutscene
 function levelArchetypeFor(lvl) {
-  // lvl 1 → lobby, lvl 2 → warehouse, lvl 3 → pipes, lvl 4 → voidpool, lvl 5+ → wraps
+  // For floors 1..MAX_LEVEL use the explicit mapping. Beyond that, cycle.
+  const entry = LEVEL_LIST[Math.max(1, lvl) - 1];
+  if (entry) return entry.key;
   const idx = (Math.max(1, lvl) - 1) % ARCHETYPE_CYCLE.length;
   return ARCHETYPE_CYCLE[idx];
+}
+function levelInfoFor(lvl) {
+  const entry = LEVEL_LIST[Math.max(1, Math.min(MAX_LEVEL, lvl)) - 1];
+  return entry || LEVEL_LIST[0];
 }
 // Per-level monster scaling. >1.0 means monsters move faster and spawn more.
 // Caps at 2.0 to keep runs theoretically winnable.
 function monsterScaleFor(lvl) {
   return Math.min(2.0, 1.0 + (lvl - 1) * 0.10);
 }
+// Inflate level dimensions per chain step so deeper levels feel vaster.
+// lvl 1 → 1.0, lvl 2 → 1.15, ... cap at 1.5 so render budget stays sane.
+function levelSizeMul(lvl) {
+  return Math.min(1.5, 1.0 + (Math.max(1, lvl) - 1) * 0.15);
+}
+// Tiny snapshot of the current level so cutscene/intro overlays (Agent C)
+// can read it without poking internals. Updated at end of genLevel().
+let currentLevelInfo = { name: '', theme: '', lvl: 0 };
 
 // ============================================================================
 // LORE NOTES — 30 cryptic Backrooms-canon style fragments. The player can
@@ -261,9 +401,62 @@ let humSilenceUntil = 0;      // time (performance.now/1000) until which hum is 
 // JUMP SCARE state ----------------------------------------------------------
 let jumpScareT = 0;           // seconds remaining on current jump-scare overlay (full)
 let jumpScareLife = 0;        // total seconds the current jump-scare runs (for fade math)
-let jumpScareKind = null;     // 'monster' | 'hound' | 'smiler' | 'ambient'
+let jumpScareKind = null;     // 'monster' | 'hound' | 'smiler' | 'crawler' | 'whisperer' | 'ambient' | 'phantom' | 'reflection'
 let jumpScareCooldown = 0;    // seconds remaining of "no real jumpscare" cooldown
 let redFlashT = 0;            // seconds remaining of red full-screen flash overlay
+// 3-frame flicker entrance: counts 0..3 across first ~90ms so the face appears
+// then vanishes then re-appears for a strobe-style terror effect.
+let jumpScareFlickerT = 0;    // time since scare fired (for flicker math)
+let jumpScareMaxAudioT = 0;   // when > 0, scream audio plays at MAX gain (overrides settings)
+// PHANTOM scare state (random fake-out flash, no monster involved) ----------
+let phantomT = 0;             // seconds remaining on phantom flash
+let phantomKind = null;       // 'phantom' | 'reflection'
+let nextPhantomAt = 999999;   // scheduled gameTime for next phantom scare
+let phantomCooldown = 0;      // separate short cooldown so phantoms can stack with monster scares
+// PERIPHERAL DOORWAY GLIMPSE — silhouette near screen edge ------------------
+let peripheralT = 0;          // seconds remaining of peripheral silhouette
+let peripheralSide = 0;       // -1 left, +1 right, 0 top, 2 bottom
+let nextPeripheralAt = 999999;
+// EYES IN DARK — two glowing eyes briefly visible in unlit area --------------
+let eyesT = 0;
+let eyesX = 0, eyesY = 0;     // screen-space coords
+let eyesDriftX = 0;
+let nextEyesAt = 999999;
+// LURKER REVEAL — when player approaches with flashlight on, Agent A's render
+// reads this flag to draw the EYES-IN-DARK overlay on the nearest lurker.
+let lurkerVisibleT = 0;
+let lurkerVisibleX = 0, lurkerVisibleY = 0;
+// MONSTER POSITIONAL AUDIO ACCUMULATORS — gate footstep + growl emission rate.
+let monsterFootstepT = 0;
+let monsterGrowlT = 0;
+let monsterSniffT = 0;
+let monsterBreathT = 0;
+// MONSTER AI 3-state machine. 'idle' wanders, 'hunting' searches last-known,
+// 'chase' full pursuit. Stored on monster.aiState (initialized in genLevel).
+// Telegraph timers track how long since each state condition was met.
+let monsterHuntingT = 0;        // seconds in hunting state
+let monsterLostContactT = 0;    // seconds since last visual/audio contact
+let monsterWanderRefreshAt = 0; // gameTime when monster picks a new wander target
+// BLACKOUT — all lights go OUT for 1.5-2.5s every 60-120s -------------------
+let blackoutT = 0;            // seconds remaining of current blackout (0 = lights on)
+let blackoutLife = 0;         // total duration of current blackout
+let nextBlackoutAt = 999999;
+// DYING BULB — one specific big-light dims/erratically-flickers then dies ---
+let dyingBulb = null;         // ref to a bigCeilingLights entry (or null)
+let dyingBulbT = 0;           // seconds since the dying-bulb event started
+let dyingBulbLife = 30;       // 30s before it goes permanently dark
+let nextDyingBulbAt = 999999;
+// STROBOSCOPIC — red+white strobe at 6Hz when sanity < 30 (random spike) ----
+let stroboT = 0;
+let nextStroboAt = 999999;
+// STATIC/NOISE WASH — persistent pink-noise layer, intensifies when monster near
+let staticNoiseNode = null;
+let staticNoiseGain = null;
+// FOOTSTEPS YOU DIDN'T MAKE — psychological scare while standing still ------
+let stillT = 0;               // seconds player has been stationary
+let nextGhostStepAt = 999999;
+// WHISPERS — multiple panned voices when sanity < 50 -----------------------
+// (handled inline by playPannedWhisper)
 let lastHoundSeenIds = new Set(); // hound entity refs that have triggered first-sight
 let firstHoundJump = false;   // first hound-jumpscare per match
 let lastSmilerJumpAt = -999;  // last time we fired smiler jump-scare (gameTime)
@@ -281,7 +474,41 @@ let bigCeilingLights = [];    // {x,y,offT,nextOff,offDur} flickering lights (ev
 let triggerTiles = [];        // {tx,ty,fired,kind} invisible jumpscare triggers
 let lastTriggerScareAt = -999;// gameTime of last trigger-scare (cooldown gate)
 let activeTriggerScare = null;// { kind, t, life }
-let currentWallpaper = null;  // chosen wallpaper variant for this level
+let currentWallpaper = null;  // chosen wallpaper variant for this level (fallback)
+// MAP-OVERHAUL state (Agent B) ---------------------------------------------
+// Per-tile wallpaper-variant index (each room paints with its own variant so
+// you visually feel zone changes while moving). 0..N-1 where N is the
+// current archetype's wallpaperVariants.length.
+let roomWallpaperIdx = [];     // [row][col] → variant index (walls only)
+let roomTileMap = [];          // [row][col] → room id or -1
+let rooms = [];                // {minX,minY,w,h,kind,wpIdx,safeUntil}
+let safeRoomT = 0;             // seconds remaining of safe-room monster suppression
+let currentRoomId = -1;        // room id pug currently stands inside
+// Closed doors (player presses E to open; some auto-close behind you).
+let closedDoors = [];          // {tx, ty, vertical, glass, t, autoClose, closing}
+// Secret rooms: hidden behind a fake wall — walk into wall to reveal.
+let secretWalls = [];          // {tx, ty, vertical, revealed}
+let secretRoomRevealedT = 0;   // seconds since last reveal (for popup)
+// Water tiles (slow player) and bioluminescent fungi (decoration that glows).
+let waterTiles = [];           // { tx, ty } flagged for slow + ripples
+let fungi = [];                // { x, y, r, color } little glowing dots
+// Parking-garage props: abandoned cars (obstacle + sightline blocker).
+let garageCars = [];           // { x, y, w, h, color, smashed }
+let garageRamps = [];          // { x, y } open-ramp markers (visual only)
+// Environmental storytelling props (filing cabinets, water coolers, etc).
+let envProps = [];             // {x, y, kind, used}
+let waterCoolers = [];         // { x, y, used } single-use sanity restore
+// New rare/usable items.
+let talismanItems = [];        // { x, y } — pick up = 1 stun charge
+let mapFragments = [];         // { x, y } — pick up = exit-revealed timer
+let cigaretteItems = [];       // { x, y } — pick up = lit puff (+sanity -battery)
+let talismanCharges = 0;       // owned stuns (E to use)
+let mapFragmentRevealT = 0;    // seconds remaining of "exit-glow" buff
+// Dead-end rooms (only 1 entrance; high-loot).
+let deadEndRoomIds = new Set();
+// Reveal-secret prompt
+let secretPromptText = null;
+let secretPromptT = 0;
 // MONSTER-STUCK detection ---------------------------------------------------
 let monsterStuckT = 0;        // seconds monster has been inside a wall
 let monsterStuckPos = { x: 0, y: 0 }; // position used to test "not moved" stuck
@@ -311,8 +538,26 @@ let sanityPulseT = 0;
 let lastSanity = 100;
 // Round 2C: smoke deploy darken timer (extra atmospheric screen-darken)
 let smokeDarkenT = 0;
+// Agent C: gameplay pause flag + cutscene gating. When `paused` or
+// `levelCardShowing` is true, tick() short-circuits monster AI/movement.
+let paused = false;
+let levelCardShowing = false;
+// Tracks the run's start time so we can show "TIME SURVIVED" on the death card.
+let runStartT = 0;
+// Per-level start time (resets every genLevel) — used to record best-time per level.
+let levelStartT = 0;
 
 function shake(mag, dur) { const k = _shakeMul(); shakeMag = Math.max(shakeMag, mag * k); shakeT = Math.max(shakeT, dur); }
+// True if reduced-motion is active (settings toggle OR OS pref). Scares still
+// render but skip jitter/flicker/shake so motion-sensitive players see a static
+// face rather than a strobing one. _shakeMul() returns 0 here, so we leverage it.
+function isReducedMotion() {
+  try {
+    if (document.body && document.body.classList.contains('reduced-motion')) return true;
+    if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return true;
+  } catch {}
+  return false;
+}
 function pop(x, y, text, color) {
   if (popups.length > 60) popups.shift();
   // Round 2C: lateral spawn velocity so popups don't stack on each other
@@ -322,37 +567,64 @@ function nowSec() { return performance.now() / 1000; }
 function silenceHum(durSec) { humSilenceUntil = Math.max(humSilenceUntil, nowSec() + durSec); }
 
 // ============================================================================
-// JUMP SCARE — full-screen face + scream + shake + silence + sanity hit.
-// `kind` ∈ 'monster' | 'hound' | 'smiler' | 'ambient'.
-// `ambient` is the fake scare (no damage, bypasses cooldown).
+// JUMP SCARE — DOMINATING full-viewport face + 6-layer scream + heavy shake.
+// `kind` ∈ 'monster' | 'hound' | 'smiler' | 'crawler' | 'whisperer'
+//       | 'ambient' | 'phantom' | 'reflection'.
+// Phantom/reflection bypass the 30s "real" cooldown (own short cooldown).
+// Ambient = no-damage fake. Real scares hold full-screen for 0.8s then fade
+// over 0.5s (total 1.3s life). Entrance has a 3-frame flicker (visible,
+// hidden, visible) across the first ~120ms for terror effect.
 // ============================================================================
 function jumpScare(kind) {
   if (!running) return;
   const ambient = kind === 'ambient';
-  if (!ambient && jumpScareCooldown > 0) return;
-  if (!ambient) jumpScareCooldown = 30;
+  const phantomLike = kind === 'phantom' || kind === 'reflection';
+  if (!ambient && !phantomLike && jumpScareCooldown > 0) return;
+  if (!ambient && !phantomLike) jumpScareCooldown = 30;
   jumpScareKind = kind;
-  jumpScareLife = ambient ? 0.45 : 1.0;     // total visible duration
+  if (ambient) jumpScareLife = 0.45;
+  else if (kind === 'phantom') jumpScareLife = 0.3;
+  else if (kind === 'reflection') jumpScareLife = 0.4;
+  else jumpScareLife = 1.3;                 // 0.8s hold + 0.5s fade
   jumpScareT = jumpScareLife;
-  redFlashT = ambient ? 0.0 : 0.2;          // ambient = no red flash
-  if (!ambient) {
-    shake(15, 0.35);
+  jumpScareFlickerT = 0;
+  redFlashT = ambient ? 0.0 : (phantomLike ? 0.08 : 0.15);
+  if (!ambient && !phantomLike) {
+    // Max-out audio for the first 0.5s of the scare (overrides settings gain).
+    jumpScareMaxAudioT = 0.5;
+    shake(22, 0.45);
     sanity = Math.max(0, sanity - 25);
     silenceHum(1.0);
-    // Caption + SR live-region for the audio cue. Per-kind copy so screen
-    // readers / captioned players know which entity caught them.
     const label = kind === 'hound' ? 'HOUND SCREAM'
                 : kind === 'smiler' ? 'SMILER SCREAM'
+                : kind === 'crawler' ? 'CRAWLER SHRIEK'
+                : kind === 'whisperer' ? 'WHISPERER WAIL'
                 : kind === 'monster' ? 'MONSTER SCREAM' : 'SCREAM';
     try { caption('[' + label + ']', 1400); } catch {}
-    // Layered scream: pitch sweep + mid-noise burst + sub-bass thump
+    // 6-LAYER SCREAM — sweep + square mid + noise + 60Hz sub + 1200Hz shriek + 200Hz growl.
+    // Total combined gain ~0.8 to be much louder than the old 0.4.
     try {
-      sfx.sweep(900, 200, 'sawtooth', 0.3, 0.45);
-      sfx.tone(600, 'square', 0.18, 0.25);
-      sfx.noise(0.18, 0.30, 400);
-      sfx.tone(60, 'sine', 0.45, 0.50);     // sub-bass thump
-      // Second-layer detuned shriek for grit
+      sfx.sweep(900, 200, 'sawtooth', 0.34, 0.50);        // L1 main sweep
+      sfx.tone(600, 'square', 0.22, 0.30);                // L2 square mid
+      sfx.noise(0.22, 0.40, 400);                         // L3 noise burst
+      sfx.tone(60, 'sine', 0.45, 0.55);                   // L4 60Hz sub thump
+      sfx.tone(1200, 'square', 0.18, 0.28);               // L5 1200Hz shriek
+      sfx.tone(200, 'sawtooth', 0.24, 0.45);              // L6 200Hz growl
+      // Detuned re-layer 40ms later for grit + perceived loudness
       setTimeout(() => running && sfx.sweep(720, 160, 'square', 0.22, 0.22), 40);
+      setTimeout(() => running && sfx.tone(80, 'sine', 0.30, 0.30), 60);
+    } catch {}
+  } else if (phantomLike) {
+    // Phantom = brief flash, no sanity drop but a small dread tax
+    sanity = Math.max(0, sanity - (kind === 'reflection' ? 4 : 2));
+    phantomCooldown = 8;
+    silenceHum(0.4);
+    shake(8, 0.18);
+    try {
+      caption(kind === 'reflection' ? '[REFLECTION]' : '[FACE FLASH]', 900);
+      sfx.sweep(1100, 300, 'sawtooth', 0.30, 0.18);
+      sfx.tone(70, 'sine', 0.35, 0.20);
+      sfx.noise(0.18, 0.18, 600);
     } catch {}
   } else {
     // Ambient = soft sting (single short tone), no damage
@@ -368,34 +640,76 @@ function jumpScare(kind) {
 // Fire one of 4 trigger-tile jumpscares. Always plays sfx + screen shake;
 // the visual layer is drawn from render() based on activeTriggerScare state.
 function fireTriggerScare(kind) {
-  activeTriggerScare = { kind, t: 0, life: 1.2 };
-  shake(10, 0.4);
+  activeTriggerScare = { kind, t: 0, life: 1.4 };
+  shake(14, 0.45);
   sanity = Math.max(0, sanity - 8);
   silenceHum(0.5);
+  jumpScareMaxAudioT = 0.4;
   try {
     if (kind === 'mirror') {
-      // High-pitched piercing shriek + sub thump
-      sfx.sweep(1200, 320, 'sawtooth', 0.34, 0.45);
-      sfx.tone(60, 'sine', 0.45, 0.45);
+      sfx.sweep(1200, 320, 'sawtooth', 0.40, 0.50);
+      sfx.tone(60, 'sine', 0.50, 0.50);
+      sfx.tone(1400, 'square', 0.22, 0.18);
+      sfx.noise(0.18, 0.30, 600);
       caption('[MIRROR SHRIEK]', 1300);
     } else if (kind === 'hand') {
-      // Skitter — fast filtered noise
-      sfx.noise(0.18, 0.4, 800);
-      sfx.tone(120, 'sine', 0.3, 0.35);
+      sfx.noise(0.24, 0.45, 800);
+      sfx.tone(120, 'sine', 0.36, 0.40);
+      sfx.sweep(440, 180, 'sawtooth', 0.20, 0.30);
       caption('[SKITTERING HANDS]', 1300);
     } else if (kind === 'shadow') {
-      // Single piercing shriek
-      sfx.sweep(1400, 600, 'square', 0.4, 0.35);
+      sfx.sweep(1400, 600, 'square', 0.45, 0.40);
+      sfx.tone(180, 'sawtooth', 0.30, 0.35);
+      sfx.noise(0.18, 0.20, 400);
       caption('[SHADOW SHRIEK]', 1300);
     } else if (kind === 'whisper') {
-      // Loud whisper — short noise pop with low filter sweep, no visual
-      sfx.noise(0.22, 0.35, 200);
-      sfx.tone(220, 'sine', 0.5, 0.3);
-      shake(18, 0.5);
+      sfx.noise(0.28, 0.40, 200);
+      sfx.tone(220, 'sine', 0.55, 0.35);
+      sfx.tone(440, 'triangle', 0.22, 0.30);
+      shake(22, 0.55);
       caption('[LOUD WHISPER]', 1400);
     }
   } catch {}
 }
+
+// =========================================================================
+// CUTSCENE ASSIST — short tailored stinger by type. Public so cutscene
+// flows (owned by Agent C) can call playScareSting('doom'|'reveal'|...).
+// =========================================================================
+function playScareSting(type) {
+  try {
+    if (type === 'doom') {
+      // Descending strings — minor 2nd cascade
+      const notes = [440, 415, 392, 370, 349];
+      notes.forEach((f, i) => setTimeout(() => running !== false && sfx.tone(f, 'triangle', 0.30, 0.35), i * 110));
+      sfx.tone(55, 'sine', 0.40, 0.80);
+      caption('[DOOM]', 1200);
+    } else if (type === 'reveal') {
+      // Dissonant build — minor 2nd plus tritone, swelling
+      sfx.tone(220, 'sawtooth', 0.18, 0.60);
+      sfx.tone(233, 'sawtooth', 0.18, 0.60);
+      sfx.tone(311, 'sawtooth', 0.20, 0.70);
+      setTimeout(() => running !== false && sfx.tone(440, 'square', 0.30, 0.40), 220);
+      setTimeout(() => running !== false && sfx.sweep(220, 660, 'sine', 0.30, 0.55), 380);
+      caption('[REVEAL]', 1200);
+    } else if (type === 'death') {
+      // Layered death scream — sweep + scream + sub
+      sfx.sweep(1000, 100, 'sawtooth', 0.45, 0.80);
+      sfx.tone(60, 'sine', 0.50, 0.90);
+      sfx.tone(900, 'square', 0.30, 0.50);
+      sfx.noise(0.30, 0.60, 300);
+      setTimeout(() => running !== false && sfx.sweep(180, 50, 'sawtooth', 0.40, 0.50), 200);
+      caption('[DEATH]', 1400);
+    } else if (type === 'success') {
+      // Relief — soft major triad
+      const arp = [523, 659, 784, 1047];
+      arp.forEach((f, i) => setTimeout(() => running !== false && sfx.tone(f, 'triangle', 0.22, 0.50), i * 90));
+      caption('[SUCCESS]', 1100);
+    }
+  } catch {}
+}
+// Expose for cross-module use (cutscene flow injected by Agent C).
+if (typeof window !== 'undefined') window.__backroomsPlayScareSting = playScareSting;
 
 function scheduleAmbient() {
   nextAmbientAt = gameTime + 90 + Math.random() * 90;
@@ -405,6 +719,162 @@ function scheduleDoorSlam() {
 }
 function scheduleWhisper() {
   nextWhisperAt = gameTime + 6 + Math.random() * 9;
+}
+function schedulePhantom() {
+  nextPhantomAt = gameTime + 30 + Math.random() * 60;
+}
+function schedulePeripheral() {
+  nextPeripheralAt = gameTime + 18 + Math.random() * 30;
+}
+function scheduleEyes() {
+  nextEyesAt = gameTime + 22 + Math.random() * 40;
+}
+function scheduleBlackout() {
+  nextBlackoutAt = gameTime + 60 + Math.random() * 60;
+}
+function scheduleDyingBulb() {
+  nextDyingBulbAt = gameTime + 25 + Math.random() * 40;
+}
+function scheduleStrobo() {
+  nextStroboAt = gameTime + 18 + Math.random() * 22;
+}
+function scheduleGhostStep() {
+  nextGhostStepAt = stillT + 4 + Math.random() * 3;
+}
+
+// ============================================================================
+// PINK-NOISE STATIC WASH — persistent low-volume noise layer that ramps up
+// when the monster is near but UNSEEN (mostly psychological — the player
+// hears the static get louder before the monster appears in their viewport).
+// Uses ScriptProcessor-free approach: looping noise buffer + gain node.
+// ============================================================================
+function ensureStaticNoise() {
+  if (sfx.isMuted()) return;
+  if (staticNoiseNode) return;
+  try {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    if (!window.__bkAC) window.__bkAC = new AC();
+    const actx = window.__bkAC;
+    // Build 4-second pink-noise buffer (Voss-McCartney approximation)
+    const bufSec = 4;
+    const buf = actx.createBuffer(1, actx.sampleRate * bufSec, actx.sampleRate);
+    const d = buf.getChannelData(0);
+    let b0 = 0, b1 = 0, b2 = 0;
+    for (let i = 0; i < d.length; i++) {
+      const white = Math.random() * 2 - 1;
+      b0 = 0.99765 * b0 + white * 0.0990460;
+      b1 = 0.96300 * b1 + white * 0.2965164;
+      b2 = 0.57000 * b2 + white * 1.0526913;
+      d[i] = (b0 + b1 + b2 + white * 0.1848) * 0.18;
+    }
+    const src = actx.createBufferSource();
+    src.buffer = buf; src.loop = true;
+    // Light low-pass for "dread air" rather than pure hiss
+    const lp = actx.createBiquadFilter();
+    lp.type = 'lowpass'; lp.frequency.value = 1200;
+    const g = actx.createGain();
+    g.gain.value = 0.0;
+    src.connect(lp).connect(g).connect(actx.destination);
+    src.start();
+    staticNoiseNode = src;
+    staticNoiseGain = g;
+  } catch {}
+}
+function updateStaticNoise(dt, monsterDist, monsterSees) {
+  if (!staticNoiseGain) return;
+  let target = 0.0;
+  if (!sfx.isMuted() && running) {
+    // Base whisper level
+    target = 0.012 * getMasterGain('music');
+    // Intensify when monster is near but UNSEEN (300..700px window)
+    if (!monsterSees && monsterDist < 700) {
+      const k = Math.max(0, 1 - Math.max(0, monsterDist - 200) / 500);
+      target += 0.06 * k * getMasterGain('music');
+    }
+    // Boost during a blackout
+    if (blackoutT > 0) target += 0.05 * getMasterGain('music');
+  }
+  const g = staticNoiseGain.gain.value;
+  staticNoiseGain.gain.value = g + (target - g) * Math.min(1, dt * 2);
+}
+
+// Layered panned whisper voice — used by low-sanity whisper system.
+// Plays multiple short voices at L/R pans with detuned octaves at ~0.3 gain.
+function playPannedWhispers() {
+  if (sfx.isMuted()) return;
+  try {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    if (!window.__bkAC) window.__bkAC = new AC();
+    const actx = window.__bkAC;
+    const mg = getMasterGain('sfx');
+    // 3 voices: hard-L low, hard-R high, center mid
+    const voices = [
+      { freq: 180, pan: -0.9, dur: 0.6, type: 'sine' },
+      { freq: 360, pan: 0.9, dur: 0.55, type: 'triangle' },
+      { freq: 240, pan: 0.0, dur: 0.7, type: 'sine' },
+    ];
+    voices.forEach((v, i) => {
+      setTimeout(() => {
+        if (!running) return;
+        const osc = actx.createOscillator();
+        osc.type = v.type; osc.frequency.value = v.freq + (Math.random() - 0.5) * 12;
+        const g = actx.createGain();
+        const t0 = actx.currentTime;
+        const peak = 0.10 * mg;       // combined ~0.3 across 3 voices
+        g.gain.setValueAtTime(0.0001, t0);
+        g.gain.exponentialRampToValueAtTime(peak, t0 + 0.05);
+        g.gain.exponentialRampToValueAtTime(0.0001, t0 + v.dur);
+        // Stereo panning (StereoPannerNode is widely supported; fallback to merger).
+        let panNode = null;
+        try {
+          panNode = actx.createStereoPanner();
+          panNode.pan.value = v.pan;
+        } catch {}
+        if (panNode) osc.connect(g).connect(panNode).connect(actx.destination);
+        else osc.connect(g).connect(actx.destination);
+        osc.start(t0); osc.stop(t0 + v.dur + 0.05);
+      }, i * 70);
+    });
+  } catch {}
+}
+
+// ============================================================================
+// POSITIONAL MONSTER AUDIO (Agent D)
+// Drives the "you hear it but can't see where it is" mechanic. Pan from
+// monster X vs player X (-1..1), volume scales 100..600px (1..0). Returns
+// { pan, vol } and emits one panned tone via sfx.tonePanned() so footsteps,
+// growls, sniffs all share consistent stereo positioning.
+// ============================================================================
+function _monsterPanVol(mx, my, px, py, maxDist = 600, minDist = 100) {
+  const dx = mx - px, dy = my - py;
+  const dist = Math.hypot(dx, dy);
+  if (dist > maxDist) return { pan: 0, vol: 0, dist };
+  const vol = 1 - Math.max(0, Math.min(1, (dist - minDist) / (maxDist - minDist)));
+  // Pan: clamp dx to ±300px = full pan, ease past that.
+  const pan = Math.max(-1, Math.min(1, dx / 300));
+  return { pan, vol, dist };
+}
+function emitPositionalTone(mx, my, freq, type, dur, peakBase, maxDist = 600, minDist = 100) {
+  if (sfx.isMuted() || !running) return;
+  const { pan, vol } = _monsterPanVol(mx, my, pug.x, pug.y, maxDist, minDist);
+  if (vol < 0.02) return;
+  try {
+    sfx.tonePanned(freq, type, dur, peakBase * vol, pan);
+  } catch {
+    sfx.tone(freq, type, dur, peakBase * vol);
+  }
+}
+function emitPositionalNoise(mx, my, dur, peakBase, hp, maxDist = 600, minDist = 100) {
+  if (sfx.isMuted() || !running) return;
+  const { vol } = _monsterPanVol(mx, my, pug.x, pug.y, maxDist, minDist);
+  if (vol < 0.02) return;
+  // miniSfx.noise() doesn't expose pan, so use tonePanned at a noise-like band
+  // for pan correctness; layer a real noise burst at attenuated volume.
+  try {
+    sfx.noise(dur, peakBase * vol, hp);
+  } catch {}
 }
 
 window.addEventListener('keydown', (e) => {
@@ -486,62 +956,215 @@ function carveRoom(cx, cy, w, h) {
 function genLevel(lvl) {
   archetype = levelArchetypeFor(lvl);
   LV = LEVELS[archetype];
-  // Choose a wallpaper variant per level (rotates through the 3 per-archetype).
+  // Choose a fallback wallpaper variant per level (rooms still re-pick their
+  // own variant individually so each room paints a different "zone").
   if (LV.wallpaperVariants && LV.wallpaperVariants.length) {
     const variantIdx = (lvl + Math.floor(Math.random() * 3)) % LV.wallpaperVariants.length;
     currentWallpaper = LV.wallpaperVariants[variantIdx];
   } else {
     currentWallpaper = null;
   }
-  cols = 28 + Math.min(lvl, 8) * 2;
-  rows = 18 + Math.min(lvl, 8);
+  // Level scaling: deeper levels are larger (cap budget stays under ~2000 cells)
+  const sizeMul = levelSizeMul(lvl);
+  cols = Math.min(60, Math.floor((28 + Math.min(lvl, 8) * 2) * sizeMul));
+  rows = Math.min(36, Math.floor((18 + Math.min(lvl, 8)) * sizeMul));
+  // Total cell budget guard: trim if we'd blow the render budget.
+  if (cols * rows > 1900) {
+    const k = Math.sqrt(1900 / (cols * rows));
+    cols = Math.max(28, Math.floor(cols * k));
+    rows = Math.max(18, Math.floor(rows * k));
+  }
   grid = Array.from({ length: rows }, () => Array(cols).fill(1));
-  // 1) Recursive backtracker on odd cells
-  const stack = [];
-  grid[1][1] = 0; stack.push([1, 1]);
-  while (stack.length) {
-    const [x, y] = stack[stack.length - 1];
-    const dirs = [[2,0],[-2,0],[0,2],[0,-2]].sort(() => Math.random() - 0.5);
-    let moved = false;
-    for (const [dx, dy] of dirs) {
-      const nx = x + dx, ny = y + dy;
-      if (nx > 0 && nx < cols - 1 && ny > 0 && ny < rows - 1 && grid[ny][nx] === 1) {
-        grid[ny][nx] = 0;
-        grid[y + dy / 2][x + dx / 2] = 0;
-        stack.push([nx, ny]); moved = true; break;
+  // ROOM-BASED ARCHITECTURE — generate varied-size rooms first, then connect
+  // them with corridors. Replaces the old maze backtracker; richer + has
+  // identifiable rooms (for safe-rooms / dead-ends / room-wallpaper-zones).
+  rooms = [];
+  const variantCount = (LV.wallpaperVariants && LV.wallpaperVariants.length) || 1;
+  const targetRooms = Math.max(8, Math.floor((cols * rows) / 60));
+  for (let r = 0; r < targetRooms; r++) {
+    for (let tries = 0; tries < 40; tries++) {
+      const rw = 3 + Math.floor(Math.random() * 4);  // 3..6 wide
+      const rh = 3 + Math.floor(Math.random() * 3);  // 3..5 tall
+      const rx = 1 + Math.floor(Math.random() * (cols - rw - 2));
+      const ry = 1 + Math.floor(Math.random() * (rows - rh - 2));
+      // Overlap test: leave 1-tile gap between rooms
+      let overlap = false;
+      for (const o of rooms) {
+        if (rx < o.minX + o.w + 1 && rx + rw + 1 > o.minX &&
+            ry < o.minY + o.h + 1 && ry + rh + 1 > o.minY) { overlap = true; break; }
+      }
+      if (overlap) continue;
+      carveRoom(rx, ry, rw, rh);
+      rooms.push({
+        minX: rx, minY: ry, w: rw, h: rh,
+        cx: rx + (rw >> 1), cy: ry + (rh >> 1),
+        wpIdx: Math.floor(Math.random() * variantCount),
+        kind: 'normal',
+        safeUntil: 0,
+        connections: 0,
+      });
+      break;
+    }
+  }
+  // Ensure spawn-anchor exists: carve a 3x3 around (1,1) if needed.
+  carveRoom(1, 1, 3, 3);
+  if (!rooms.some(r => r.minX <= 1 && r.minX + r.w >= 4 && r.minY <= 1 && r.minY + r.h >= 4)) {
+    rooms.unshift({
+      minX: 1, minY: 1, w: 3, h: 3, cx: 2, cy: 2,
+      wpIdx: 0, kind: 'normal', safeUntil: 0, connections: 0,
+    });
+  }
+  // 1..2 LARGE CHAMBERS (8x6) with central dividers/pillars — placed only
+  // if a clear patch exists; otherwise skipped to avoid stomping rooms.
+  const nChambers = 1 + Math.floor(Math.random() * 2);
+  pillars = [];
+  for (let c = 0; c < nChambers; c++) {
+    for (let tries = 0; tries < 40; tries++) {
+      const cw = 8, ch = 6;
+      const cxR = 2 + Math.floor(Math.random() * (cols - cw - 4));
+      const cyR = 2 + Math.floor(Math.random() * (rows - ch - 4));
+      let overlap = false;
+      for (const o of rooms) {
+        if (cxR < o.minX + o.w + 1 && cxR + cw + 1 > o.minX &&
+            cyR < o.minY + o.h + 1 && cyR + ch + 1 > o.minY) { overlap = true; break; }
+      }
+      if (overlap) continue;
+      carveRoom(cxR, cyR, cw, ch);
+      // Central pillar(s) — 1 or 2 inner walls for cover
+      const px = cxR + (cw >> 1), py = cyR + (ch >> 1);
+      grid[py][px] = 1;
+      pillars.push({ x: px * TILE + TILE / 2, y: py * TILE + TILE / 2 });
+      if (Math.random() < 0.5) {
+        const px2 = cxR + 2, py2 = cyR + 3;
+        grid[py2][px2] = 1;
+        pillars.push({ x: px2 * TILE + TILE / 2, y: py2 * TILE + TILE / 2 });
+      }
+      rooms.push({
+        minX: cxR, minY: cyR, w: cw, h: ch,
+        cx: cxR + (cw >> 1), cy: cyR + (ch >> 1),
+        wpIdx: Math.floor(Math.random() * variantCount),
+        kind: 'chamber',
+        safeUntil: 0, connections: 0,
+      });
+      break;
+    }
+  }
+  // CORRIDOR CONNECTIONS — L-shaped paths from each room center to its
+  // nearest neighbour. ~30% of corridors widen to 2-tile-wide for variety.
+  const visited = new Set([0]);
+  while (visited.size < rooms.length) {
+    let bestI = -1, bestJ = -1, bestD = Infinity;
+    for (const i of visited) {
+      for (let j = 0; j < rooms.length; j++) {
+        if (visited.has(j)) continue;
+        const d = Math.abs(rooms[i].cx - rooms[j].cx) + Math.abs(rooms[i].cy - rooms[j].cy);
+        if (d < bestD) { bestD = d; bestI = i; bestJ = j; }
       }
     }
-    if (!moved) stack.pop();
+    if (bestI < 0 || bestJ < 0) break;
+    const A = rooms[bestI], B = rooms[bestJ];
+    const wide = Math.random() < 0.3;  // 30% are 2-tile wide
+    // L-corridor: horizontal first, then vertical
+    const x0 = Math.min(A.cx, B.cx), x1 = Math.max(A.cx, B.cx);
+    const y0 = Math.min(A.cy, B.cy), y1 = Math.max(A.cy, B.cy);
+    const horizFirst = Math.random() < 0.5;
+    if (horizFirst) {
+      for (let x = x0; x <= x1; x++) {
+        if (grid[A.cy] && A.cy > 0 && A.cy < rows - 1) grid[A.cy][x] = 0;
+        if (wide && A.cy + 1 < rows - 1 && grid[A.cy + 1]) grid[A.cy + 1][x] = 0;
+      }
+      for (let y = y0; y <= y1; y++) {
+        if (grid[y] && B.cx > 0 && B.cx < cols - 1) grid[y][B.cx] = 0;
+        if (wide && B.cx + 1 < cols - 1 && grid[y]) grid[y][B.cx + 1] = 0;
+      }
+    } else {
+      for (let y = y0; y <= y1; y++) {
+        if (grid[y] && A.cx > 0 && A.cx < cols - 1) grid[y][A.cx] = 0;
+        if (wide && A.cx + 1 < cols - 1 && grid[y]) grid[y][A.cx + 1] = 0;
+      }
+      for (let x = x0; x <= x1; x++) {
+        if (grid[B.cy] && B.cy > 0 && B.cy < rows - 1) grid[B.cy][x] = 0;
+        if (wide && B.cy + 1 < rows - 1 && grid[B.cy + 1]) grid[B.cy + 1][x] = 0;
+      }
+    }
+    A.connections = (A.connections || 0) + 1;
+    B.connections = (B.connections || 0) + 1;
+    visited.add(bestJ);
   }
-  // 2) Knock out random extra walls for openness
-  for (let i = 0; i < cols * rows / 8; i++) {
-    const x = 1 + Math.floor(Math.random() * (cols - 2));
-    const y = 1 + Math.floor(Math.random() * (rows - 2));
-    grid[y][x] = 0;
+  // Add a few extra random connections so the level isn't a tree (loops!).
+  const extraConnections = Math.max(2, Math.floor(rooms.length * 0.25));
+  for (let k = 0; k < extraConnections; k++) {
+    const i = Math.floor(Math.random() * rooms.length);
+    const j = Math.floor(Math.random() * rooms.length);
+    if (i === j) continue;
+    const A = rooms[i], B = rooms[j];
+    for (let x = Math.min(A.cx, B.cx); x <= Math.max(A.cx, B.cx); x++) {
+      if (grid[A.cy] && x > 0 && x < cols - 1) grid[A.cy][x] = 0;
+    }
+    for (let y = Math.min(A.cy, B.cy); y <= Math.max(A.cy, B.cy); y++) {
+      if (grid[y] && B.cx > 0 && B.cx < cols - 1) grid[y][B.cx] = 0;
+    }
+    A.connections = (A.connections || 0) + 1;
+    B.connections = (B.connections || 0) + 1;
   }
-  // 3) Big rooms (2..3 per level) — 3x3 / 4x3 with a center pillar
-  pillars = [];
-  const nRooms = 2 + Math.floor(Math.random() * 2);
-  for (let r = 0; r < nRooms; r++) {
-    const rw = 3 + Math.floor(Math.random() * 2);
-    const rh = 3;
-    const rx = 2 + Math.floor(Math.random() * (cols - rw - 4));
-    const ry = 2 + Math.floor(Math.random() * (rows - rh - 4));
-    carveRoom(rx, ry, rw, rh);
-    // central pillar (turn one inner tile into wall)
-    const px = rx + Math.floor(rw / 2);
-    const py = ry + Math.floor(rh / 2);
-    grid[py][px] = 1;
-    pillars.push({ x: px * TILE + TILE / 2, y: py * TILE + TILE / 2 });
+  // SAFE ROOMS — 30% of rooms become safe rooms (visual green tint + monster
+  // suppression buffer when player enters). Skip the spawn room (idx 0).
+  for (let i = 1; i < rooms.length; i++) {
+    if (Math.random() < 0.3) rooms[i].kind = 'safe';
   }
-  // 4) Closets — 1x1 pockets containing a guaranteed item
+  // DEAD-END ROOMS — rooms with 1 connection that aren't the spawn room.
+  deadEndRoomIds = new Set();
+  for (let i = 1; i < rooms.length; i++) {
+    if ((rooms[i].connections || 0) <= 1 && rooms[i].kind !== 'safe') {
+      rooms[i].kind = 'deadend';
+      deadEndRoomIds.add(i);
+    }
+  }
+  // SECRET ROOM — pick one wall-hidden 3x3 patch and add a fake-wall portal.
+  // Player walking into the fake wall reveals it (turns wall to open).
+  secretWalls = [];
+  for (let tries = 0; tries < 50; tries++) {
+    const sw = 3, sh = 3;
+    const sx = 2 + Math.floor(Math.random() * (cols - sw - 4));
+    const sy = 2 + Math.floor(Math.random() * (rows - sh - 4));
+    let allWall = true;
+    for (let yy = sy; yy < sy + sh; yy++)
+      for (let xx = sx; xx < sx + sw; xx++)
+        if (grid[yy][xx] !== 1) { allWall = false; break; }
+    if (!allWall) continue;
+    // Need an adjacent open tile to attach a "fake wall" door at
+    const candidates = [];
+    for (let yy = sy; yy < sy + sh; yy++) {
+      if (grid[yy][sx - 1] === 0) candidates.push({ tx: sx, ty: yy, vertical: true });
+      if (grid[yy][sx + sw] === 0) candidates.push({ tx: sx + sw - 1, ty: yy, vertical: true });
+    }
+    for (let xx = sx; xx < sx + sw; xx++) {
+      if (grid[sy - 1] && grid[sy - 1][xx] === 0) candidates.push({ tx: xx, ty: sy, vertical: false });
+      if (grid[sy + sh] && grid[sy + sh][xx] === 0) candidates.push({ tx: xx, ty: sy + sh - 1, vertical: false });
+    }
+    if (!candidates.length) continue;
+    // Carve the secret room
+    carveRoom(sx, sy, sw, sh);
+    // Re-wall the chosen "fake wall" tile and record it as a secret entrance.
+    const c = candidates[Math.floor(Math.random() * candidates.length)];
+    grid[c.ty][c.tx] = 1;
+    secretWalls.push({ tx: c.tx, ty: c.ty, vertical: c.vertical, revealed: false });
+    rooms.push({
+      minX: sx, minY: sy, w: sw, h: sh,
+      cx: sx + 1, cy: sy + 1,
+      wpIdx: Math.floor(Math.random() * variantCount),
+      kind: 'secret',
+      safeUntil: 0, connections: 1,
+    });
+    break;
+  }
+  // CLOSETS — 1x1 item pockets adjacent to rooms (legacy support).
   const closetSlots = [];
   for (let i = 0; i < 3 + Math.floor(Math.random() * 2); i++) {
     for (let tries = 0; tries < 40; tries++) {
       const tx = 2 + Math.floor(Math.random() * (cols - 4));
       const ty = 2 + Math.floor(Math.random() * (rows - 4));
       if (grid[ty][tx] === 1) {
-        // it must be adjacent to exactly one open tile (a true pocket-like spot)
         const nbrs = [[1,0],[-1,0],[0,1],[0,-1]].filter(([dx,dy]) =>
           grid[ty+dy] && grid[ty+dy][tx+dx] === 0);
         if (nbrs.length >= 1) {
@@ -552,13 +1175,12 @@ function genLevel(lvl) {
       }
     }
   }
-  // 4b) NOOK ROOMS — 2x2 dead-end pockets containing a high-value can/item.
+  // NOOK ROOMS — 2x2 dead-end pockets (legacy, can contain a high-value can).
   const nookSlots = [];
   for (let i = 0; i < 2 + Math.floor(Math.random() * 2); i++) {
     for (let tries = 0; tries < 60; tries++) {
       const tx = 2 + Math.floor(Math.random() * (cols - 5));
       const ty = 2 + Math.floor(Math.random() * (rows - 4));
-      // Require all 4 cells be wall + adjacent open cell exists
       let allWall = true;
       for (let dy = 0; dy < 2; dy++)
         for (let dx = 0; dx < 2; dx++)
@@ -575,7 +1197,7 @@ function genLevel(lvl) {
       break;
     }
   }
-  // 4c) HALLWAY SEGMENTS — 1-tile-wide straight corridors (4-7 tiles long).
+  // HALLWAY SEGMENTS — 1-tile-wide straight corridors (legacy decoration).
   const nHalls = 2 + Math.floor(Math.random() * 2);
   for (let i = 0; i < nHalls; i++) {
     for (let tries = 0; tries < 40; tries++) {
@@ -607,14 +1229,25 @@ function genLevel(lvl) {
   const monsterSpawn = findFarOpenTile(1, 1);
   monster = {
     x: monsterSpawn.x, y: monsterSpawn.y,
-    vx: 0, vy: 0, sees: false, chase: false,
+    vx: 0, vy: 0, sees: false, chase: false, hunting: false,
     lastSeenX: 0, lastSeenY: 0,
     spawnX: monsterSpawn.x, spawnY: monsterSpawn.y,
     wanderTarget: null,
+    aiState: 'idle',          // Agent D — 3-state machine
+    visible: false,           // Agent D — only true within viewR
   };
   monsterStuckT = 0;
   monsterStuckPos = { x: monsterSpawn.x, y: monsterSpawn.y };
   monsterStuckPosT = 0;
+  // Reset monster AI accumulators on level gen so cues don't double-fire.
+  monsterFootstepT = 0;
+  monsterGrowlT = 5 + Math.random() * 5;   // delay first growl ~5-10s
+  monsterSniffT = 0;
+  monsterBreathT = 0;
+  monsterHuntingT = 0;
+  monsterLostContactT = 99;
+  monsterWanderRefreshAt = 0;
+  lurkerVisibleT = 0;
   // Cans (5) — drop one into a nook room if any exist for "reward room" feel
   cans = [];
   if (nookSlots.length) cans.push({ x: nookSlots[0].x, y: nookSlots[0].y });
@@ -647,17 +1280,31 @@ function genLevel(lvl) {
       }
     }
   }
-  // Hide spots: 3 per level (furniture)
+  // Hide spots: 4-6 per level (distinct cabinet/closet/locker icons).
+  // The wider count + visual distinctness gives the player a real "hide
+  // strategy" rather than dumb-luck. Archetype-aware kinds for flavour.
   hideSpots = [];
-  const furnitureKinds = archetype === 'pipes' ? ['vending', 'vending', 'chair'] :
-    archetype === 'warehouse' ? ['vending', 'chair', 'chair'] :
-    ['chair', 'sofa', 'vending'];
-  for (let i = 0; i < 3; i++) {
+  const hideKinds = archetype === 'pipes'    ? ['locker', 'vending', 'locker', 'cabinet', 'vending'] :
+                    archetype === 'warehouse' ? ['cabinet', 'locker', 'vending', 'cabinet', 'crate'] :
+                    archetype === 'poolrooms' ? ['cabinet', 'cabinet', 'closet', 'locker'] :
+                    archetype === 'garage'    ? ['locker', 'crate', 'cabinet', 'locker'] :
+                    archetype === 'the_end'   ? ['closet', 'cabinet', 'closet', 'cabinet'] :
+                    archetype === 'voidpool'  ? ['cabinet', 'locker', 'cabinet', 'locker'] :
+                    ['closet', 'sofa', 'cabinet', 'vending', 'closet'];
+  const nHide = 4 + Math.floor(Math.random() * 3);
+  for (let i = 0; i < nHide; i++) {
     for (let tries = 0; tries < 50; tries++) {
-      const tx = 1 + Math.floor(Math.random() * (cols - 2));
-      const ty = 1 + Math.floor(Math.random() * (rows - 2));
-      if (grid[ty][tx] === 0) {
-        hideSpots.push({ x: tx * TILE + TILE / 2, y: ty * TILE + TILE / 2, r: 22, kind: furnitureKinds[i % furnitureKinds.length] });
+      const r = rooms[1 + Math.floor(Math.random() * Math.max(1, rooms.length - 1))];
+      const tx = r
+        ? r.minX + Math.floor(Math.random() * r.w)
+        : 1 + Math.floor(Math.random() * (cols - 2));
+      const ty = r
+        ? r.minY + Math.floor(Math.random() * r.h)
+        : 1 + Math.floor(Math.random() * (rows - 2));
+      if (grid[ty] && grid[ty][tx] === 0) {
+        const wx = tx * TILE + TILE / 2, wy = ty * TILE + TILE / 2;
+        if (Math.hypot(wx - pug.x, wy - pug.y) < TILE * 2) continue;
+        hideSpots.push({ x: wx, y: wy, r: 24, kind: hideKinds[i % hideKinds.length] });
         break;
       }
     }
@@ -698,22 +1345,63 @@ function genLevel(lvl) {
       }
     }
   }
-  // Entities per archetype — original types + new (Crawler/Whisperer)
+  // -------------------------------------------------------------------------
+  // ENTITY SPAWNS — Agent D horror-overhaul scaling.
+  // Authoritative per-archetype counts (overrides LEVELS spawn* fields so the
+  // spec is honoured regardless of Agent B's LEVELS tweaks):
+  //   lobby:     0 hounds + 0 smilers + 0 crawlers + 0 whisperers + 1 lurker
+  //   warehouse: 2 hounds + 0 smilers + 1 crawler  + 0 whisperers + 1 lurker
+  //   pipes:     2 hounds + 1 smiler  + 0 crawlers + 0 whisperers + 2 lurkers
+  //   voidpool:  3 hounds + 1 smiler  + 0 crawlers + 1 whisperer  + 2 lurkers
+  // After the 4-archetype cycle wraps, +0.5/level on every kind (fractional
+  // rolls so growth is gradual). LURKER is a NEW invisible entity that sits
+  // far from the player and grabs them if approached without flashlight.
+  // -------------------------------------------------------------------------
   entities = [];
-  for (let i = 0; i < LV.spawnHounds; i++) spawnEntity('hound');
-  for (let i = 0; i < LV.spawnSmilers; i++) spawnEntity('smiler');
-  // New monster types — spawn with lower weight than existing types. Roll per-slot.
-  for (let i = 0; i < (LV.spawnCrawlers || 0); i++) {
-    if (Math.random() < 0.7) spawnEntity('crawler');
+  const sp = archetype === 'lobby'     ? { hounds: 0, smilers: 0, crawlers: 0, whisperers: 0, lurkers: 1 }
+           : archetype === 'warehouse' ? { hounds: 2, smilers: 0, crawlers: 1, whisperers: 0, lurkers: 1 }
+           : archetype === 'pipes'     ? { hounds: 2, smilers: 1, crawlers: 0, whisperers: 0, lurkers: 2 }
+           : archetype === 'voidpool'  ? { hounds: 3, smilers: 1, crawlers: 0, whisperers: 1, lurkers: 2 }
+           : { hounds: 2, smilers: 1, crawlers: 1, whisperers: 1, lurkers: 2 };
+  const cycleLen = ARCHETYPE_CYCLE.length;
+  const lvlBoost = lvl > cycleLen ? (lvl - cycleLen) * 0.5 : 0;
+  const rollCount = (base) => {
+    const total = base + lvlBoost;
+    const whole = Math.floor(total);
+    const frac = total - whole;
+    return whole + (Math.random() < frac ? 1 : 0);
+  };
+  for (let i = 0; i < rollCount(sp.hounds);     i++) spawnEntity('hound');
+  for (let i = 0; i < rollCount(sp.smilers);    i++) spawnEntity('smiler');
+  for (let i = 0; i < rollCount(sp.crawlers);   i++) spawnEntity('crawler');
+  for (let i = 0; i < rollCount(sp.whisperers); i++) spawnEntity('whisperer');
+  for (let i = 0; i < rollCount(sp.lurkers);    i++) spawnEntity('lurker');
+  // ---- HOUND PACKS — group hounds within 6 tiles into shared-aggro packs.
+  // Round-robin assigns 'chase' (head-on) vs 'flank' (90° offset target) so
+  // pack hounds split and pinch the player.
+  const hounds = entities.filter(e => e.kind === 'hound');
+  let packIdx = 0;
+  for (const h of hounds) {
+    let joined = null;
+    for (const other of hounds) {
+      if (other === h || other.packId === undefined) continue;
+      if (Math.hypot(other.x - h.x, other.y - h.y) < 6 * TILE) { joined = other; break; }
+    }
+    if (joined) {
+      h.packId = joined.packId;
+      joined._roleCount = (joined._roleCount || 1) + 1;
+      h.packRole = (joined._roleCount % 2 === 0) ? 'flank' : 'chase';
+    } else {
+      h.packId = ++packIdx;
+      h.packRole = 'chase';
+      h._roleCount = 1;
+    }
   }
-  for (let i = 0; i < (LV.spawnWhisperers || 0); i++) {
-    if (Math.random() < 0.6) spawnEntity('whisperer');
-  }
-  // Higher-floor bonus: a small chance of an extra Crawler on level 5+
-  if (lvl >= 5 && Math.random() < 0.5) spawnEntity('crawler');
   // ---- FURNITURE (small obstacles — break sightline, walk past) ----
+  // Trimmed count so the new envProps + cars + waterCoolers don't push total
+  // entity count past the 2000-render budget on larger levels.
   furniture = [];
-  const furnCount = 8 + Math.floor(lvl * 1.5);
+  const furnCount = 5 + Math.floor(lvl * 1.0);
   const furnKinds = ['lamp', 'box', 'chair_small'];
   for (let i = 0; i < furnCount; i++) {
     for (let tries = 0; tries < 30; tries++) {
@@ -744,6 +1432,9 @@ function genLevel(lvl) {
     }
   }
   // ---- DOORWAYS (open tiles bordered by walls on two opposite sides) ----
+  // Tag every 1-tile-wide passage as a doorway (these get the dark wood
+  // frames + can become closed-door later). Rate bumped to 0.65 since the
+  // room-based architecture generates many clean doorway candidates.
   doorways = [];
   for (let y = 1; y < rows - 1; y++) {
     for (let x = 1; x < cols - 1; x++) {
@@ -751,11 +1442,13 @@ function genLevel(lvl) {
       const wL = grid[y][x - 1] === 1, wR = grid[y][x + 1] === 1;
       const wU = grid[y - 1][x] === 1, wD = grid[y + 1][x] === 1;
       if ((wL && wR && !wU && !wD) || (wU && wD && !wL && !wR)) {
-        if (Math.random() < 0.45) doorways.push({ x, y, vertical: wL && wR });
+        if (Math.random() < 0.65) doorways.push({ x, y, vertical: wL && wR });
       }
     }
   }
   // ---- BIG CEILING LIGHTS (every 5th tile) with flicker timing ----
+  // Per-light `flickerT` + `flickerCycle` fields are read by Agent A's
+  // updated drawBigCeilingLights pass — keep them populated here.
   bigCeilingLights = [];
   for (let y = 2; y < rows - 1; y += 5) {
     for (let x = 2; x < cols - 1; x += 5) {
@@ -763,6 +1456,8 @@ function genLevel(lvl) {
         bigCeilingLights.push({
           x: x * TILE + TILE / 2, y: y * TILE + TILE / 2,
           offT: 0, nextOff: 4 + Math.random() * 8, offDur: 0.25 + Math.random() * 0.2,
+          flickerT: Math.random() * 6.28,
+          flickerCycle: 0.4 + Math.random() * 1.8,
         });
       }
     }
@@ -787,6 +1482,231 @@ function genLevel(lvl) {
       break;
     }
   }
+  // -------------------------------------------------------------------------
+  // ROOM TILEMAP — fill per-tile room ID and per-tile wallpaper variant index
+  // for fast lookup at runtime (safe-room buffer, per-room wallpaper paint).
+  // -------------------------------------------------------------------------
+  roomTileMap = Array.from({ length: rows }, () => Array(cols).fill(-1));
+  roomWallpaperIdx = Array.from({ length: rows }, () => Array(cols).fill(0));
+  for (let ri = 0; ri < rooms.length; ri++) {
+    const r = rooms[ri];
+    for (let yy = r.minY; yy < r.minY + r.h; yy++) {
+      for (let xx = r.minX; xx < r.minX + r.w; xx++) {
+        if (yy < 0 || xx < 0 || yy >= rows || xx >= cols) continue;
+        if (roomTileMap[yy][xx] === -1) roomTileMap[yy][xx] = ri;
+      }
+    }
+  }
+  // Paint per-tile wallpaper index — walls inherit their nearest room's
+  // wpIdx so corridors blend with adjacent rooms.
+  for (let y = 0; y < rows; y++) {
+    for (let x = 0; x < cols; x++) {
+      if (grid[y][x] !== 1) continue;
+      let nearestIdx = 0, nearestD = 9999;
+      for (let r = 1; r < 4 && nearestD > 0; r++) {
+        for (let dy = -r; dy <= r; dy++) {
+          for (let dx = -r; dx <= r; dx++) {
+            if (Math.abs(dx) !== r && Math.abs(dy) !== r) continue;
+            const nx = x + dx, ny = y + dy;
+            if (nx < 0 || ny < 0 || nx >= cols || ny >= rows) continue;
+            if (roomTileMap[ny][nx] >= 0) {
+              const d = Math.abs(dx) + Math.abs(dy);
+              if (d < nearestD) {
+                nearestD = d;
+                nearestIdx = rooms[roomTileMap[ny][nx]].wpIdx;
+              }
+            }
+          }
+        }
+        if (nearestD <= r) break;
+      }
+      roomWallpaperIdx[y][x] = nearestIdx;
+    }
+  }
+  // -------------------------------------------------------------------------
+  // WATER TILES (poolrooms only) — 35% of room tiles, ripples + slow player.
+  // -------------------------------------------------------------------------
+  waterTiles = [];
+  if (archetype === 'poolrooms') {
+    const flagged = new Set();
+    for (const r of rooms) {
+      if (Math.random() < 0.85) {
+        for (let yy = r.minY; yy < r.minY + r.h; yy++) {
+          for (let xx = r.minX; xx < r.minX + r.w; xx++) {
+            if (grid[yy] && grid[yy][xx] === 0 && Math.random() < 0.55) {
+              const k = yy * cols + xx;
+              if (!flagged.has(k)) {
+                flagged.add(k);
+                waterTiles.push({ tx: xx, ty: yy });
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  // -------------------------------------------------------------------------
+  // BIOLUMINESCENT FUNGI (poolrooms + voidpool) — small glowing dots clustered
+  // around walls.
+  // -------------------------------------------------------------------------
+  fungi = [];
+  if (archetype === 'poolrooms' || archetype === 'voidpool') {
+    const fungiCount = 16 + Math.floor(lvl * 1.5);
+    const cols2 = ['#7effe6', '#5cf3c8', '#aaffff', '#84ffd2'];
+    for (let i = 0; i < fungiCount; i++) {
+      for (let t = 0; t < 30; t++) {
+        const tx = 1 + Math.floor(Math.random() * (cols - 2));
+        const ty = 1 + Math.floor(Math.random() * (rows - 2));
+        if (grid[ty][tx] !== 1) continue;
+        // Place at a wall-edge that touches an open tile
+        const edges = [[1,0],[-1,0],[0,1],[0,-1]].filter(([dx,dy]) =>
+          grid[ty+dy] && grid[ty+dy][tx+dx] === 0);
+        if (!edges.length) continue;
+        const e = edges[Math.floor(Math.random() * edges.length)];
+        const wx = tx * TILE + TILE / 2 + e[0] * TILE * 0.35;
+        const wy = ty * TILE + TILE / 2 + e[1] * TILE * 0.35;
+        fungi.push({ x: wx, y: wy, r: 2 + Math.random() * 4, color: cols2[Math.floor(Math.random() * cols2.length)] });
+        break;
+      }
+    }
+  }
+  // -------------------------------------------------------------------------
+  // GARAGE CARS (garage only) — 4-6 abandoned cars in open rooms (sightline
+  // blocker + obstacle). Placed inside chambers if possible.
+  // -------------------------------------------------------------------------
+  garageCars = [];
+  garageRamps = [];
+  if (archetype === 'garage') {
+    const carColors = ['#5a4a3a', '#3a3a4a', '#4a3a3a', '#3a4a3a', '#2a2a2a'];
+    const nCars = 4 + Math.floor(Math.random() * 3);
+    for (let i = 0; i < nCars; i++) {
+      for (let tries = 0; tries < 30; tries++) {
+        const tx = 2 + Math.floor(Math.random() * (cols - 4));
+        const ty = 2 + Math.floor(Math.random() * (rows - 4));
+        if (grid[ty][tx] !== 0 || grid[ty][tx + 1] !== 0) continue;
+        const wx = tx * TILE + TILE, wy = ty * TILE + TILE / 2;
+        if (Math.hypot(wx - pug.x, wy - pug.y) < TILE * 3) continue;
+        if (Math.hypot(wx - exitTile.x, wy - exitTile.y) < TILE * 2) continue;
+        garageCars.push({
+          x: wx, y: wy, w: TILE * 1.6, h: TILE * 0.7,
+          color: carColors[i % carColors.length], smashed: Math.random() < 0.4,
+        });
+        break;
+      }
+    }
+    // Open "ramps to nowhere" — visual marker tiles
+    const nRamps = 1 + Math.floor(Math.random() * 2);
+    for (let i = 0; i < nRamps; i++) {
+      for (let tries = 0; tries < 20; tries++) {
+        const tx = 2 + Math.floor(Math.random() * (cols - 4));
+        const ty = 2 + Math.floor(Math.random() * (rows - 4));
+        if (grid[ty][tx] !== 0) continue;
+        garageRamps.push({ x: tx * TILE + TILE / 2, y: ty * TILE + TILE / 2 });
+        break;
+      }
+    }
+  }
+  // -------------------------------------------------------------------------
+  // ENV PROPS — environmental storytelling: filing cabinets, fallen chairs,
+  // splattered paint, cardboard stacks, shoes, briefcases, dead plants,
+  // calendars, broken vending machines. Placed inside rooms.
+  // -------------------------------------------------------------------------
+  envProps = [];
+  waterCoolers = [];
+  const propKinds = [
+    'filing_cabinet', 'broken_vending', 'fallen_chair', 'paint_splatter',
+    'cardboard_stack', 'shoes', 'briefcase', 'dead_plant', 'wall_calendar',
+  ];
+  const propCount = 6 + Math.floor(Math.random() * 5) + Math.min(4, lvl);
+  for (let i = 0; i < propCount; i++) {
+    for (let tries = 0; tries < 25; tries++) {
+      const r = rooms[Math.floor(Math.random() * rooms.length)];
+      if (!r) continue;
+      const tx = r.minX + Math.floor(Math.random() * r.w);
+      const ty = r.minY + Math.floor(Math.random() * r.h);
+      if (grid[ty][tx] !== 0) continue;
+      const wx = tx * TILE + TILE / 2, wy = ty * TILE + TILE / 2;
+      if (Math.hypot(wx - pug.x, wy - pug.y) < TILE * 1.5) continue;
+      if (exitTile && Math.hypot(wx - exitTile.x, wy - exitTile.y) < TILE) continue;
+      envProps.push({
+        x: wx, y: wy,
+        kind: propKinds[Math.floor(Math.random() * propKinds.length)],
+        used: false,
+      });
+      break;
+    }
+  }
+  // One water-cooler per level (single-use sanity refill).
+  for (let tries = 0; tries < 30; tries++) {
+    const r = rooms[1 + Math.floor(Math.random() * (rooms.length - 1))];
+    if (!r) break;
+    const tx = r.minX + Math.floor(Math.random() * r.w);
+    const ty = r.minY + Math.floor(Math.random() * r.h);
+    if (grid[ty][tx] !== 0) continue;
+    waterCoolers.push({ x: tx * TILE + TILE / 2, y: ty * TILE + TILE / 2, used: false });
+    break;
+  }
+  // -------------------------------------------------------------------------
+  // TALISMAN (1 per level), MAP FRAGMENT (50% chance), CIGARETTES (1-2)
+  // -------------------------------------------------------------------------
+  talismanItems = []; mapFragments = []; cigaretteItems = [];
+  // Talisman — placed in a dead-end room if possible (high-risk-high-reward).
+  for (let tries = 0; tries < 50; tries++) {
+    let r = null;
+    if (deadEndRoomIds.size) {
+      const ids = Array.from(deadEndRoomIds);
+      r = rooms[ids[Math.floor(Math.random() * ids.length)]];
+    } else {
+      r = rooms[1 + Math.floor(Math.random() * (rooms.length - 1))];
+    }
+    if (!r) continue;
+    const tx = r.minX + Math.floor(Math.random() * r.w);
+    const ty = r.minY + Math.floor(Math.random() * r.h);
+    if (grid[ty][tx] !== 0) continue;
+    talismanItems.push({ x: tx * TILE + TILE / 2, y: ty * TILE + TILE / 2 });
+    break;
+  }
+  // Map fragment — placed anywhere; only sometimes appears.
+  if (Math.random() < 0.55) {
+    for (let tries = 0; tries < 30; tries++) {
+      const tx = 1 + Math.floor(Math.random() * (cols - 2));
+      const ty = 1 + Math.floor(Math.random() * (rows - 2));
+      if (grid[ty][tx] !== 0) continue;
+      const wx = tx * TILE + TILE / 2, wy = ty * TILE + TILE / 2;
+      if (Math.hypot(wx - pug.x, wy - pug.y) < TILE * 3) continue;
+      mapFragments.push({ x: wx, y: wy });
+      break;
+    }
+  }
+  // Cigarettes
+  for (let i = 0; i < 1 + Math.floor(Math.random() * 2); i++) {
+    for (let tries = 0; tries < 30; tries++) {
+      const tx = 1 + Math.floor(Math.random() * (cols - 2));
+      const ty = 1 + Math.floor(Math.random() * (rows - 2));
+      if (grid[ty][tx] !== 0) continue;
+      cigaretteItems.push({ x: tx * TILE + TILE / 2, y: ty * TILE + TILE / 2 });
+      break;
+    }
+  }
+  // -------------------------------------------------------------------------
+  // CLOSED DOORS — half of doorways become closed (player presses E to open).
+  // 30% auto-close behind player. In poolrooms/garage some are glass.
+  // -------------------------------------------------------------------------
+  closedDoors = [];
+  for (const d of doorways) {
+    if (Math.random() < 0.5) {
+      const glass = (archetype === 'lobby' || archetype === 'poolrooms') && Math.random() < 0.3;
+      closedDoors.push({
+        tx: d.x, ty: d.y, vertical: d.vertical, glass,
+        autoClose: Math.random() < 0.3,
+        closing: false, t: 0,
+      });
+    }
+  }
+  // -------------------------------------------------------------------------
+  // EXPOSE level metadata for cutscenes/intros (Agent C reads currentLevelInfo)
+  // -------------------------------------------------------------------------
+  currentLevelInfo = { name: LV.name, theme: archetype, lvl };
   // Reset active trigger scare state
   activeTriggerScare = null;
   popups = []; shakeT = 0; shakeMag = 0; hitFlashT = 0; chaseVignetteT = 0;
@@ -797,6 +1717,14 @@ function genLevel(lvl) {
   sanity = Math.min(100, sanity + 15);
   // Battery preserved across levels but topped up slightly each level
   if (battery < 30) battery = Math.min(100, battery + 25);
+  // Reset talisman / map-fragment carry state to ensure they're per-run
+  // (not per-level — but reset is harmless; pickup re-arms it).
+  talismanCharges = talismanCharges || 0;
+  mapFragmentRevealT = 0;
+  safeRoomT = 0;
+  currentRoomId = -1;
+  secretRoomRevealedT = 0;
+  secretPromptText = null; secretPromptT = 0;
   // ---- LORE NOTES (1-2 per level) — spawn id picked from undiscovered pool
   // when possible, otherwise random from full pool so a "completist" player
   // still sees notes (re-read on the modal will just re-show).
@@ -830,25 +1758,50 @@ function genLevel(lvl) {
 }
 
 function spawnEntity(kind) {
+  // Lurkers must spawn FAR from the player (> 12 tiles Manhattan) so they
+  // can't be stumbled into immediately. All other entities use the legacy
+  // > 8 tile minimum (already plenty of breathing room from the spawn point).
+  const minDist = kind === 'lurker' ? 12 : 8;
   for (let tries = 0; tries < 80; tries++) {
     const tx = 2 + Math.floor(Math.random() * (cols - 4));
     const ty = 2 + Math.floor(Math.random() * (rows - 4));
-    if (grid[ty][tx] === 0 && Math.abs(tx - 1) + Math.abs(ty - 1) > 8) {
+    if (grid[ty][tx] === 0 && Math.abs(tx - 1) + Math.abs(ty - 1) > minDist) {
       const e = {
         kind, x: tx * TILE + TILE / 2, y: ty * TILE + TILE / 2,
         vx: 0, vy: 0, state: 'idle', t: 0, hp: 1,
       };
       // Per-level monster scaling — bumps speed each chained noclip jump.
       const scale = monsterScaleFor(level || 1);
-      if (kind === 'hound') { e.speed = 200 * scale; e.aggroT = 0; e.wanderT = 0; }
-      if (kind === 'smiler') { e.speed = 50 * scale; e.recoilT = 0; e.opacity = 0.0; }
+      if (kind === 'hound') {
+        e.speed = 200 * scale;
+        e.aggroT = 0; e.wanderT = 0;
+        e.lastScratchT = -999; // for offscreen scratching cue
+      }
+      if (kind === 'smiler') {
+        e.speed = 50 * scale; e.recoilT = 0; e.opacity = 0.0;
+      }
       if (kind === 'crawler') {
         // Low spider-pug — slow patrol, lunges from short range, hides near furniture.
         e.speed = 65 * scale; e.lungeT = 0; e.lungeCooldown = 0; e.wanderT = 0;
+        e.lastSkitterT = -999;     // for offscreen skittering cue
+        e.spottedFreezeT = 0;      // brief freeze when player spots them
+        e.spottedResolved = false; // whether 50/50 lunge-or-retreat already rolled
+        e.retreatVx = 0; e.retreatVy = 0;
       }
       if (kind === 'whisperer') {
         // Stationary entity. Erodes sanity if player looks at it directly.
+        // NEW: hops to new spot every 20s; walks at low sanity.
         e.speed = 0; e.gazeT = 0; e.lastWhisperT = -999;
+        e.nextHopT = 18 + Math.random() * 6;  // 18..24s until first hop
+        e.lowSanityWalk = false;
+      }
+      if (kind === 'lurker') {
+        // INVISIBLE entity. Doesn't move. Grabs player if approached within
+        // ~80px without flashlight on. Flashlight ON within 220px reveals it
+        // briefly via Agent A's `lurkerVisibleT` overlay (we just set the flag).
+        e.speed = 0;
+        e.spawnTx = tx; e.spawnTy = ty;
+        e.triggered = false;
       }
       entities.push(e); return;
     }
@@ -861,11 +1814,26 @@ function spawnEntity(kind) {
 function isWallAt(x, y) {
   const tx = Math.floor(x / TILE), ty = Math.floor(y / TILE);
   if (tx < 0 || ty < 0 || tx >= cols || ty >= rows) return true;
-  return grid[ty][tx] === 1;
+  if (grid[ty][tx] === 1) return true;
+  // Closed doors block movement (treated as walls).
+  if (closedDoors && closedDoors.length) {
+    for (const d of closedDoors) if (d.tx === tx && d.ty === ty) return true;
+  }
+  // Garage cars block movement (bounding box test).
+  if (garageCars && garageCars.length) {
+    for (const c of garageCars) {
+      if (Math.abs(x - c.x) < c.w / 2 + 2 && Math.abs(y - c.y) < c.h / 2 + 2) return true;
+    }
+  }
+  return false;
 }
 function isWallTile(tx, ty) {
   if (tx < 0 || ty < 0 || tx >= cols || ty >= rows) return true;
-  return grid[ty][tx] === 1;
+  if (grid[ty][tx] === 1) return true;
+  if (closedDoors && closedDoors.length) {
+    for (const d of closedDoors) if (d.tx === tx && d.ty === ty) return true;
+  }
+  return false;
 }
 // Find the open tile farthest (Manhattan) from anchor tile (ax,ay).
 // Returns world-space center coords. Falls back to (1,1) if grid is solid.
@@ -1101,6 +2069,14 @@ function stopMusic() {
 // ============================================================================
 function tick(dt) {
   if (!running) { updateHum(dt); updateMusic(dt, 9999); return; }
+  // Agent C: pause + level card freeze gameplay (no monster movement, no
+  // damage, no can pickups). Ambient hum + music keep evolving for atmos.
+  if (paused || levelCardShowing) {
+    silenceHum(0.1);
+    updateHum(dt);
+    updateMusic(dt, Math.hypot((monster?.x ?? 0) - pug.x, (monster?.y ?? 0) - pug.y));
+    return;
+  }
   gameTime += dt;
   if (jumpScareCooldown > 0) jumpScareCooldown -= dt;
   if (jumpScareT > 0) jumpScareT -= dt;
@@ -1124,6 +2100,8 @@ function tick(dt) {
     if (noclipTransitionT <= 0) {
       noclipTransitionT = 0;
       noclipSwapped = false;
+      // Agent C: once the chain-flash finishes, show the per-level card.
+      triggerLevelCard(level);
     }
     // Keep the hum/music ducking smoothly during the cinematic — without
     // these calls the gain freezes at its pre-transition value and "pops"
@@ -1148,16 +2126,21 @@ function tick(dt) {
   const sneaking = keys.has('shift') || touchSneak;
   // Partygoer-style slow not implemented; sanity-low slows you slightly though
   const sanitySlow = sanity < 25 ? 0.7 : 1.0;
+  // Water-slow — poolrooms water tiles drop you to 60% speed.
+  const ptxNow = Math.floor(pug.x / TILE), ptyNow = Math.floor(pug.y / TILE);
+  const onWater = waterTiles.some(w => w.tx === ptxNow && w.ty === ptyNow);
+  const waterSlow = onWater ? 0.6 : 1.0;
   if (mx || my) {
     const l = Math.hypot(mx, my);
-    const speed = (sneaking ? 70 : 140) * sanitySlow;
+    const speed = (sneaking ? 70 : 140) * sanitySlow * waterSlow;
     move(pug, (mx / l) * speed * dt, (my / l) * speed * dt);
     soundLevel = Math.min(1, soundLevel + (sneaking ? 0.05 : 1.2) * dt);
     // Update facing for flashlight cone
     pugFaceX = mx / l; pugFaceY = my / l;
-    // Footstep tick
+    // Footstep tick — splash sfx when wading
     if ((performance.now() | 0) % (sneaking ? 360 : 230) < 18) {
-      sfx.tone(sneaking ? 180 : 260, 'sine', 0.04, sneaking ? 0.05 : 0.09);
+      if (onWater) sfx.noise(0.04, 0.06, 600);
+      else sfx.tone(sneaking ? 180 : 260, 'sine', 0.04, sneaking ? 0.05 : 0.09);
     }
   } else {
     soundLevel = Math.max(0, soundLevel - dt);
@@ -1221,6 +2204,123 @@ function tick(dt) {
       }
     }
   }
+  // RARE ITEM PICKUPS (talisman / map fragment / cigarettes)
+  for (let i = talismanItems.length - 1; i >= 0; i--) {
+    const t = talismanItems[i];
+    if (Math.hypot(t.x - pug.x, t.y - pug.y) < 22) {
+      talismanItems.splice(i, 1);
+      talismanCharges = (talismanCharges | 0) + 1;
+      try { sfx.tone(880, 'triangle', 0.22, 0.28); sfx.tone(1320, 'sine', 0.18, 0.2); } catch {}
+      pop(t.x, t.y - 14, '+TALISMAN (Q to burn)', '#d2a8ff');
+    }
+  }
+  for (let i = mapFragments.length - 1; i >= 0; i--) {
+    const m = mapFragments[i];
+    if (Math.hypot(m.x - pug.x, m.y - pug.y) < 22) {
+      mapFragments.splice(i, 1);
+      mapFragmentRevealT = 10;
+      try { sfx.tone(660, 'triangle', 0.2, 0.26); sfx.tone(990, 'sine', 0.18, 0.2); } catch {}
+      pop(m.x, m.y - 14, '+MAP — EXIT GLOWS 10s', '#5ef38c');
+    }
+  }
+  for (let i = cigaretteItems.length - 1; i >= 0; i--) {
+    const c = cigaretteItems[i];
+    if (Math.hypot(c.x - pug.x, c.y - pug.y) < 22) {
+      cigaretteItems.splice(i, 1);
+      sanity = Math.min(100, sanity + 20);
+      battery = Math.max(0, battery - 10);
+      try { sfx.tone(220, 'sine', 0.3, 0.18); sfx.noise(0.05, 0.12, 200); } catch {}
+      pop(c.x, c.y - 14, '+20 SANITY -10 BATTERY', '#aaaaaa');
+    }
+  }
+  // Water-cooler drink — single-use, +5 sanity.
+  for (const w of waterCoolers) {
+    if (w.used) continue;
+    if (Math.hypot(w.x - pug.x, w.y - pug.y) < 28) {
+      if (keys.has('e')) {
+        w.used = true;
+        sanity = Math.min(100, sanity + 5);
+        try { sfx.tone(540, 'triangle', 0.18, 0.22); } catch {}
+        pop(w.x, w.y - 14, '+5 SANITY', '#5ef38c');
+      }
+    }
+  }
+  // Closed-door interaction (E to open). Auto-close behind player.
+  for (let i = closedDoors.length - 1; i >= 0; i--) {
+    const d = closedDoors[i];
+    const cx = d.tx * TILE + TILE / 2, cy = d.ty * TILE + TILE / 2;
+    const dist = Math.hypot(pug.x - cx, pug.y - cy);
+    if (dist < TILE * 1.1 && keys.has('e')) {
+      const willAutoClose = d.autoClose;
+      closedDoors.splice(i, 1);
+      try { sfx.tone(220, 'square', 0.06, 0.12); sfx.tone(120, 'sine', 0.18, 0.15); } catch {}
+      pop(cx, cy - 14, willAutoClose ? 'DOOR OPENS (will close)' : 'DOOR OPENS', '#ffd23f');
+      if (willAutoClose) {
+        // Re-arm a 4s delayed re-close, but only if player has walked past.
+        setTimeout(() => {
+          if (!running) return;
+          const dd = Math.hypot(pug.x - cx, pug.y - cy);
+          if (dd > TILE * 1.6) {
+            closedDoors.push({ tx: d.tx, ty: d.ty, vertical: d.vertical, glass: d.glass, autoClose: false, closing: false, t: 0 });
+            try { sfx.tone(180, 'sine', 0.06, 0.12); } catch {}
+          }
+        }, 4000);
+      }
+    }
+  }
+  // Secret-wall reveal — player must press WASD into a fake wall. If we
+  // detect player attempting to cross into a secret wall tile, open it.
+  if (mx || my) {
+    const ahead = { x: pug.x + mx * 14, y: pug.y + my * 14 };
+    const atx = Math.floor(ahead.x / TILE), aty = Math.floor(ahead.y / TILE);
+    for (const s of secretWalls) {
+      if (s.revealed) continue;
+      if (s.tx === atx && s.ty === aty) {
+        s.revealed = true;
+        if (grid[s.ty]) grid[s.ty][s.tx] = 0;
+        secretRoomRevealedT = 3;
+        try { sfx.tone(660, 'sine', 0.3, 0.24); sfx.tone(990, 'sine', 0.3, 0.18); sfx.tone(1320, 'triangle', 0.22, 0.16); } catch {}
+        pop(pug.x, pug.y - 24, 'SECRET ROOM!', '#ffd23f');
+        // Drop a guaranteed bonus inside the room.
+        const px = s.tx * TILE + (s.vertical ? (mx > 0 ? TILE * 0.5 : -TILE * 0.5) : 0) + TILE / 2;
+        const py = s.ty * TILE + (!s.vertical ? (my > 0 ? TILE * 0.5 : -TILE * 0.5) : 0) + TILE / 2;
+        // bonus note + battery
+        const found = loadNotesFound();
+        const undiscovered = [];
+        for (let k = 0; k < NOTE_TOTAL; k++) if (!found[k]) undiscovered.push(k);
+        const noteId = undiscovered.length ? undiscovered[Math.floor(Math.random() * undiscovered.length)]
+                                          : Math.floor(Math.random() * NOTE_TOTAL);
+        noteCollectibles.push({ x: px, y: py, id: noteId });
+        items.push({ x: px + 28, y: py, type: 'battery' });
+      }
+    }
+  }
+  // Track current room (for safe-room buffer) and update safeRoomT.
+  if (roomTileMap && roomTileMap[ptyNow]) {
+    const ridNow = roomTileMap[ptyNow][ptxNow];
+    if (ridNow !== currentRoomId) {
+      currentRoomId = ridNow;
+      if (ridNow >= 0 && rooms[ridNow] && rooms[ridNow].kind === 'safe') {
+        safeRoomT = 5;
+        pop(pug.x, pug.y - 20, 'SAFE ROOM', '#5ef38c');
+      }
+    }
+  }
+  if (safeRoomT > 0) safeRoomT = Math.max(0, safeRoomT - dt);
+  if (secretRoomRevealedT > 0) secretRoomRevealedT = Math.max(0, secretRoomRevealedT - dt);
+  if (mapFragmentRevealT > 0) mapFragmentRevealT = Math.max(0, mapFragmentRevealT - dt);
+  // Talisman use (Q with charges) — stun monster. Separate from E so it
+  // doesn't conflict with door-open / water-cooler interaction on the same
+  // frame as pickup.
+  if (keys.has('q') && talismanCharges > 0 && monsterDazedT <= 0) {
+    talismanCharges--;
+    monsterDazedT = 6;
+    try { sfx.tone(1320, 'triangle', 0.3, 0.3); sfx.sweep(880, 220, 'sine', 0.3, 0.4); } catch {}
+    pop(pug.x, pug.y - 22, 'TALISMAN BURNS', '#d2a8ff');
+    silenceHum(0.5);
+    keys.delete('q');
+  }
+  // Hide-in-spot battery drain doubles (handled where hidden is computed).
   // Battery drain
   if (flashlightOn) {
     battery = Math.max(0, battery - 3 * dt);
@@ -1235,24 +2335,56 @@ function tick(dt) {
   // Steam vents tick
   for (const v of steamVents) v.t += dt;
 
-  // Hiding
+  // Hiding — Agent B: tightened "hidden" rule so monster's effective detect
+  // radius is just 50px when player is inside a hide spot (was 200px from
+  // detectable=false fully suppressing). Battery drains 2x while hiding.
   let hidden = false;
   for (const h of hideSpots) if (Math.hypot(h.x - pug.x, h.y - pug.y) < h.r) { hidden = true; break; }
+  // While hidden + flashlight ON, drain battery at 2x rate.
+  if (hidden && flashlightOn) battery = Math.max(0, battery - 3 * dt);
+  // Allow monster to "find" you if within 50px even while hidden (tense out
+  // of hide spot if monster comes right next to it).
+  if (hidden && monster && Math.hypot(monster.x - pug.x, monster.y - pug.y) < 50) hidden = false;
 
   // Exit check — chain into the NEXT level archetype rather than ending the
   // run. Cinematic "NOCLIPPED → LEVEL N: NAME" flash plays for ~1.6s. Sanity
   // carries over; cans/pickups reset; monster scaling rises per level.
+  // Agent C: record level best time, unlock next level, and trigger WIN
+  // cutscene if we just cleared the final floor (MAX_LEVEL).
   if (cans.length === 0 && Math.hypot(exitTile.x - pug.x, exitTile.y - pug.y) < 26) {
     if (!noclipTransitionT) {
-      // Fire the cinematic + arpeggio; gen the next level only once the
-      // transition starts. This lets the player see the OLD scene during
-      // the first half of the flash.
+      const lvlInfo = levelInfoFor(level);
+      // Persist best-time for this level + unlock the next one.
+      try { _cutRecordBest(level, gameTime - levelStartT); } catch {}
+      try { _cutRecordReached(Math.min(MAX_LEVEL, level + 1)); } catch {}
+      // WIN — final level cleared. Fire win cutscene and stop the run.
+      if (level >= MAX_LEVEL) {
+        running = false;
+        document.getElementById('hud').hidden = true;
+        const pauseBtn = document.getElementById('pause-btn'); if (pauseBtn) pauseBtn.hidden = true;
+        try {
+          sfx.arp([523, 659, 784, 1047, 1568], 'triangle', 0.1, 0.30, 0.40);
+        } catch {}
+        const { isNewBest } = submitRun('backrooms-pug', { score: level, level }, (a, b) => b.level - a.level);
+        try {
+          _cutWin({
+            level, cans: (level - 1) * 5 + (5 - cans.length),
+            time: gameTime - runStartT,
+            notesFound: notesFoundCount(), notesTotal: NOTE_TOTAL,
+            deathsAvoided: Math.max(0, noclipsChained | 0),
+            isNewBest,
+          }, (action) => {
+            if (action === 'restart') startRun();
+          });
+        } catch (e) {}
+        return;
+      }
+      // Otherwise — keep the existing chain-transition + show a level card.
       noclipTransitionT = NOCLIP_TRANSITION_DUR;
-      noclipFromLabel = LV.name;
+      noclipFromLabel = lvlInfo.name;
       const nextLvl = level + 1;
-      const nextArch = levelArchetypeFor(nextLvl);
-      noclipToLabel = LEVELS[nextArch].name;
-      // Persist a fake-level peek for the banner during the transition
+      const nextInfo = levelInfoFor(nextLvl);
+      noclipToLabel = nextInfo.name;
       try {
         sfx.arp([523, 659, 784, 1047], 'triangle', 0.1, 0.22, 0.3);
         sfx.sweep(220, 880, 'sine', 0.3, 0.45);
@@ -1264,90 +2396,117 @@ function tick(dt) {
     return;
   }
 
-  // Main monster AI
+  // ==========================================================================
+  // MAIN MONSTER AI — 3-state machine: IDLE → HUNTING → CHASE (Agent D).
+  // Player only knows monster position via stereo-panned audio cues. Sprite is
+  // hidden whenever outside viewR (monster.visible = false). Speed model:
+  // full when offscreen, slow when visible — "slow when seen, deadly otherwise".
+  // ==========================================================================
   const distToPug = Math.hypot(monster.x - pug.x, monster.y - pug.y);
-  const detectable = !hidden && monsterDazedT <= 0;
+  // Safe rooms suppress monster detection for safeRoomT seconds after entering.
+  const detectable = !hidden && monsterDazedT <= 0 && safeRoomT <= 0;
   const hears = detectable && soundLevel > 0.5 && distToPug < 420;
   let sees = false;
-  if (detectable && distToPug < 320) sees = lineClear(monster.x, monster.y, pug.x, pug.y);
+  if (detectable && distToPug < 360) sees = lineClear(monster.x, monster.y, pug.x, pug.y);
   const prevSees = monster.sees;
   monster.sees = sees;
-  if (sees && !prevSees) {
-    shake(4, 0.25);
-    sfx.tone(220, 'sawtooth', 0.18, 0.18);
-    if (!firstSeenScreamed) {
-      firstSeenScreamed = true;
-      // Sudden scream — a sweep + brief silence
-      sfx.sweep(900, 180, 'sawtooth', 0.6, 0.32);
-      silenceHum(0.45);
-    }
-  }
+  const VIEW_R = 340; // flashlight-on viewR; sprite hidden beyond this
+  const monsterOffscreen = distToPug > VIEW_R;
+  monster.visible = !monsterOffscreen;
+
+  // ----- 3-STATE TRANSITION LOGIC ------------------------------------------
+  if (!monster.aiState) monster.aiState = 'idle';
   if (sees || hears) {
     monster.lastSeenX = pug.x; monster.lastSeenY = pug.y;
-    monsterChaseT = sees ? 5 : 2.5;
+    monsterLostContactT = 0;
+    if (distToPug < 200) monster.aiState = 'chase';
+    else if (monster.aiState !== 'chase') monster.aiState = 'hunting';
+  } else {
+    monsterLostContactT += dt;
+    if (monster.aiState === 'chase') {
+      if (distToPug > 400 && monsterLostContactT > 5) monster.aiState = 'idle';
+      else if (distToPug > 200) monster.aiState = 'hunting';
+    } else if (monster.aiState === 'hunting') {
+      monsterHuntingT += dt;
+      if (monsterLostContactT > 15) { monster.aiState = 'idle'; monsterHuntingT = 0; }
+    }
   }
   const prevChase = monster.chase;
-  monster.chase = monsterChaseT > 0;
-  if (monsterChaseT > 0) monsterChaseT -= dt;
-  // JUMP SCARE TRIGGER — first transition into chase while monster is close.
-  // Also re-trigger if the monster has been chasing for a while and suddenly
-  // closes inside 70px (panic spike). Cooldown still gates real scares.
-  if (monster.chase && !prevChase && distToPug < 280) {
-    jumpScare('monster');
-  } else if (monster.chase && distToPug < 70 && jumpScareCooldown <= 0) {
-    jumpScare('monster');
+  monster.chase = monster.aiState === 'chase';
+  monster.hunting = monster.aiState === 'hunting';
+  monsterChaseT = monster.chase ? 5 : Math.max(0, monsterChaseT - dt);
+
+  if (sees && !prevSees && !firstSeenScreamed) {
+    firstSeenScreamed = true;
+    shake(4, 0.25);
+    sfx.sweep(900, 180, 'sawtooth', 0.6, 0.32);
+    silenceHum(0.45);
+  }
+  if (monster.chase && !prevChase && distToPug < 280) jumpScare('monster');
+  else if (monster.chase && distToPug < 70 && jumpScareCooldown <= 0) jumpScare('monster');
+
+  // ----- STOCHASTIC WANDER TARGET (IDLE) -----------------------------------
+  // 50% true far wander, 30% silent closing on player, 20% ambush near exit.
+  if (monster.aiState === 'idle') {
+    if (gameTime >= monsterWanderRefreshAt ||
+        !monster.wanderTarget ||
+        Math.hypot(monster.wanderTarget.x - monster.x, monster.wanderTarget.y - monster.y) < 50) {
+      const roll = Math.random();
+      if (roll < 0.20 && exitTile) {
+        const midX = (pug.x + exitTile.x) * 0.5 + (Math.random() - 0.5) * TILE * 3;
+        const midY = (pug.y + exitTile.y) * 0.5 + (Math.random() - 0.5) * TILE * 3;
+        monster.wanderTarget = findNearestOpenTile(midX, midY);
+      } else if (roll < 0.50) {
+        const a = Math.random() * Math.PI * 2;
+        const r = (4 + Math.random() * 4) * TILE;
+        monster.wanderTarget = findNearestOpenTile(pug.x + Math.cos(a) * r, pug.y + Math.sin(a) * r);
+      } else {
+        monster.wanderTarget = findRandomFarOpenTile(monster.x, monster.y, 6 * TILE);
+      }
+      monsterWanderRefreshAt = gameTime + 3 + Math.random() * 4;
+    }
   }
 
-  // --------------------------------------------------------------------------
-  // MONSTER MOVEMENT — with sliding collision + stuck rescue + wander target.
-  // Bug we are fixing: in the bottom-right corner the monster would push
-  // into a wall and stick forever because the simple move() only resolved
-  // axis-aligned overlaps. We add: (a) intended-velocity slide retry,
-  // (b) "inside a wall for >0.5s" teleport rescue, (c) "didn't move >12px
-  // in 3s while not chasing" wander-target reset to a random far tile.
-  // --------------------------------------------------------------------------
-  // (a) Determine intended velocity.
+  // ----- MOVEMENT (full offscreen, creep visible) --------------------------
   let mvx = 0, mvy = 0;
-  const targetT = monster.chase ? { x: monster.lastSeenX, y: monster.lastSeenY } : null;
-  // Per-level chain scaling applied on top of the archetype base speed.
   const chainScale = monsterScaleFor(level || 1);
+  const blackoutBoost = blackoutT > 0 ? 2.0 : 1.0;
+  let baseSpeed;
+  let targetT;
+  if (monster.aiState === 'chase') {
+    targetT = { x: monster.lastSeenX, y: monster.lastSeenY };
+    baseSpeed = monsterOffscreen ? 220 : 135;
+  } else if (monster.aiState === 'hunting') {
+    targetT = { x: monster.lastSeenX, y: monster.lastSeenY };
+    baseSpeed = monsterOffscreen ? 150 : 80;
+  } else {
+    if (!monster.wanderTarget) monster.wanderTarget = findRandomFarOpenTile(monster.x, monster.y, 6 * TILE);
+    targetT = monster.wanderTarget;
+    baseSpeed = monsterOffscreen ? 95 : 45;
+  }
   if (targetT) {
     const dx = targetT.x - monster.x, dy = targetT.y - monster.y;
     const d = Math.hypot(dx, dy);
     if (d > 8) {
-      const sp = (sees ? 165 : 110) * LV.monsterSpeed * chainScale;
+      const sp = baseSpeed * LV.monsterSpeed * chainScale * blackoutBoost;
       mvx = (dx / d) * sp; mvy = (dy / d) * sp;
+    } else if (monster.aiState === 'chase' || monster.aiState === 'hunting') {
+      if (monster.aiState === 'chase') { monster.aiState = 'hunting'; monsterLostContactT = 0; }
+      else { monster.aiState = 'idle'; monster.wanderTarget = null; }
     } else {
-      monsterChaseT = 0;
+      monsterWanderRefreshAt = 0;
     }
-    monster.wanderTarget = null;
-  } else {
-    // Wander toward a roving target far from current spot; refresh every few s.
-    if (!monster.wanderTarget ||
-        Math.hypot(monster.wanderTarget.x - monster.x, monster.wanderTarget.y - monster.y) < 40) {
-      monster.wanderTarget = findRandomFarOpenTile(monster.x, monster.y, 6 * TILE);
-    }
-    const dx = monster.wanderTarget.x - monster.x;
-    const dy = monster.wanderTarget.y - monster.y;
-    const d = Math.hypot(dx, dy) || 1;
-    const sp = 50 * LV.monsterSpeed * chainScale;
-    mvx = (dx / d) * sp; mvy = (dy / d) * sp;
   }
-  // (b) Move with sliding collision — try full move, then X-only, then Y-only.
+  // Sliding collision + anti-stuck (preserved from prior round).
   const beforeX = monster.x, beforeY = monster.y;
   move(monster, mvx * dt, mvy * dt, 14);
-  // If we barely moved and there was clear intent, try to slide along walls
-  // by independently retrying X and Y at higher resolution.
   const moved = Math.hypot(monster.x - beforeX, monster.y - beforeY);
   if (moved < 0.2 && (Math.abs(mvx) > 1 || Math.abs(mvy) > 1)) {
-    // Pure axis slide: zero out the blocked component, keep the tangent one.
     if (Math.abs(mvx) > 1) move(monster, mvx * dt, 0, 14);
     if (Math.abs(mvy) > 1 && Math.hypot(monster.x - beforeX, monster.y - beforeY) < 0.2) {
       move(monster, 0, mvy * dt, 14);
     }
   }
-  // (c) Wall-inside rescue: if monster's center is inside a wall for >0.5s
-  // (impossible normally but happens when carve-room overlaps spawn), teleport.
   if (isWallAt(monster.x, monster.y)) {
     monsterStuckT += dt;
     if (monsterStuckT > 0.5) {
@@ -1359,8 +2518,6 @@ function tick(dt) {
   } else {
     monsterStuckT = 0;
   }
-  // (d) Spawn-corner pin rescue: if the monster's hardly moved from a tracked
-  // position in 3s AND isn't actively chasing, force a fresh random wander target.
   monsterStuckPosT += dt;
   if (Math.hypot(monster.x - monsterStuckPos.x, monster.y - monsterStuckPos.y) > 12) {
     monsterStuckPos = { x: monster.x, y: monster.y };
@@ -1369,17 +2526,57 @@ function tick(dt) {
     monster.wanderTarget = findRandomFarOpenTile(monster.x, monster.y, 8 * TILE);
     monsterStuckPos = { x: monster.x, y: monster.y };
     monsterStuckPosT = 0;
+    monsterWanderRefreshAt = gameTime + 3 + Math.random() * 4;
   }
 
-  // Entities AI (Hounds + Smilers + Crawlers + Whisperers)
+  // ----- POSITIONAL AUDIO (the ONLY way to know where the monster is) -----
+  const monsterMoving = Math.hypot(mvx, mvy) > 5;
+  monsterFootstepT += dt;
+  const footRate = monster.chase ? 0.40 : monster.hunting ? 0.55 : 0.70;
+  if (monsterMoving && monsterFootstepT >= footRate + Math.random() * 0.10) {
+    monsterFootstepT = 0;
+    emitPositionalTone(monster.x, monster.y, 90 + Math.random() * 18, 'sine', 0.06, 0.18);
+  }
+  monsterGrowlT += dt;
+  if (monsterGrowlT >= 8 + Math.random() * 7) {
+    monsterGrowlT = 0;
+    emitPositionalTone(monster.x, monster.y, 78 + Math.random() * 22, 'sawtooth', 0.40, 0.22, 900, 100);
+    setTimeout(() => running && emitPositionalTone(monster.x, monster.y, 55, 'sine', 0.45, 0.18, 900, 100), 120);
+  }
+  if (distToPug < 200) {
+    monsterBreathT += dt;
+    const rate = monster.chase ? 0.50 : 0.85;
+    if (monsterBreathT >= rate) {
+      monsterBreathT = 0;
+      emitPositionalTone(monster.x, monster.y, 130 + Math.random() * 30, 'sine', 0.16, 0.10, 350, 60);
+    }
+  } else {
+    monsterBreathT = Math.max(0, monsterBreathT - dt * 0.5);
+  }
+  if (monster.hunting) {
+    monsterSniffT += dt;
+    if (monsterSniffT >= 1.4 + Math.random() * 1.0) {
+      monsterSniffT = 0;
+      emitPositionalNoise(monster.x, monster.y, 0.18, 0.10, 600);
+      emitPositionalTone(monster.x, monster.y, 220 + Math.random() * 40, 'triangle', 0.08, 0.08, 600, 60);
+    }
+  } else {
+    monsterSniffT = 0;
+  }
+
+  // Entities AI (Hounds + Smilers + Crawlers + Whisperers + Lurkers).
+  // Lurker visibility flag is reset each frame so it only persists while a
+  // lurker is actively revealed by the player's flashlight.
+  if (lurkerVisibleT > 0) lurkerVisibleT = Math.max(0, lurkerVisibleT - dt);
   for (const e of entities) {
     e.t += dt;
     if (e.kind === 'hound') tickHound(e, dt, hidden);
     if (e.kind === 'smiler') tickSmiler(e, dt, hidden);
     if (e.kind === 'crawler') tickCrawler(e, dt, hidden);
     if (e.kind === 'whisperer') tickWhisperer(e, dt, hidden);
-    // Damage on contact
-    if (Math.hypot(e.x - pug.x, e.y - pug.y) < 20) {
+    if (e.kind === 'lurker') tickLurker(e, dt, hidden);
+    // Damage on contact (lurker handles its own damage in tickLurker)
+    if (e.kind !== 'lurker' && Math.hypot(e.x - pug.x, e.y - pug.y) < 20) {
       if (e.kind === 'smiler' && (flashlightOn && smilerInBeam(e))) {
         // Smiler being repelled — don't damage; push it back
       } else if (e.kind === 'whisperer') {
@@ -1417,12 +2614,41 @@ function tick(dt) {
   if (noteUnfoldT > 0) noteUnfoldT = Math.max(0, noteUnfoldT - dt);
   if (catchSlowmoT > 0) catchSlowmoT = Math.max(0, catchSlowmoT - dt);
 
-  // Heartbeat when monster close & chase
-  if (monster.chase && distToPug < 360) {
+  // Heartbeat — louder when monster < 300px, fades when > 500px. Synthesised
+  // as a 50Hz thump + 70Hz subtone with a 0.06s envelope-shaped attack. Plays
+  // even outside chase if monster is genuinely close (proximity tension).
+  const hbProx = distToPug < 500;
+  const hbActive = hbProx || monster.chase;
+  if (hbActive && distToPug < 500) {
     heartBeatT += dt;
-    const rate = Math.max(0.35, distToPug / 800); // closer = faster
-    if (heartBeatT >= rate) { heartBeatT = 0; sfx.tone(60, 'sine', 0.12, 0.18); }
+    // Closer = faster. <300px → 0.45s; 500px → 0.9s.
+    const rate = Math.max(0.32, distToPug / 700);
+    if (heartBeatT >= rate) {
+      heartBeatT = 0;
+      // Loud near, soft far. Two-tone thump.
+      const closeness = Math.max(0, 1 - distToPug / 500);
+      const vol = 0.10 + 0.30 * closeness;        // ramps 0.10 → 0.40
+      const sub = 0.06 + 0.18 * closeness;
+      sfx.tone(50, 'sine', vol, 0.06);             // 50Hz thump
+      setTimeout(() => running && sfx.tone(70, 'sine', sub, 0.06), 35); // 70Hz subtone
+    }
   } else { heartBeatT = 0; }
+  // FOOTSTEPS YOU DIDN'T MAKE — purely psychological footstep when standing
+  // still long enough. Tracks `stillT` (seconds player has been stationary).
+  if (mx === 0 && my === 0) {
+    stillT += dt;
+    if (stillT >= nextGhostStepAt && Math.random() < 0.5) {
+      try {
+        sfx.tone(180 + Math.random() * 40, 'sine', 0.06, 0.08);
+        setTimeout(() => running && sfx.tone(140, 'sine', 0.04, 0.07), 90);
+      } catch {}
+      scheduleGhostStep();
+    } else if (stillT < 0.1) {
+      scheduleGhostStep();
+    }
+  } else {
+    stillT = 0;
+  }
 
   // Vignette + visuals
   if (sees) chaseVignetteT = Math.min(1, chaseVignetteT + dt * 2.5);
@@ -1485,13 +2711,10 @@ function tick(dt) {
     }
     scheduleDoorSlam();
   }
-  // Low-sanity whispers
+  // Low-sanity whispers — multiple simultaneous panned voices, detuned octaves
+  // (loudly at sanity<50). Combined gain ~0.3, was ~0.1 in old single-tone ver.
   if (sanity < 50 && gameTime >= nextWhisperAt) {
-    try {
-      const baseF = 280 + Math.random() * 240;
-      sfx.tone(baseF, 'sine', 0.4, 0.05);
-      setTimeout(() => running && sfx.tone(baseF * 0.78, 'triangle', 0.35, 0.04), 90);
-    } catch {}
+    playPannedWhispers();
     scheduleWhisper();
   } else if (sanity >= 50) {
     // push next whisper out if sanity is healthy
@@ -1522,7 +2745,8 @@ function tick(dt) {
     }
   }
 
-  // Pug breathing — gets louder/faster in chase
+  // Pug breathing — gets louder/faster in chase. During blackout the breathing
+  // shifts to a deeper, slower "trapped" rate as if holding breath.
   if (monster.chase) {
     breathT += dt;
     const rate = Math.max(0.45, distToPug / 700);
@@ -1530,12 +2754,123 @@ function tick(dt) {
       breathT = 0;
       try { sfx.tone(140 + Math.random() * 40, 'sine', 0.18, 0.05); } catch {}
     }
+  } else if (blackoutT > 0) {
+    // Deep breathing during blackout
+    breathT += dt;
+    if (breathT >= 1.2) {
+      breathT = 0;
+      try {
+        sfx.tone(90, 'sine', 0.22, 0.30);
+        setTimeout(() => running && sfx.tone(60, 'sine', 0.16, 0.40), 250);
+      } catch {}
+    }
   } else {
     breathT = Math.max(0, breathT - dt * 0.5);
   }
 
+  // ===========================================================================
+  // NEW HORROR EVENT SYSTEMS — phantom, peripheral, eyes, blackout,
+  // dying-bulb, stroboscopic. All decay timers + schedule next event.
+  // ===========================================================================
+  // PHANTOM scares — random face-flash with NO monster nearby.
+  if (phantomCooldown > 0) phantomCooldown -= dt;
+  if (jumpScareMaxAudioT > 0) jumpScareMaxAudioT -= dt;
+  if (gameTime >= nextPhantomAt) {
+    if (phantomCooldown <= 0 && jumpScareT <= 0) {
+      // Roll 50/50: phantom or reflection.
+      const kind = Math.random() < 0.5 ? 'phantom' : 'reflection';
+      jumpScare(kind);
+    }
+    schedulePhantom();
+  }
+  // PERIPHERAL DOORWAY GLIMPSE — quick edge-of-screen silhouette.
+  if (peripheralT > 0) peripheralT = Math.max(0, peripheralT - dt);
+  if (gameTime >= nextPeripheralAt) {
+    peripheralT = 0.22;
+    peripheralSide = Math.floor(Math.random() * 4); // 0:L 1:R 2:T 3:B
+    try {
+      caption('[GLIMPSE]', 700);
+      sfx.tone(110, 'sine', 0.10, 0.15);
+      sfx.noise(0.08, 0.18, 200);
+    } catch {}
+    schedulePeripheral();
+  }
+  // EYES IN DARK — two glowing eyes in an unlit area for 1s, then drift.
+  if (eyesT > 0) {
+    eyesT = Math.max(0, eyesT - dt);
+    eyesX += eyesDriftX * dt;
+  }
+  if (gameTime >= nextEyesAt) {
+    // Place in screen edge, slight off-camera in unlit zone (rendered in screen-space).
+    eyesT = 1.0;
+    eyesX = (Math.random() < 0.5 ? 0.12 : 0.88) * W;
+    eyesY = (0.25 + Math.random() * 0.5) * H;
+    eyesDriftX = (Math.random() - 0.5) * 30;
+    try {
+      caption('[EYES]', 900);
+      sfx.tone(70, 'sine', 0.18, 0.5);
+    } catch {}
+    scheduleEyes();
+  }
+  // BLACKOUT — all lights OUT for 1.5-2.5s every 60-120s. Monster gains 2x
+  // speed (applied to LV.monsterSpeed in monster movement) and audio shifts.
+  if (blackoutT > 0) {
+    blackoutT -= dt;
+    if (blackoutT <= 0) {
+      blackoutT = 0;
+      // Lights-back-on click
+      try { sfx.tone(660, 'square', 0.05, 0.10); } catch {}
+    }
+  }
+  if (gameTime >= nextBlackoutAt) {
+    blackoutLife = 1.5 + Math.random() * 1.0;
+    blackoutT = blackoutLife;
+    silenceHum(0.6);
+    try {
+      caption('[BLACKOUT]', 1500);
+      // Pop + dwindle
+      sfx.tone(220, 'sawtooth', 0.18, 0.20);
+      sfx.tone(60, 'sine', 0.30, 0.60);
+      sfx.noise(0.12, 0.30, 400);
+    } catch {}
+    scheduleBlackout();
+  }
+  // DYING BULB — pick a random big ceiling light; flicker erratically for 30s
+  // then leave it permanently off (mark with .dead=true).
+  if (dyingBulb) {
+    dyingBulbT += dt;
+    if (dyingBulbT >= dyingBulbLife) {
+      dyingBulb.dead = true;
+      dyingBulb = null;
+      try { sfx.tone(120, 'square', 0.08, 0.18); } catch {}
+    }
+  } else if (gameTime >= nextDyingBulbAt && bigCeilingLights.length) {
+    const alive = bigCeilingLights.filter(L => !L.dead);
+    if (alive.length) {
+      dyingBulb = alive[Math.floor(Math.random() * alive.length)];
+      dyingBulbT = 0;
+      try { sfx.tone(440, 'sine', 0.06, 0.12); } catch {}
+    }
+    scheduleDyingBulb();
+  }
+  // STROBOSCOPIC — when sanity < 30, strobe red+white at 6Hz for 2s.
+  if (stroboT > 0) stroboT = Math.max(0, stroboT - dt);
+  if (sanity < 30 && gameTime >= nextStroboAt) {
+    stroboT = 2.0;
+    try {
+      caption('[STROBE]', 1500);
+      sfx.sweep(880, 220, 'square', 0.20, 0.30);
+      sfx.tone(60, 'sine', 0.25, 0.45);
+    } catch {}
+    scheduleStrobo();
+  } else if (sanity >= 30) {
+    // Keep pushing it forward so it's ready when sanity drops
+    if (nextStroboAt < gameTime + 10) scheduleStrobo();
+  }
+
   updateHum(dt);
   updateMusic(dt, distToPug);
+  updateStaticNoise(dt, distToPug, sees);
   updateHud();
 }
 
@@ -1550,19 +2885,42 @@ function tickHound(e, dt, hidden) {
     e.aggroT = 3.0;
     e.state = 'chase';
     if (e.t > 1.2) { e.t = 0; sfx.tone(380, 'sawtooth', 0.08, 0.12); }
-    // JUMP SCARE — first hound to enter chase this match.
     if (!wasChase && !firstHoundJump) {
       firstHoundJump = true;
       jumpScare('hound');
+    }
+    // PACK AGGRO — alert pack-mates within 300px so they share the chase.
+    // (Agent D) Pack hounds split flanking: 'chase' = head-on, 'flank' = 90° offset.
+    if (e.packId) {
+      for (const other of entities) {
+        if (other === e || other.kind !== 'hound' || other.packId !== e.packId) continue;
+        if (Math.hypot(other.x - e.x, other.y - e.y) < 300) {
+          other.aggroT = Math.max(other.aggroT || 0, 3.0);
+          if (other.state !== 'chase') other.state = 'chase';
+        }
+      }
     }
   } else if (e.aggroT > 0) {
     e.aggroT -= dt;
     if (e.aggroT <= 0) e.state = 'idle';
   }
   if (e.state === 'chase' && dist > 4) {
-    move(e, (dx / dist) * e.speed * dt, (dy / dist) * e.speed * dt, 12);
+    // FLANK role — aim for a 90° offset position perpendicular to the player→hound
+    // vector so the player gets pincered. Once within 80px of player, drop the
+    // flank goal and pursue directly.
+    let targetX = pug.x, targetY = pug.y;
+    if (e.packRole === 'flank' && dist > 80) {
+      // 90° rotation of (player→hound) gives perpendicular direction; offset target
+      // by 120px so the hound circles around. Sign alternates per pack member id.
+      const px = -dy / dist, py = dx / dist;
+      const side = (e.packId & 1) ? 1 : -1;
+      targetX = pug.x + px * 120 * side;
+      targetY = pug.y + py * 120 * side;
+    }
+    const tdx = targetX - e.x, tdy = targetY - e.y;
+    const tdist = Math.hypot(tdx, tdy) || 1;
+    move(e, (tdx / tdist) * e.speed * dt, (tdy / tdist) * e.speed * dt, 12);
   } else {
-    // wander
     e.wanderT -= dt;
     if (e.wanderT <= 0) {
       e.wanderT = 1.2 + Math.random() * 1.8;
@@ -1570,6 +2928,12 @@ function tickHound(e, dt, hidden) {
       e.vx = Math.cos(a) * 50; e.vy = Math.sin(a) * 50;
     }
     move(e, e.vx * dt, e.vy * dt, 12);
+  }
+  // SCRATCHING WOOD cue — emitted only when hound is OFFSCREEN (player can't
+  // see it). Sparse: every 5-12s, low-vol positional noise burst.
+  if (dist > 340 && gameTime - (e.lastScratchT || -999) > 5 + Math.random() * 7) {
+    e.lastScratchT = gameTime;
+    emitPositionalNoise(e.x, e.y, 0.22, 0.10, 1200);
   }
 }
 
@@ -1586,16 +2950,13 @@ function smilerInBeam(e) {
 }
 function tickSmiler(e, dt, hidden) {
   const lit = inLitCell(e.x, e.y);
-  // Visibility: only in dark areas
   const targetOp = lit ? 0.05 : 0.9;
   e.opacity += (targetOp - e.opacity) * Math.min(1, dt * 3);
-  // JUMP SCARE — smiler within 90px and flashlight OFF, once per 12s per smiler.
   const dPug = Math.hypot(e.x - pug.x, e.y - pug.y);
   if (!flashlightOn && dPug < 90 && (gameTime - (e.lastJumpAt || -999)) > 12) {
     e.lastJumpAt = gameTime;
     jumpScare('smiler');
   }
-  // If in flashlight beam, get pushed back & damaged-mood
   if (smilerInBeam(e)) {
     e.recoilT = 0.6;
     const dx = e.x - pug.x, dy = e.y - pug.y;
@@ -1606,20 +2967,21 @@ function tickSmiler(e, dt, hidden) {
   }
   e.recoilT = Math.max(0, e.recoilT - dt);
   if (hidden || monsterDazedT > 0) return; // hidden = smiler stops
-  // Slow creep toward pug if pug not lit
-  const litPug = inLitCell(pug.x, pug.y);
-  if (!litPug) {
-    const dx = pug.x - e.x, dy = pug.y - e.y;
-    const d = Math.hypot(dx, dy) || 1;
-    if (d > 10) move(e, (dx / d) * e.speed * dt, (dy / d) * e.speed * dt, 12);
-  } else {
-    // wander while pug is safe
-    if (Math.random() < dt * 0.4) {
-      const a = Math.random() * Math.PI * 2;
-      e.vx = Math.cos(a) * 30; e.vy = Math.sin(a) * 30;
-    }
-    move(e, (e.vx || 0) * dt, (e.vy || 0) * dt, 12);
+  // WEEPING ANGEL behaviour (Agent D) — if smiler is NOT in player's viewport
+  // center 40° cone, it shifts toward player by 5px/frame. If in center cone,
+  // it FREEZES. "Looked away for 1 sec and it's right next to me" terror.
+  const dxSm = e.x - pug.x, dySm = e.y - pug.y;
+  const dSm = Math.hypot(dxSm, dySm) || 1;
+  const flLen = Math.hypot(pugFaceX, pugFaceY) || 1;
+  const facingDot = (dxSm / dSm) * (pugFaceX / flLen) + (dySm / dSm) * (pugFaceY / flLen);
+  // cos(20°) ≈ 0.94 — within ~40° cone of facing dir = "looking at it"
+  const inCenterCone = facingDot > 0.94 && lineClear(e.x, e.y, pug.x, pug.y);
+  if (!inCenterCone) {
+    // Shift 5px/frame at 60fps ≈ 300px/s — apply as velocity-based move
+    move(e, (-dxSm / dSm) * 300 * dt, (-dySm / dSm) * 300 * dt, 12);
+    return;
   }
+  // FROZEN — player is looking at it; do nothing.
 }
 
 // ----- CRAWLER ----- low spider-pug. Hugs floor, hides near furniture, lunges
@@ -1629,6 +2991,8 @@ function tickCrawler(e, dt, hidden) {
   e.lungeCooldown = Math.max(0, e.lungeCooldown - dt);
   const dx = pug.x - e.x, dy = pug.y - e.y;
   const dist = Math.hypot(dx, dy);
+  // Spotted-freeze decay (Agent D — added).
+  if (e.spottedFreezeT > 0) e.spottedFreezeT -= dt;
   // Currently lunging — fast burst toward player for 0.35s.
   if (e.lungeT > 0) {
     e.lungeT -= dt;
@@ -1638,17 +3002,59 @@ function tickCrawler(e, dt, hidden) {
     }
     return;
   }
-  // Trigger lunge if close enough, not on cooldown, line clear, and not hidden.
+  // SILENT LUNGE (Agent D) — if player walks within 40px while crawler is OFFSCREEN
+  // (outside viewport), lunge with no warning audio. lineClear still required.
+  if (!hidden && dist < 40 && e.lungeCooldown <= 0 && dist > 360) {
+    if (lineClear(e.x, e.y, pug.x, pug.y)) {
+      e.lungeT = 0.35; e.lungeCooldown = 2.5;
+      return; // no sfx — silent
+    }
+  }
+  // SPOT-FREEZE behaviour (Agent D) — if player sees crawler from > 60px,
+  // freeze briefly then 50/50 lunge-or-retreat. e.spottedResolved gates the
+  // roll so it only happens once per "spotted" event.
+  const playerSees = !hidden && dist < 360 && dist > 60 && lineClear(e.x, e.y, pug.x, pug.y);
+  if (playerSees && !e.spottedResolved && e.spottedFreezeT <= 0) {
+    e.spottedFreezeT = 0.6;     // freeze for 0.6s
+    e.spottedResolved = false;  // will roll at end of freeze
+  }
+  if (e.spottedFreezeT > 0) {
+    // Frozen — don't move
+    if (e.spottedFreezeT <= dt && !e.spottedResolved) {
+      // Just resolved — coin flip: lunge or retreat
+      e.spottedResolved = true;
+      if (Math.random() < 0.5 && lineClear(e.x, e.y, pug.x, pug.y)) {
+        e.lungeT = 0.35; e.lungeCooldown = 2.5;
+        try { sfx.sweep(420, 220, 'sawtooth', 0.18, 0.18); } catch {}
+      } else {
+        // Retreat — 90° away from player for 0.8s
+        const m = Math.hypot(dx, dy) || 1;
+        e.retreatVx = -(dx / m) * 200;
+        e.retreatVy = -(dy / m) * 200;
+        e.lungeT = -0.8;   // negative = retreat counter
+      }
+    }
+    return;
+  }
+  // Currently retreating (encoded as negative lungeT counter)
+  if (e.lungeT < 0) {
+    e.lungeT += dt;
+    move(e, e.retreatVx * dt, e.retreatVy * dt, 10);
+    if (e.lungeT >= 0) { e.lungeT = 0; e.spottedResolved = false; }
+    return;
+  }
+  // Reset spotted flag when player looks away
+  if (!playerSees) e.spottedResolved = false;
+  // Normal lunge — close range with LOS
   if (!hidden && dist < 80 && e.lungeCooldown <= 0 && lineClear(e.x, e.y, pug.x, pug.y)) {
     e.lungeT = 0.35; e.lungeCooldown = 2.5;
     try { sfx.sweep(420, 220, 'sawtooth', 0.18, 0.18); } catch {}
     return;
   }
-  // Patrol — slow wander biased toward nearby furniture (to "hide" near it).
+  // Patrol — slow wander biased toward nearby furniture.
   e.wanderT -= dt;
   if (e.wanderT <= 0) {
     e.wanderT = 2 + Math.random() * 2;
-    // Pick a nearby furniture or random target
     let tgt = null;
     if (furniture.length && Math.random() < 0.5) {
       tgt = furniture[Math.floor(Math.random() * furniture.length)];
@@ -1663,26 +3069,55 @@ function tickCrawler(e, dt, hidden) {
     }
   }
   move(e, (e.vx || 0) * dt, (e.vy || 0) * dt, 10);
+  // SKITTERING cue (Agent D) — when crawler is OFFSCREEN, emit a faint skittering
+  // noise burst every 4..10s. Player hears them but can't pinpoint location.
+  if (dist > 360 && gameTime - (e.lastSkitterT || -999) > 4 + Math.random() * 6) {
+    e.lastSkitterT = gameTime;
+    emitPositionalNoise(e.x, e.y, 0.16, 0.08, 1800);
+    emitPositionalTone(e.x, e.y, 340 + Math.random() * 80, 'triangle', 0.05, 0.06, 700, 80);
+  }
 }
 
 // ----- WHISPERER ----- stationary silhouette. Erodes sanity if the player's
 // facing vector points within ~15deg of it AND there's line of sight, for >1.5s.
 function tickWhisperer(e, dt, hidden) {
+  // HOP — every 20s, teleport to a new visible-ish open tile (player sees it's
+  // gone but doesn't see the move). Pick a tile within line-of-sight range but
+  // not too close to the player.
+  if ((e.nextHopT = (e.nextHopT || 20) - dt) <= 0) {
+    e.nextHopT = 18 + Math.random() * 6;
+    for (let tries = 0; tries < 25; tries++) {
+      const tx = 1 + Math.floor(Math.random() * (cols - 2));
+      const ty = 1 + Math.floor(Math.random() * (rows - 2));
+      if (grid[ty][tx] !== 0) continue;
+      const wx = tx * TILE + TILE / 2, wy = ty * TILE + TILE / 2;
+      const d = Math.hypot(wx - pug.x, wy - pug.y);
+      if (d < 200 || d > 520) continue;
+      e.x = wx; e.y = wy;
+      e.gazeT = 0;
+      break;
+    }
+  }
   if (hidden) { e.gazeT = 0; return; }
   const dx = e.x - pug.x, dy = e.y - pug.y;
   const dist = Math.hypot(dx, dy);
-  // Only "active" within long-corridor visible range
+  // LOW-SANITY WALK (Agent D) — at sanity < 30, whisperer slowly walks toward
+  // player at 0.5 cells/sec (~ 42px/s). Terrifying because they're normally fixed.
+  if (sanity < 30 && dist > 60) {
+    const m = dist || 1;
+    move(e, (-dx / m) * 42 * dt, (-dy / m) * 42 * dt, 12);
+  }
   if (dist > 520 || dist < 60) { e.gazeT = Math.max(0, e.gazeT - dt * 2); return; }
   const fl = Math.hypot(pugFaceX, pugFaceY) || 1;
   const dot = (dx / dist) * (pugFaceX / fl) + (dy / dist) * (pugFaceY / fl);
   const facing = dot > 0.95; // ~18deg
   const visible = lineClear(e.x, e.y, pug.x, pug.y);
+  // Drain sanity only when player FACING + visible (per spec: stops draining
+  // when player not facing it).
   if (facing && visible) {
     e.gazeT += dt;
-    // After 1.5s of staring, start draining sanity rapidly (4/sec)
     if (e.gazeT > 1.5) {
       sanity = Math.max(0, sanity - 4 * dt);
-      // Soft whisper sound every 1.5s while gazed
       if (gameTime - (e.lastWhisperT || -999) > 1.5) {
         e.lastWhisperT = gameTime;
         try { sfx.tone(180 + Math.random() * 80, 'sine', 0.5, 0.04); } catch {}
@@ -1690,6 +3125,35 @@ function tickWhisperer(e, dt, hidden) {
     }
   } else {
     e.gazeT = Math.max(0, e.gazeT - dt * 1.5);
+  }
+}
+
+// ----- LURKER ----- (Agent D) invisible, stationary; grabs player if approached
+// within 80px without flashlight on. Flashlight on within 220px sets the
+// visibility flag (consumed by Agent A's EYES-IN-DARK overlay). Triggered
+// lurkers fire a 'lurker' jumpscare and de-spawn (one-shot).
+function tickLurker(e, dt, hidden) {
+  if (e.triggered) return;
+  const dx = e.x - pug.x, dy = e.y - pug.y;
+  const dist = Math.hypot(dx, dy);
+  // Reveal — when player has flashlight on and is within 220px AND the line is
+  // clear, expose the lurker briefly so player can see + dodge.
+  if (flashlightOn && dist < 220 && lineClear(e.x, e.y, pug.x, pug.y)) {
+    lurkerVisibleT = 1.0;
+    lurkerVisibleX = e.x;
+    lurkerVisibleY = e.y;
+  }
+  // Catch — within 80px AND flashlight off (player can't see it).
+  if (!hidden && !flashlightOn && dist < 80) {
+    e.triggered = true;
+    sanity = Math.max(0, sanity - 30);
+    hitFlashT = 0.5;
+    shake(14, 0.5);
+    // Force a real jumpscare even on cooldown (death-ish event).
+    jumpScareCooldown = 0;
+    jumpScare('lurker');
+    // Drop a giant LURKER scream
+    try { sfx.sweep(1100, 90, 'sawtooth', 0.55, 0.42); } catch {}
   }
 }
 
@@ -1721,24 +3185,40 @@ function render() {
   // View radius — slightly larger when flashlight ON.
   // Tightened so visible area is ~7 tiles even with bigger TILE — more dread.
   const viewR = flashlightOn ? 340 : 200;
-  // FLOOR — archetype-specific
+  // FLOOR — archetype-specific. SAFE rooms get a slight green tint so the
+  // player recognises them at a glance.
   for (let y = 0; y < rows; y++) {
     for (let x = 0; x < cols; x++) {
       if (grid[y][x] === 0) {
+        const rid = (roomTileMap[y] && roomTileMap[y][x] !== undefined) ? roomTileMap[y][x] : -1;
+        const room = rid >= 0 ? rooms[rid] : null;
         ctx.fillStyle = ((x + y) & 1) ? LV.floor : LV.floorAlt;
         ctx.fillRect(x * TILE, y * TILE, TILE, TILE);
+        if (room && room.kind === 'safe') {
+          // Soft green wash for safe rooms
+          ctx.fillStyle = 'rgba(60,255,150,0.10)';
+          ctx.fillRect(x * TILE, y * TILE, TILE, TILE);
+        } else if (room && room.kind === 'secret') {
+          // Tiny gold wash for secret rooms (only visible once revealed)
+          ctx.fillStyle = 'rgba(255,210,80,0.07)';
+          ctx.fillRect(x * TILE, y * TILE, TILE, TILE);
+        }
       }
     }
   }
-  // Floor grout
-  ctx.strokeStyle = LV.floorGrout; ctx.lineWidth = 1;
-  for (let y = 0; y < rows; y++) {
-    for (let x = 0; x < cols; x++) {
-      if (grid[y][x] === 0) ctx.strokeRect(x * TILE + 0.5, y * TILE + 0.5, TILE - 1, TILE - 1);
+  // Floor grout (skip on parking lot — its paint stripes replace grout)
+  if ((LV.floorPattern || 'carpet') !== 'parking') {
+    ctx.strokeStyle = LV.floorGrout; ctx.lineWidth = 1;
+    for (let y = 0; y < rows; y++) {
+      for (let x = 0; x < cols; x++) {
+        if (grid[y][x] === 0) ctx.strokeRect(x * TILE + 0.5, y * TILE + 0.5, TILE - 1, TILE - 1);
+      }
     }
   }
-  // Carpet pattern dots — gives the floor a "yellow carpet" texture
-  renderCarpetDots();
+  // Floor pattern — archetype-driven texture overlay on top of grout.
+  renderFloorPattern();
+  // Water tiles (poolrooms) — ripple texture + reflective sheen.
+  if (waterTiles.length) renderWaterTiles();
   // Ceiling-light shadow bands (alternating subtle stripes across floor — reflection of fluorescent strips)
   ctx.fillStyle = 'rgba(0,0,0,0.08)';
   for (let y = 0; y < rows; y++) {
@@ -1756,15 +3236,47 @@ function render() {
     for (let x = 0; x < cols; x++)
       if (grid[y][x] === 0 && y > 0 && grid[y - 1][x] === 1)
         ctx.fillRect(x * TILE, y * TILE, TILE, 6);
-  // WALLS — archetype-specific colour + texture, with chosen wallpaper variant.
-  const wpWall = currentWallpaper ? currentWallpaper.wall : LV.wall;
+  // WALLS — archetype-specific colour + texture. Per-room wallpaper variant
+  // is looked up via roomWallpaperIdx so adjacent rooms have visually distinct
+  // wallpaper. Falls back to currentWallpaper when no per-room index exists.
+  const variants = (LV.wallpaperVariants && LV.wallpaperVariants.length)
+    ? LV.wallpaperVariants : [{ wall: LV.wall, light: LV.wallLight, dark: LV.wallDark }];
   for (let y = 0; y < rows; y++) {
     for (let x = 0; x < cols; x++) {
       if (grid[y][x] === 1) {
-        ctx.fillStyle = wpWall;
+        const idx = (roomWallpaperIdx[y] && typeof roomWallpaperIdx[y][x] === 'number')
+          ? roomWallpaperIdx[y][x] : 0;
+        const wp = variants[idx % variants.length];
+        ctx.fillStyle = wp.wall;
         ctx.fillRect(x * TILE, y * TILE, TILE, TILE);
-        renderWallTexture(x, y);
+        renderWallTextureWithVariant(x, y, wp);
       }
+    }
+  }
+  // Mold-stained wall overlays (near water) — extra dark green-brown patches.
+  if (waterTiles.length) {
+    ctx.fillStyle = 'rgba(40,60,30,0.32)';
+    for (const w of waterTiles) {
+      // For each water tile, lightly stain a neighbour wall tile
+      for (const [dx, dy] of [[1,0],[-1,0],[0,1],[0,-1]]) {
+        const nx = w.tx + dx, ny = w.ty + dy;
+        if (nx < 0 || ny < 0 || nx >= cols || ny >= rows) continue;
+        if (grid[ny][nx] !== 1) continue;
+        ctx.beginPath();
+        ctx.arc(nx * TILE + TILE / 2, ny * TILE + TILE - 8, 14, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+  }
+  // Scratch/blood marks near monster spawn — render once
+  if (monster && monster.spawnX) {
+    ctx.strokeStyle = 'rgba(80,8,8,0.4)'; ctx.lineWidth = 2;
+    for (let k = 0; k < 5; k++) {
+      const a = k * 0.7;
+      ctx.beginPath();
+      ctx.moveTo(monster.spawnX - 18 + k * 8, monster.spawnY + 18 + Math.sin(a) * 6);
+      ctx.lineTo(monster.spawnX - 4 + k * 8, monster.spawnY + 28 + Math.sin(a) * 4);
+      ctx.stroke();
     }
   }
   // Doorway frames — darker rect outline around open tiles that connect rooms.
@@ -1789,16 +3301,23 @@ function render() {
     ctx.fillStyle = LV.stainTint.replace('$A', a2);
     ctx.beginPath(); ctx.arc(s.x + s.r * 0.4, s.y + s.r * 0.3, s.r * 0.5, 0, Math.PI * 2); ctx.fill();
   }
-  // Ceiling lights flicker
-  const flick = 0.7 + Math.sin(lightFlicker * 3.1) * 0.2 + (Math.random() < 0.02 ? -0.4 : 0);
+  // Ceiling lights flicker — more aggressive than before. Random 0.2-0.4s
+  // darkness pulses fire ~1% per frame for sharp flicker bursts; proximity to
+  // monster also pushes a "wild flicker" multiplier in `lightFlicker`. During
+  // blackout, ALL lights are killed by zeroing flick.
+  const proxKick = (Math.hypot(monster.x - pug.x, monster.y - pug.y) < 300) ? 0.5 : 0.0;
+  let flick = 0.7 + Math.sin(lightFlicker * 3.1) * 0.2
+            + (Math.random() < (0.04 + proxKick * 0.05) ? -0.55 : 0)
+            + (Math.random() < 0.012 ? -0.7 : 0);
+  if (blackoutT > 0) flick = 0.02;        // total kill during blackout
   const lt = LV.lightTint;
   for (let y = 1; y < rows; y += 4) {
     for (let x = 1; x < cols; x += 4) {
       if (grid[y][x] === 0) {
         const cx = x * TILE + TILE / 2, cy = y * TILE + TILE / 2;
-        ctx.fillStyle = hexA(lt, Math.max(0.18, flick * 0.32));
+        ctx.fillStyle = hexA(lt, Math.max(0.04, flick * 0.32));
         ctx.fillRect(cx - 20, cy - 4, 40, 8);
-        ctx.fillStyle = hexA(lt, Math.max(0.4, flick * 0.7));
+        ctx.fillStyle = hexA(lt, Math.max(0.06, flick * 0.7));
         ctx.fillRect(cx - 18, cy - 2, 36, 4);
       }
     }
@@ -1822,6 +3341,16 @@ function render() {
     ctx.fillStyle = 'rgba(80,8,8,0.3)';
     ctx.beginPath(); ctx.arc(b.x - b.r * 0.4, b.y + b.r * 0.5, b.r * 0.35, 0, Math.PI * 2); ctx.fill();
   }
+  // Environmental props (filing cabinets, paint cans, etc.) + water coolers.
+  renderEnvProps();
+  // Bioluminescent fungi (poolrooms + voidpool only)
+  if (fungi.length) renderFungi();
+  // Garage cars (garage only)
+  if (garageCars.length) renderGarageCars();
+  // Secret rooms — reveal markers (only after walking into the fake wall)
+  renderSecretWalls();
+  // Closed doors — wood or glass; block movement until E to open.
+  renderClosedDoors();
   // In-room furniture (lamp/box/chair_small) — small obstacles, break sightline.
   for (const f of furniture) drawSmallFurniture(f);
   // Hide spots (furniture)
@@ -1834,6 +3363,8 @@ function render() {
   }
   // Items
   for (const it of items) drawItem(it);
+  // Rare items: talismans, map fragments, cigarette packs
+  renderRareItems();
   // Lore notes — small white rects with a folded corner. Subtle glow so they
   // catch the eye but don't compete with the dread atmosphere.
   for (const n of noteCollectibles) {
@@ -1888,7 +3419,8 @@ function render() {
       ctx.beginPath(); ctx.arc(v.x - 12, v.y - 8, 40, 0, Math.PI * 2); ctx.fill();
     }
   }
-  // Exit (only if cans done)
+  // Exit (only if cans done) — map-fragment buff makes the exit visible
+  // through walls via a giant green halo so lost players can find their way.
   if (cans.length === 0) {
     const glow = 0.7 + Math.sin(performance.now() / 220) * 0.3;
     ctx.shadowColor = '#5ef38c'; ctx.shadowBlur = 20 * glow;
@@ -1897,6 +3429,16 @@ function render() {
     drawIcon.exit(ctx, exitTile.x, exitTile.y, 36);
     ctx.fillStyle = '#0a1018'; ctx.font = "10px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
     ctx.fillText('EXIT', exitTile.x, exitTile.y + 44);
+  }
+  if (mapFragmentRevealT > 0) {
+    // Giant green halo at the exit so the player can find it.
+    const a = Math.min(1, mapFragmentRevealT / 10) * 0.7;
+    ctx.save();
+    ctx.shadowColor = '#5ef38c'; ctx.shadowBlur = 60;
+    ctx.strokeStyle = `rgba(94,243,140,${a})`; ctx.lineWidth = 4;
+    ctx.beginPath(); ctx.arc(exitTile.x, exitTile.y, 80 + Math.sin(performance.now() / 200) * 12, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
   }
   // Entities (Hounds + Smilers + Crawlers + Whisperers)
   for (const e of entities) {
@@ -2020,67 +3562,156 @@ function render() {
     ctx.fillStyle = `rgba(255,58,58,${Math.min(0.55, hitFlashT * 1.5)})`;
     ctx.fillRect(0, 0, W, H);
   }
-  // Red full-screen flash from a jump-scare (200ms decay)
+  // Red full-screen flash from a jump-scare. Initial 0.15s at FULL opacity
+  // (massive overlay), then decays to 0 across remaining timer life.
   if (redFlashT > 0) {
-    const a = Math.min(0.7, (redFlashT / 0.2) * 0.7);
+    // redFlashT starts at 0.15. First "half" = 1.0 opacity, then linear fade.
+    const a = redFlashT > 0.075 ? 1.0 : (redFlashT / 0.075);
     ctx.fillStyle = `rgba(220,10,10,${a})`;
     ctx.fillRect(0, 0, W, H);
   }
-  // JUMP SCARE — huge face/sprite in center of screen
-  if (jumpScareT > 0 && jumpScareKind) {
+  // JUMP SCARE — DOMINATING full-viewport face. Holds 0.8s then fades 0.5s.
+  // 3-frame flicker entrance: visible (0-40ms), hidden (40-80ms), visible
+  // (80-120ms) — strobe effect that sells the terror. Veins/cracks overlay
+  // on the face for additional horror detail. Each kind paints a distinct
+  // full-screen image. Reduced-motion users get a static image (no flicker
+  // / no jitter); the shake is already 0 via _shakeMul().
+  if (jumpScareT > 0 && jumpScareKind && jumpScareKind !== 'ambient') {
     const elapsed = jumpScareLife - jumpScareT;
-    // first 0.4s fully visible, then fade across remaining
+    const reduce = isReducedMotion();
+    // 3-frame flicker entrance (skipped under reduced motion)
+    let flickerVisible = true;
+    if (!reduce) {
+      if (elapsed < 0.04) flickerVisible = true;
+      else if (elapsed < 0.08) flickerVisible = false;
+      else if (elapsed < 0.12) flickerVisible = true;
+    }
+    const isPhantom = jumpScareKind === 'phantom' || jumpScareKind === 'reflection';
+    // Phantom = quick flash; main scares = 0.8s hold + 0.5s fade.
     let a = 1;
-    if (elapsed > 0.4) a = Math.max(0, 1 - (elapsed - 0.4) / 0.6);
-    // slight jitter
-    const jx = (Math.random() - 0.5) * 14 * a;
-    const jy = (Math.random() - 0.5) * 14 * a;
+    if (isPhantom) {
+      a = elapsed < 0.15 ? 1 : Math.max(0, 1 - (elapsed - 0.15) / (jumpScareLife - 0.15));
+    } else if (elapsed > 0.8) {
+      a = Math.max(0, 1 - (elapsed - 0.8) / 0.5);
+    }
+    if (!flickerVisible) a = 0;
+    // Heavy jitter — was 14, now 22. Reduced motion = static.
+    const jx = reduce ? 0 : (Math.random() - 0.5) * 22 * a;
+    const jy = reduce ? 0 : (Math.random() - 0.5) * 22 * a;
     ctx.save();
     ctx.globalAlpha = a;
     const cx = W / 2 + jx, cy = H / 2 + jy;
+    // FULL-VIEWPORT black backdrop (no margin) for every scare
+    ctx.fillStyle = 'rgba(0,0,0,1)';
+    ctx.fillRect(0, 0, W, H);
     if (jumpScareKind === 'monster') {
-      ctx.fillStyle = 'rgba(60,0,0,0.55)';
-      ctx.beginPath(); ctx.arc(cx, cy, 200, 0, Math.PI * 2); ctx.fill();
-      ctx.shadowColor = '#ff3a3a'; ctx.shadowBlur = 40;
-      drawMonsterPug(ctx, cx, cy, { size: 280, body: '#5a0d0d' });
+      const rg = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(W, H) * 0.7);
+      rg.addColorStop(0, 'rgba(120,0,0,0.85)');
+      rg.addColorStop(1, 'rgba(20,0,0,0.0)');
+      ctx.fillStyle = rg; ctx.fillRect(0, 0, W, H);
+      const size = Math.min(W, H) * 1.4;          // FILL viewport
+      ctx.shadowColor = '#ff3a3a'; ctx.shadowBlur = 60;
+      drawMonsterPug(ctx, cx, cy, { size, body: '#5a0d0d' });
       ctx.shadowBlur = 0;
+      drawVeinsOverlay(cx, cy, Math.min(W, H) * 0.7, '#7a0808');
     } else if (jumpScareKind === 'hound') {
-      ctx.fillStyle = 'rgba(20,0,0,0.6)';
-      ctx.beginPath(); ctx.arc(cx, cy, 200, 0, Math.PI * 2); ctx.fill();
-      // scale-up version of drawHound
-      ctx.save(); ctx.translate(cx, cy); ctx.scale(7, 7); ctx.translate(-cx / 7, -cy / 7);
-      // synthesize a hound at center
-      const fake = { x: cx / 7, y: cy / 7, state: 'chase' };
-      // draw simplified large hound directly
-      ctx.restore();
-      ctx.fillStyle = '#3a0a0a';
-      ctx.fillRect(cx - 130, cy - 30, 260, 90);
-      ctx.fillRect(cx + 80, cy - 50, 80, 70);
+      const rg = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(W, H) * 0.7);
+      rg.addColorStop(0, 'rgba(50,0,0,0.95)');
+      rg.addColorStop(1, 'rgba(8,0,0,0.0)');
+      ctx.fillStyle = rg; ctx.fillRect(0, 0, W, H);
+      const sc = Math.min(W, H) / 240;
+      ctx.fillStyle = '#1a0606';
+      ctx.fillRect(cx - 260 * sc, cy - 80 * sc, 520 * sc, 220 * sc);
+      ctx.fillRect(cx + 100 * sc, cy - 150 * sc, 220 * sc, 240 * sc);
+      ctx.fillRect(cx + 240 * sc, cy - 60 * sc, 140 * sc, 100 * sc);
       ctx.fillStyle = '#ff3a3a';
-      ctx.shadowColor = '#ff3a3a'; ctx.shadowBlur = 30;
-      ctx.fillRect(cx + 120, cy - 40, 18, 18);
-      ctx.fillRect(cx + 145, cy - 30, 18, 18);
+      ctx.shadowColor = '#ff3a3a'; ctx.shadowBlur = 80;
+      ctx.fillRect(cx + 160 * sc, cy - 110 * sc, 36 * sc, 36 * sc);
+      ctx.fillRect(cx + 230 * sc, cy - 100 * sc, 36 * sc, 36 * sc);
       ctx.shadowBlur = 0;
       ctx.fillStyle = '#fff';
-      for (let i = 0; i < 10; i++) {
-        ctx.fillRect(cx + 90 + i * 8, cy + 10, 5, 18);
+      const fangCount = 16;
+      const fw = (Math.min(W, H) * 1.1) / fangCount;
+      for (let i = 0; i < fangCount; i++) {
+        const fx = cx - Math.min(W, H) * 0.55 + i * fw;
+        const fy = cy + Math.min(W, H) * 0.05;
+        ctx.beginPath();
+        ctx.moveTo(fx, fy);
+        ctx.lineTo(fx + fw, fy);
+        ctx.lineTo(fx + fw / 2, fy + fw * 1.5);
+        ctx.closePath(); ctx.fill();
       }
+      drawVeinsOverlay(cx, cy, Math.min(W, H) * 0.6, '#8a1010');
     } else if (jumpScareKind === 'smiler') {
-      ctx.fillStyle = 'rgba(0,0,0,0.9)';
-      ctx.beginPath(); ctx.arc(cx, cy, 200, 0, Math.PI * 2); ctx.fill();
-      // huge grin
+      ctx.fillStyle = 'rgba(0,0,0,1)';
+      ctx.fillRect(0, 0, W, H);
+      const sc = Math.min(W, H) / 280;
       ctx.fillStyle = '#ffd23f';
-      ctx.shadowColor = '#ffd23f'; ctx.shadowBlur = 40;
-      ctx.fillRect(cx - 80, cy - 40, 40, 40);
-      ctx.fillRect(cx + 40, cy - 40, 40, 40);
+      ctx.shadowColor = '#ffd23f'; ctx.shadowBlur = 80;
+      ctx.fillRect(cx - 120 * sc, cy - 60 * sc, 60 * sc, 60 * sc);
+      ctx.fillRect(cx + 60 * sc, cy - 60 * sc, 60 * sc, 60 * sc);
       ctx.shadowBlur = 0;
       ctx.fillStyle = '#fff';
-      for (let i = -10; i <= 10; i++) {
-        const yy = cy + 60 + Math.abs(i) * 3;
-        ctx.fillRect(cx + i * 14, yy, 12, 22);
+      const tt = Math.floor(Math.min(W, H) / 28);
+      for (let i = -tt; i <= tt; i++) {
+        const yy = cy + 80 * sc + Math.abs(i) * 3 * sc;
+        ctx.fillRect(cx + i * 18 * sc, yy, 16 * sc, 30 * sc);
       }
-    } else if (jumpScareKind === 'ambient') {
-      // ambient = no center face, only the in-world silhouette (drawn earlier)
+      drawVeinsOverlay(cx, cy, Math.min(W, H) * 0.65, '#aa8800');
+    } else if (jumpScareKind === 'crawler') {
+      ctx.fillStyle = 'rgba(0,0,0,1)'; ctx.fillRect(0, 0, W, H);
+      const sc = Math.min(W, H) / 200;
+      ctx.strokeStyle = '#0a0a0a'; ctx.lineWidth = 12 * sc;
+      for (let i = 0; i < 8; i++) {
+        const a2 = (i / 8) * Math.PI * 2 + Math.sin(elapsed * 6 + i) * 0.2;
+        ctx.beginPath();
+        ctx.moveTo(cx, cy);
+        ctx.lineTo(cx + Math.cos(a2) * 280 * sc, cy + Math.sin(a2) * 160 * sc);
+        ctx.stroke();
+      }
+      ctx.fillStyle = '#180a0a';
+      ctx.beginPath(); ctx.ellipse(cx, cy, 120 * sc, 80 * sc, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#ff3a3a'; ctx.shadowColor = '#ff3a3a'; ctx.shadowBlur = 40;
+      for (let i = 0; i < 6; i++) {
+        const ex = cx + ((i % 3) - 1) * 40 * sc;
+        const ey = cy + (i < 3 ? -22 : 16) * sc;
+        ctx.fillRect(ex - 8 * sc, ey - 8 * sc, 16 * sc, 16 * sc);
+      }
+      ctx.shadowBlur = 0;
+      drawVeinsOverlay(cx, cy, Math.min(W, H) * 0.55, '#8a1010');
+    } else if (jumpScareKind === 'whisperer') {
+      const rg = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(W, H) * 0.6);
+      rg.addColorStop(0, 'rgba(20,20,30,0.7)');
+      rg.addColorStop(1, 'rgba(0,0,0,1)');
+      ctx.fillStyle = rg; ctx.fillRect(0, 0, W, H);
+      const sc = Math.min(W, H) / 200;
+      ctx.fillStyle = '#000';
+      ctx.fillRect(cx - 60 * sc, cy - 220 * sc, 120 * sc, 360 * sc);
+      ctx.beginPath(); ctx.arc(cx, cy - 240 * sc, 60 * sc, 0, Math.PI * 2); ctx.fill();
+      ctx.fillRect(cx - 110 * sc, cy - 160 * sc, 28 * sc, 220 * sc);
+      ctx.fillRect(cx + 82 * sc, cy - 160 * sc, 28 * sc, 220 * sc);
+      ctx.fillStyle = '#fff';
+      ctx.shadowColor = '#fff'; ctx.shadowBlur = 30;
+      ctx.fillRect(cx - 20 * sc, cy - 250 * sc, 10 * sc, 10 * sc);
+      ctx.fillRect(cx + 10 * sc, cy - 250 * sc, 10 * sc, 10 * sc);
+      ctx.shadowBlur = 0;
+    } else if (jumpScareKind === 'phantom') {
+      ctx.fillStyle = 'rgba(0,0,0,0.85)'; ctx.fillRect(0, 0, W, H);
+      const size = Math.min(W, H) * 0.9;
+      ctx.shadowColor = '#ff3a3a'; ctx.shadowBlur = 30;
+      drawMonsterPug(ctx, cx, cy, { size, body: '#3a0808' });
+      ctx.shadowBlur = 0;
+    } else if (jumpScareKind === 'reflection') {
+      ctx.fillStyle = 'rgba(0,0,0,0.9)'; ctx.fillRect(0, 0, W, H);
+      const size = Math.min(W, H) * 1.1;
+      drawPug(ctx, cx, cy, { size });
+      ctx.fillStyle = '#ff3a3a';
+      ctx.shadowColor = '#ff3a3a'; ctx.shadowBlur = 50;
+      const ey = cy - size * 0.06;
+      const eo = size * 0.14;
+      ctx.fillRect(cx - eo - size * 0.04, ey, size * 0.08, size * 0.08);
+      ctx.fillRect(cx + eo - size * 0.04, ey, size * 0.08, size * 0.08);
+      ctx.shadowBlur = 0;
     }
     ctx.restore();
   }
@@ -2156,6 +3787,133 @@ function render() {
       ctx.fillRect(0, 0, W, H);
     }
     ctx.restore();
+  }
+
+  // -------------------------------------------------------------------------
+  // PERIPHERAL DOORWAY GLIMPSE — 0.2s silhouette at screen edge.
+  // -------------------------------------------------------------------------
+  if (peripheralT > 0) {
+    const ap = peripheralT / 0.22;
+    ctx.save();
+    ctx.globalAlpha = ap * 0.85;
+    ctx.fillStyle = '#000';
+    if (peripheralSide === 0) {
+      ctx.fillRect(0, H * 0.35, 30, H * 0.5);
+      ctx.fillRect(-10, H * 0.28, 50, 80);
+    } else if (peripheralSide === 1) {
+      ctx.fillRect(W - 30, H * 0.35, 30, H * 0.5);
+      ctx.fillRect(W - 40, H * 0.28, 50, 80);
+    } else if (peripheralSide === 2) {
+      ctx.fillRect(W * 0.4, 0, W * 0.2, 60);
+      ctx.beginPath(); ctx.ellipse(W * 0.5, 60, 50, 30, 0, 0, Math.PI * 2); ctx.fill();
+    } else {
+      ctx.fillRect(W * 0.4, H - 60, W * 0.2, 60);
+      ctx.beginPath(); ctx.ellipse(W * 0.5, H - 60, 50, 30, 0, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  // -------------------------------------------------------------------------
+  // EYES IN DARK — two glowing red eyes appear briefly, drift, then vanish.
+  // -------------------------------------------------------------------------
+  if (eyesT > 0) {
+    const ea = Math.min(1, eyesT / 0.4);
+    ctx.save();
+    ctx.globalAlpha = ea;
+    ctx.fillStyle = '#ff3a3a';
+    ctx.shadowColor = '#ff3a3a'; ctx.shadowBlur = 30;
+    ctx.fillRect(eyesX - 14, eyesY - 4, 8, 8);
+    ctx.fillRect(eyesX + 6, eyesY - 4, 8, 8);
+    ctx.shadowBlur = 0;
+    ctx.restore();
+  }
+
+  // -------------------------------------------------------------------------
+  // BLACKOUT OVERLAY — total darkness when all lights are OUT.
+  // -------------------------------------------------------------------------
+  if (blackoutT > 0) {
+    const t = blackoutLife - blackoutT;
+    let aBlack = 0.92;
+    if (t < 0.2) aBlack = 0.92 * (t / 0.2);
+    else if (blackoutT < 0.3) aBlack = 0.92 * (blackoutT / 0.3);
+    ctx.fillStyle = `rgba(0,0,0,${aBlack})`;
+    ctx.fillRect(0, 0, W, H);
+  }
+
+  // -------------------------------------------------------------------------
+  // STROBOSCOPIC — red+white strobe at 6Hz for 2s (sanity < 30). SKIPPED
+  // under reduced motion (potential seizure trigger).
+  // -------------------------------------------------------------------------
+  if (stroboT > 0 && !isReducedMotion()) {
+    const phase = Math.floor((2.0 - stroboT) * 12) % 2;
+    ctx.fillStyle = phase ? 'rgba(255,255,255,0.6)' : 'rgba(255,40,40,0.6)';
+    ctx.fillRect(0, 0, W, H);
+  }
+
+  // -------------------------------------------------------------------------
+  // SANITY-BASED ESCALATION — tiered grain, color shift, hallucinations.
+  //  60-80: slight grain (0.02) + occasional flicker
+  //  40-60: edge shimmer + more grain (0.04)
+  //  20-40: heavy grain + red wash + 6-amp shake every 8s
+  //   <20 : full hallucination — fake silhouettes in peripheral + sin warp
+  // -------------------------------------------------------------------------
+  if (sanity < 80) {
+    if (sanity >= 60) {
+      ctx.globalAlpha = 0.02;
+      ctx.fillStyle = '#fff';
+      for (let i = 0; i < 24; i++) ctx.fillRect(Math.random() * W, Math.random() * H, 1, 1);
+      ctx.globalAlpha = 1;
+      if (Math.random() < 0.005) {
+        ctx.fillStyle = 'rgba(0,0,0,0.25)';
+        ctx.fillRect(0, 0, W, H);
+      }
+    } else if (sanity >= 40) {
+      ctx.globalAlpha = 0.04;
+      ctx.fillStyle = '#fff';
+      for (let i = 0; i < 50; i++) ctx.fillRect(Math.random() * W, Math.random() * H, 1, 1);
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = 'rgba(255,255,255,0.05)';
+      for (let i = 0; i < 8; i++) {
+        const sxe = Math.random() * W;
+        ctx.fillRect(sxe, 0, 1, H);
+      }
+    } else if (sanity >= 20) {
+      ctx.globalAlpha = 0.08;
+      ctx.fillStyle = '#fff';
+      for (let i = 0; i < 80; i++) ctx.fillRect(Math.random() * W, Math.random() * H, 1, 1);
+      ctx.fillStyle = '#000';
+      for (let i = 0; i < 80; i++) ctx.fillRect(Math.random() * W, Math.random() * H, 1, 1);
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = 'rgba(180,30,30,0.06)';
+      ctx.fillRect(0, 0, W, H);
+      if (gameTime - (window.__lastSanShake || 0) > 8) {
+        window.__lastSanShake = gameTime;
+        shake(6, 0.3);
+      }
+    } else {
+      ctx.globalAlpha = 0.12;
+      ctx.fillStyle = '#fff';
+      for (let i = 0; i < 120; i++) ctx.fillRect(Math.random() * W, Math.random() * H, 1, 1);
+      ctx.fillStyle = '#000';
+      for (let i = 0; i < 120; i++) ctx.fillRect(Math.random() * W, Math.random() * H, 1, 1);
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = 'rgba(220,30,30,0.10)';
+      ctx.fillRect(0, 0, W, H);
+      const pT = performance.now() / 800;
+      ctx.fillStyle = 'rgba(0,0,0,0.55)';
+      const lx = 30 + Math.sin(pT) * 18;
+      const ly = H * 0.25 + Math.cos(pT * 0.7) * 30;
+      ctx.beginPath(); ctx.ellipse(lx, ly, 38, 56, 0, 0, Math.PI * 2); ctx.fill();
+      const rx = W - 50 + Math.sin(pT * 1.3) * 18;
+      const ry = H * 0.7 + Math.cos(pT * 0.9) * 30;
+      ctx.beginPath(); ctx.ellipse(rx, ry, 38, 56, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = 'rgba(255,0,0,0.04)';
+      const wpT = performance.now() / 200;
+      for (let yy = 0; yy < H; yy += 12) {
+        const wOff = Math.sin(yy / 30 + wpT) * 6;
+        ctx.fillRect(wOff, yy, W, 6);
+      }
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -2351,6 +4109,378 @@ function renderCarpetDots() {
   }
 }
 
+// Per-room wallpaper variant wrapper — feeds chosen variant's light/dark into
+// the same wall-pattern code paths. Lets adjacent rooms paint different zones.
+function renderWallTextureWithVariant(x, y, wp) {
+  const px = x * TILE, py = y * TILE;
+  const wpLight = wp ? wp.light : (currentWallpaper ? currentWallpaper.light : LV.wallLight);
+  const wpDark = wp ? wp.dark : (currentWallpaper ? currentWallpaper.dark : LV.wallDark);
+  if (LV.wallPattern === 'wallpaper') {
+    ctx.fillStyle = wpLight;
+    for (let i = 0; i < 4; i++)
+      for (let j = 0; j < 4; j++)
+        ctx.fillRect(px + 6 + i * 16, py + 6 + j * 16, 2, 2);
+    ctx.fillStyle = wpDark;
+    for (let i = 0; i < 4; i++) ctx.fillRect(px + 4 + i * 16, py, 1, TILE);
+  } else if (LV.wallPattern === 'concrete') {
+    ctx.fillStyle = wpLight;
+    ctx.fillRect(px, py + 28, TILE, 2);
+    ctx.fillStyle = wpDark;
+    ctx.fillRect(px, py + 30, TILE, 1);
+    for (let i = 0; i < 8; i++) {
+      const r1 = ((x * 71 + y * 17 + i * 13) % 64);
+      const r2 = ((x * 31 + y * 47 + i * 23) % 64);
+      ctx.fillStyle = i & 1 ? wpLight : wpDark;
+      ctx.fillRect(px + r1, py + r2, 2, 2);
+    }
+  } else if (LV.wallPattern === 'pipes') {
+    ctx.fillStyle = wpLight;
+    ctx.fillRect(px + 8, py, 6, TILE);
+    ctx.fillRect(px + 48, py, 4, TILE);
+    ctx.fillStyle = wpDark;
+    ctx.fillRect(px + 8, py, 1, TILE);
+    ctx.fillRect(px + 13, py, 1, TILE);
+    ctx.fillRect(px + 48, py, 1, TILE);
+    ctx.fillRect(px + 51, py, 1, TILE);
+    if (((x * 13 + y * 7) % 5) === 0) {
+      ctx.fillStyle = '#a02a1a';
+      ctx.fillRect(px + 22, py + 24, 16, 4);
+      ctx.fillRect(px + 28, py + 18, 4, 16);
+    }
+  } else if (LV.wallPattern === 'tile') {
+    ctx.fillStyle = wpLight;
+    ctx.fillRect(px + 2, py + 2, TILE - 4, 2);
+    ctx.fillRect(px + 2, py + TILE / 2 - 1, TILE - 4, 2);
+    ctx.fillStyle = wpDark;
+    ctx.fillRect(px, py, 2, TILE);
+    ctx.fillRect(px + TILE / 2 - 1, py, 2, TILE);
+    if (((x * 17 + y * 23) % 7) === 0) {
+      ctx.strokeStyle = wpDark; ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(px + 8, py + 12);
+      ctx.lineTo(px + 14, py + 30);
+      ctx.lineTo(px + 26, py + 44);
+      ctx.stroke();
+    }
+  }
+}
+
+// Archetype-specific FLOOR pattern overlay.
+function renderFloorPattern() {
+  const pat = LV.floorPattern || 'carpet';
+  if (pat === 'carpet') {
+    renderCarpetDots();
+  } else if (pat === 'tile') {
+    ctx.fillStyle = 'rgba(255,255,255,0.08)';
+    for (let y = 0; y < rows; y++) {
+      for (let x = 0; x < cols; x++) {
+        if (grid[y][x] !== 0) continue;
+        if ((x + y) & 1) ctx.fillRect(x * TILE + 4, y * TILE + 4, TILE - 8, 2);
+      }
+    }
+  } else if (pat === 'parking') {
+    ctx.fillStyle = 'rgba(220,180,40,0.35)';
+    for (let y = 0; y < rows; y++) {
+      if (y % 3 !== 0) continue;
+      for (let x = 0; x < cols; x++) {
+        if (grid[y][x] !== 0) continue;
+        ctx.fillRect(x * TILE + 8, y * TILE + TILE - 6, TILE - 16, 3);
+      }
+    }
+    ctx.fillStyle = 'rgba(0,0,0,0.45)';
+    for (let y = 0; y < rows; y++) {
+      for (let x = 0; x < cols; x++) {
+        if (grid[y][x] !== 0) continue;
+        if (((x * 11 + y * 17) % 23) === 0) {
+          ctx.beginPath();
+          ctx.ellipse(x * TILE + TILE / 2, y * TILE + TILE / 2, TILE * 0.35, TILE * 0.18, 0, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+    }
+  } else if (pat === 'concrete') {
+    ctx.fillStyle = 'rgba(0,0,0,0.12)';
+    for (let y = 0; y < rows; y++) {
+      for (let x = 0; x < cols; x++) {
+        if (grid[y][x] !== 0) continue;
+        const seed = (x * 73 + y * 31) % 16;
+        ctx.fillRect(x * TILE + (seed * 5) % TILE, y * TILE + (seed * 11) % TILE, 2, 2);
+      }
+    }
+  }
+}
+
+// Water-tile rendering — ripples + sheen for poolrooms.
+function renderWaterTiles() {
+  const t = performance.now() / 600;
+  for (const w of waterTiles) {
+    const px = w.tx * TILE, py = w.ty * TILE;
+    ctx.fillStyle = 'rgba(80,160,200,0.45)';
+    ctx.fillRect(px, py, TILE, TILE);
+    ctx.strokeStyle = 'rgba(220,240,255,0.35)'; ctx.lineWidth = 1;
+    const off = ((w.tx * 7 + w.ty * 11) % 7) * 0.3;
+    const r1 = 8 + ((Math.sin(t + off) + 1) * 8);
+    const r2 = 18 + ((Math.sin(t + off + 1.2) + 1) * 6);
+    ctx.beginPath();
+    ctx.arc(px + TILE / 2, py + TILE / 2, r1, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(px + TILE / 2 + 4, py + TILE / 2 - 3, r2, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.fillStyle = 'rgba(255,255,255,0.10)';
+    ctx.fillRect(px + 6, py + 10, TILE - 12, 4);
+  }
+}
+
+// Bioluminescent fungi — small glowing dots clustered on wall edges.
+function renderFungi() {
+  for (const f of fungi) {
+    ctx.fillStyle = f.color;
+    ctx.shadowColor = f.color; ctx.shadowBlur = 10;
+    ctx.beginPath(); ctx.arc(f.x, f.y, f.r, 0, Math.PI * 2); ctx.fill();
+    ctx.shadowBlur = 0;
+  }
+}
+
+// Garage abandoned cars — sideways shapes, optionally smashed.
+function renderGarageCars() {
+  for (const c of garageCars) {
+    ctx.fillStyle = 'rgba(0,0,0,0.45)';
+    ctx.fillRect(c.x - c.w / 2 + 4, c.y - c.h / 2 + 6, c.w, c.h);
+    ctx.fillStyle = c.color;
+    ctx.fillRect(c.x - c.w / 2, c.y - c.h / 2, c.w, c.h);
+    ctx.fillStyle = '#222';
+    ctx.fillRect(c.x - c.w / 2 + 16, c.y - c.h / 2 + 6, c.w - 32, c.h - 12);
+    ctx.fillStyle = '#0a0a0a';
+    ctx.fillRect(c.x - c.w / 2 + 8, c.y + c.h / 2 - 4, 14, 8);
+    ctx.fillRect(c.x + c.w / 2 - 22, c.y + c.h / 2 - 4, 14, 8);
+    ctx.fillStyle = c.smashed ? '#1a1a1a' : 'rgba(140,180,200,0.45)';
+    ctx.fillRect(c.x - c.w / 2 + 22, c.y - c.h / 2 + 12, c.w / 2 - 18, c.h - 24);
+    ctx.fillRect(c.x + 6, c.y - c.h / 2 + 12, c.w / 2 - 28, c.h - 24);
+    if (c.smashed) {
+      ctx.strokeStyle = '#aaa'; ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(c.x - 12, c.y); ctx.lineTo(c.x + 12, c.y - 6);
+      ctx.moveTo(c.x - 8, c.y - 8); ctx.lineTo(c.x + 8, c.y + 6);
+      ctx.stroke();
+    }
+    ctx.fillStyle = c.smashed ? 'rgba(120,90,40,0.2)' : 'rgba(255,240,180,0.45)';
+    ctx.fillRect(c.x + c.w / 2 - 4, c.y - 8, 4, 6);
+    ctx.fillRect(c.x + c.w / 2 - 4, c.y + 2, 4, 6);
+  }
+  for (const r of garageRamps) {
+    ctx.fillStyle = 'rgba(20,20,20,0.5)';
+    ctx.fillRect(r.x - 28, r.y - 18, 56, 36);
+    ctx.strokeStyle = '#ffd23f'; ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(r.x - 26, r.y - 14); ctx.lineTo(r.x + 24, r.y);
+    ctx.moveTo(r.x - 26, r.y + 14); ctx.lineTo(r.x + 24, r.y);
+    ctx.stroke();
+    ctx.fillStyle = '#ffd23f'; ctx.font = "7px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
+    ctx.fillText('RAMP', r.x, r.y - 22);
+  }
+}
+
+// Environmental storytelling props.
+function renderEnvProps() {
+  for (const p of envProps) drawEnvProp(p);
+  for (const w of waterCoolers) drawWaterCooler(w);
+}
+
+function drawEnvProp(p) {
+  if (p.kind === 'filing_cabinet') {
+    ctx.fillStyle = '#5e6068'; ctx.fillRect(p.x - 14, p.y - 18, 28, 36);
+    ctx.fillStyle = '#3e4048'; ctx.fillRect(p.x - 14, p.y - 18, 28, 2);
+    ctx.fillRect(p.x - 14, p.y - 6, 28, 1);
+    ctx.fillRect(p.x - 14, p.y + 6, 28, 1);
+    ctx.fillStyle = '#8a8c94';
+    ctx.fillRect(p.x - 2, p.y - 14, 4, 2);
+    ctx.fillRect(p.x - 2, p.y - 2, 4, 2);
+    ctx.fillRect(p.x - 2, p.y + 10, 4, 2);
+  } else if (p.kind === 'broken_vending') {
+    ctx.fillStyle = '#1a3a5e'; ctx.fillRect(p.x - 16, p.y - 22, 32, 38);
+    ctx.fillStyle = '#0a1a2e'; ctx.fillRect(p.x - 14, p.y - 20, 28, 6);
+    ctx.fillStyle = '#444a52';
+    ctx.fillRect(p.x - 14, p.y - 10, 28, 22);
+    ctx.strokeStyle = '#aaa'; ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(p.x - 10, p.y - 8); ctx.lineTo(p.x + 8, p.y + 8);
+    ctx.moveTo(p.x + 8, p.y - 6); ctx.lineTo(p.x - 10, p.y + 6);
+    ctx.stroke();
+    ctx.fillStyle = '#ff3a3a'; ctx.fillRect(p.x + 6, p.y, 4, 4);
+  } else if (p.kind === 'fallen_chair') {
+    ctx.save();
+    ctx.translate(p.x, p.y); ctx.rotate(0.6);
+    ctx.fillStyle = '#5a3e1c'; ctx.fillRect(-12, -8, 24, 6);
+    ctx.fillStyle = '#3a2810'; ctx.fillRect(-12, -2, 24, 14);
+    ctx.fillRect(-10, 8, 3, 8); ctx.fillRect(7, 8, 3, 8);
+    ctx.restore();
+  } else if (p.kind === 'paint_splatter') {
+    const cols2 = ['#a02020', '#3060c0', '#d2a020'];
+    ctx.fillStyle = cols2[(p.x * 17 + p.y) % 3 | 0];
+    ctx.beginPath(); ctx.arc(p.x, p.y, 14, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = cols2[(p.y * 7) % 3 | 0];
+    ctx.beginPath(); ctx.arc(p.x - 8, p.y + 6, 5, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(p.x + 10, p.y - 4, 4, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#888'; ctx.fillRect(p.x + 6, p.y - 14, 12, 8);
+  } else if (p.kind === 'cardboard_stack') {
+    ctx.fillStyle = '#7a5a2a'; ctx.fillRect(p.x - 14, p.y - 8, 28, 18);
+    ctx.fillStyle = '#5a3e18'; ctx.fillRect(p.x - 14, p.y - 8, 28, 2);
+    ctx.fillStyle = '#8a6a3a'; ctx.fillRect(p.x - 10, p.y - 18, 20, 12);
+    ctx.fillStyle = '#5a3e18'; ctx.fillRect(p.x - 10, p.y - 18, 20, 2);
+    ctx.fillStyle = '#3a2a14';
+    ctx.fillRect(p.x - 1, p.y - 18, 2, 28);
+    ctx.fillRect(p.x - 14, p.y - 1, 28, 2);
+  } else if (p.kind === 'shoes') {
+    ctx.fillStyle = '#3a2a18';
+    ctx.fillRect(p.x - 12, p.y, 10, 5);
+    ctx.fillRect(p.x + 2, p.y - 3, 10, 5);
+    ctx.fillStyle = '#1a0e08';
+    ctx.fillRect(p.x - 12, p.y + 4, 10, 1);
+    ctx.fillRect(p.x + 2, p.y + 1, 10, 1);
+  } else if (p.kind === 'briefcase') {
+    ctx.fillStyle = '#3a2818'; ctx.fillRect(p.x - 14, p.y - 6, 28, 14);
+    ctx.fillStyle = '#8a6a3a'; ctx.fillRect(p.x - 14, p.y - 6, 28, 2);
+    ctx.fillStyle = '#222'; ctx.fillRect(p.x - 2, p.y - 12, 4, 6);
+    ctx.fillStyle = '#e8e0c8'; ctx.fillRect(p.x - 10, p.y + 2, 8, 6);
+    ctx.fillRect(p.x + 2, p.y + 2, 8, 6);
+    ctx.fillStyle = '#1a1208'; ctx.fillRect(p.x - 9, p.y + 4, 6, 1);
+    ctx.fillRect(p.x + 3, p.y + 4, 6, 1);
+  } else if (p.kind === 'dead_plant') {
+    ctx.fillStyle = '#3a2818'; ctx.fillRect(p.x - 8, p.y, 16, 12);
+    ctx.fillStyle = '#5a3818'; ctx.fillRect(p.x - 8, p.y, 16, 3);
+    ctx.strokeStyle = '#3a2818'; ctx.lineWidth = 1;
+    for (let i = 0; i < 5; i++) {
+      const a = (i / 5) * Math.PI - Math.PI / 2;
+      ctx.beginPath();
+      ctx.moveTo(p.x, p.y); ctx.lineTo(p.x + Math.cos(a) * 10, p.y - 8 + Math.sin(a) * 6);
+      ctx.stroke();
+    }
+    ctx.fillStyle = '#4a3a08';
+    ctx.fillRect(p.x - 6, p.y - 12, 3, 3);
+    ctx.fillRect(p.x + 2, p.y - 10, 3, 3);
+  } else if (p.kind === 'wall_calendar') {
+    ctx.fillStyle = '#e8e0c8'; ctx.fillRect(p.x - 14, p.y - 14, 28, 22);
+    ctx.fillStyle = '#a02020'; ctx.fillRect(p.x - 14, p.y - 14, 28, 4);
+    ctx.fillStyle = '#222'; ctx.font = "6px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
+    ctx.fillText('TUE', p.x, p.y - 7);
+    ctx.strokeStyle = '#a02020'; ctx.lineWidth = 1;
+    for (let r = 0; r < 3; r++)
+      for (let c = 0; c < 5; c++) {
+        const cx = p.x - 10 + c * 5, cy = p.y - 2 + r * 4;
+        ctx.beginPath();
+        ctx.moveTo(cx - 1, cy - 1); ctx.lineTo(cx + 1, cy + 1);
+        ctx.moveTo(cx + 1, cy - 1); ctx.lineTo(cx - 1, cy + 1);
+        ctx.stroke();
+      }
+  }
+}
+
+function drawWaterCooler(w) {
+  ctx.fillStyle = w.used ? '#888' : '#bce0e8';
+  ctx.fillRect(w.x - 10, w.y - 22, 20, 24);
+  ctx.fillStyle = w.used ? '#666' : '#2a78a8';
+  ctx.fillRect(w.x - 10, w.y + 2, 20, 12);
+  ctx.fillStyle = '#1a1a1a'; ctx.fillRect(w.x - 4, w.y + 14, 8, 4);
+  ctx.fillStyle = '#888'; ctx.fillRect(w.x - 2, w.y + 6, 4, 4);
+  if (!w.used) {
+    ctx.fillStyle = '#5ef38c'; ctx.font = "7px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
+    ctx.fillText('DRINK', w.x, w.y - 28);
+  }
+}
+
+// Closed door rendering — wood or glass.
+function renderClosedDoors() {
+  for (const d of closedDoors) {
+    const px = d.tx * TILE, py = d.ty * TILE;
+    if (d.glass) {
+      ctx.fillStyle = 'rgba(180,220,240,0.35)';
+      ctx.fillRect(px + 4, py + 4, TILE - 8, TILE - 8);
+      ctx.strokeStyle = '#5a4a2a'; ctx.lineWidth = 4;
+      ctx.strokeRect(px + 4, py + 4, TILE - 8, TILE - 8);
+      ctx.fillStyle = 'rgba(255,255,255,0.25)';
+      ctx.fillRect(px + 10, py + 10, 6, TILE - 20);
+    } else {
+      ctx.fillStyle = '#5a3818';
+      ctx.fillRect(px + 4, py + 4, TILE - 8, TILE - 8);
+      ctx.fillStyle = '#3a2410';
+      ctx.fillRect(px + 4, py + 4, TILE - 8, 4);
+      ctx.fillRect(px + 4, py + TILE - 8, TILE - 8, 4);
+      ctx.strokeStyle = '#3a2410'; ctx.lineWidth = 1;
+      ctx.strokeRect(px + 12, py + 12, TILE - 24, (TILE - 24) / 2 - 2);
+      ctx.strokeRect(px + 12, py + TILE / 2 + 2, TILE - 24, (TILE - 24) / 2 - 4);
+      ctx.fillStyle = '#ddd2a0';
+      ctx.fillRect(px + TILE - 18, py + TILE / 2 - 2, 4, 4);
+    }
+    if (pug && Math.hypot(pug.x - (px + TILE / 2), pug.y - (py + TILE / 2)) < TILE * 1.2) {
+      ctx.fillStyle = '#ffd23f'; ctx.font = "7px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
+      ctx.fillText('E', px + TILE / 2, py - 4);
+    }
+  }
+}
+
+// Secret-wall hints — only after revealed.
+function renderSecretWalls() {
+  for (const s of secretWalls) {
+    if (!s.revealed) continue;
+    const px = s.tx * TILE + TILE / 2, py = s.ty * TILE + TILE / 2;
+    ctx.fillStyle = 'rgba(255,200,80,0.25)';
+    ctx.beginPath(); ctx.arc(px, py, 24, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#ffd23f'; ctx.font = "7px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
+    ctx.fillText('SECRET', px, py - 22);
+  }
+}
+
+// Render talismans/map-fragments/cigarette packs.
+function renderRareItems() {
+  for (const t of talismanItems) {
+    const bob = Math.sin(performance.now() / 280 + (t.x | 0)) * 1.6;
+    ctx.save();
+    ctx.shadowColor = '#b055ff'; ctx.shadowBlur = 18;
+    ctx.fillStyle = '#3a1858';
+    ctx.beginPath(); ctx.arc(t.x, t.y + bob, 10, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = '#d2a8ff'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(t.x, t.y + bob, 10, 0, Math.PI * 2); ctx.stroke();
+    ctx.fillStyle = '#ffd23f';
+    ctx.fillRect(t.x - 1, t.y + bob - 5, 2, 10);
+    ctx.fillRect(t.x - 5, t.y + bob - 1, 10, 2);
+    ctx.shadowBlur = 0;
+    ctx.restore();
+  }
+  for (const m of mapFragments) {
+    const bob = Math.sin(performance.now() / 320 + (m.x | 0)) * 1.4;
+    ctx.save();
+    ctx.shadowColor = '#5ef38c'; ctx.shadowBlur = 10;
+    ctx.fillStyle = '#e8e0c8';
+    ctx.fillRect(m.x - 10, m.y - 8 + bob, 20, 16);
+    ctx.fillStyle = '#bda878';
+    ctx.fillRect(m.x - 10, m.y - 8 + bob, 20, 2);
+    ctx.strokeStyle = '#1a4030'; ctx.lineWidth = 1;
+    ctx.strokeRect(m.x - 8, m.y - 6 + bob, 16, 12);
+    ctx.beginPath();
+    ctx.moveTo(m.x - 4, m.y - 6 + bob); ctx.lineTo(m.x - 4, m.y + 6 + bob);
+    ctx.moveTo(m.x + 2, m.y - 6 + bob); ctx.lineTo(m.x + 2, m.y + 6 + bob);
+    ctx.moveTo(m.x - 8, m.y - 2 + bob); ctx.lineTo(m.x + 8, m.y - 2 + bob);
+    ctx.moveTo(m.x - 8, m.y + 2 + bob); ctx.lineTo(m.x + 8, m.y + 2 + bob);
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+    ctx.restore();
+  }
+  for (const c of cigaretteItems) {
+    const bob = Math.sin(performance.now() / 340 + (c.x | 0)) * 1.2;
+    ctx.save();
+    ctx.fillStyle = '#f0e8d8';
+    ctx.fillRect(c.x - 7, c.y - 6 + bob, 14, 12);
+    ctx.fillStyle = '#a02020';
+    ctx.fillRect(c.x - 7, c.y - 6 + bob, 14, 3);
+    ctx.fillStyle = '#1a1a1a';
+    ctx.fillRect(c.x - 5, c.y - 1 + bob, 2, 6);
+    ctx.fillRect(c.x - 1, c.y - 1 + bob, 2, 6);
+    ctx.fillRect(c.x + 3, c.y - 1 + bob, 2, 6);
+    ctx.restore();
+  }
+}
+
 function drawFurniture(h) {
   if (h.kind === 'sofa') {
     ctx.fillStyle = '#5a2a0c'; ctx.fillRect(h.x - 22, h.y - 8, 44, 16);
@@ -2365,6 +4495,54 @@ function drawFurniture(h) {
     ctx.fillStyle = '#ff3a3a'; ctx.fillRect(h.x - 8, h.y - 2, 16, 2);
     ctx.fillStyle = '#0a1a2e'; ctx.fillRect(h.x - 6, h.y + 4, 12, 8);
     ctx.fillStyle = 'rgba(0,0,0,0.4)'; ctx.fillRect(h.x - 16, h.y + 15, 32, 2);
+  } else if (h.kind === 'locker') {
+    // Metal school-style locker, two vertical doors with handles.
+    ctx.fillStyle = '#5a6068'; ctx.fillRect(h.x - 16, h.y - 24, 32, 42);
+    ctx.fillStyle = '#3a4048'; ctx.fillRect(h.x - 16, h.y - 24, 32, 3);
+    ctx.fillStyle = '#1a1e22';
+    ctx.fillRect(h.x - 1, h.y - 24, 2, 42);
+    ctx.fillRect(h.x - 16, h.y + 16, 32, 2);
+    ctx.fillStyle = '#8a8c94';
+    ctx.fillRect(h.x - 7, h.y - 2, 3, 6);
+    ctx.fillRect(h.x + 4, h.y - 2, 3, 6);
+    // Vent slits
+    ctx.fillStyle = '#1a1e22';
+    for (let i = 0; i < 3; i++) {
+      ctx.fillRect(h.x - 9, h.y - 18 + i * 3, 5, 1);
+      ctx.fillRect(h.x + 4, h.y - 18 + i * 3, 5, 1);
+    }
+  } else if (h.kind === 'cabinet') {
+    // Wood filing cabinet with knobs.
+    ctx.fillStyle = '#6a4a2a'; ctx.fillRect(h.x - 16, h.y - 20, 32, 36);
+    ctx.fillStyle = '#4a3018'; ctx.fillRect(h.x - 16, h.y - 20, 32, 3);
+    ctx.fillStyle = '#3a2a14';
+    ctx.fillRect(h.x - 16, h.y - 6, 32, 1);
+    ctx.fillRect(h.x - 16, h.y + 7, 32, 1);
+    ctx.fillStyle = '#d2a878';
+    ctx.fillRect(h.x - 2, h.y - 14, 4, 2);
+    ctx.fillRect(h.x - 2, h.y - 1, 4, 2);
+    ctx.fillRect(h.x - 2, h.y + 11, 4, 2);
+  } else if (h.kind === 'closet') {
+    // Tall wardrobe closet with doors slightly ajar.
+    ctx.fillStyle = '#3a2410'; ctx.fillRect(h.x - 18, h.y - 26, 36, 46);
+    ctx.fillStyle = '#1a0e08'; ctx.fillRect(h.x - 1, h.y - 26, 2, 46);
+    ctx.fillStyle = '#5a3818';
+    ctx.fillRect(h.x - 18, h.y - 26, 18, 4);
+    ctx.fillRect(h.x + 0, h.y - 26, 18, 4);
+    ctx.fillStyle = '#ffd23f';
+    ctx.fillRect(h.x - 7, h.y - 2, 2, 4);
+    ctx.fillRect(h.x + 5, h.y - 2, 2, 4);
+  } else if (h.kind === 'crate') {
+    // Wooden crate with x-brace.
+    ctx.fillStyle = '#7a5a2a'; ctx.fillRect(h.x - 18, h.y - 14, 36, 28);
+    ctx.fillStyle = '#5a3e18';
+    ctx.fillRect(h.x - 18, h.y - 14, 36, 2);
+    ctx.fillRect(h.x - 18, h.y + 12, 36, 2);
+    ctx.strokeStyle = '#5a3e18'; ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(h.x - 16, h.y - 12); ctx.lineTo(h.x + 16, h.y + 10);
+    ctx.moveTo(h.x + 16, h.y - 12); ctx.lineTo(h.x - 16, h.y + 10);
+    ctx.stroke();
   } else {
     ctx.fillStyle = '#6b3a1c'; ctx.fillRect(h.x - 18, h.y - 12, 36, 18);
     ctx.fillStyle = '#8a5a2c'; ctx.fillRect(h.x - 18, h.y - 12, 36, 3);
@@ -2372,7 +4550,7 @@ function drawFurniture(h) {
     ctx.fillStyle = '#5a2a0c'; ctx.fillRect(h.x - 16, h.y - 22, 4, 12); ctx.fillRect(h.x + 12, h.y - 22, 4, 12);
   }
   ctx.fillStyle = '#fff'; ctx.font = "7px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
-  ctx.fillText('HIDE', h.x, h.y - 24);
+  ctx.fillText('HIDE', h.x, h.y - 28);
 }
 
 function drawItem(it) {
@@ -2396,6 +4574,10 @@ function drawItem(it) {
 }
 
 function drawMonster() {
+  // Agent D: hide sprite when monster is outside player's view radius so the
+  // player can never SEE the monster from far away — they only hear it. The
+  // monster.visible flag is set each tick from the AI step.
+  if (monster && monster.visible === false) return;
   const wob = Math.sin(monsterWiggle) * 1.4;
   // Aggression-tinted body palette
   const bodyCol = monster.chase ? '#5a0d0d' : '#6b3a1c';
@@ -2562,8 +4744,10 @@ function drawSmallFurniture(f) {
 }
 
 // Big ceiling lights — pulsed white rects centered above 5-tile grid, with
-// occasional dark "off" pulses (~0.3s) to break ambiance.
-// Uses gameTime (sec) so we don't need to pass dt to render().
+// occasional dark "off" pulses (~0.3s) to break ambiance. Supports:
+//   - blackout (all forced off)
+//   - dying bulb (erratic stochastic flicker for 30s then permanent off)
+//   - .dead flag (permanent off after dying-bulb expires)
 function drawBigCeilingLights() {
   const now = gameTime;
   for (const L of bigCeilingLights) {
@@ -2579,12 +4763,73 @@ function drawBigCeilingLights() {
       }
       if (L.lastOffAt < 0) L.lastOffAt = now;
     }
-    const a = isOff ? 0.05 : 0.55;
+    let a = isOff ? 0.05 : 0.55;
+    // Permanently dead
+    if (L.dead) a = 0.02;
+    // Blackout overrides everything
+    if (blackoutT > 0) a = 0.02;
+    // Currently-dying bulb: rapid stochastic flicker that gradually goes darker
+    if (L === dyingBulb) {
+      const dyingProgress = dyingBulbT / dyingBulbLife;          // 0..1
+      const baseDim = (1 - dyingProgress) * 0.5;                  // bright→dim
+      const erratic = Math.random() < (0.25 + dyingProgress * 0.45) ? 0 : 1;
+      a = baseDim * erratic + (1 - erratic) * 0.04;
+    }
     ctx.fillStyle = `rgba(255,250,220,${a})`;
     ctx.fillRect(L.x - 26, L.y - 6, 52, 12);
     ctx.fillStyle = `rgba(255,250,220,${a * 1.6})`;
     ctx.fillRect(L.x - 22, L.y - 3, 44, 6);
   }
+}
+
+// Veins/cracks overlay drawn ON TOP of a jumpscare face for additional horror
+// detail. Stochastic branching tendrils radiating from center. Deterministic
+// per frame via Math.random — looks like blood vessels / hairline cracks.
+function drawVeinsOverlay(cx, cy, radius, color) {
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.globalAlpha = 0.55;
+  // 14 main veins, each branching once
+  for (let i = 0; i < 14; i++) {
+    const a = (i / 14) * Math.PI * 2 + Math.random() * 0.3;
+    let x = cx + Math.cos(a) * radius * 0.2;
+    let y = cy + Math.sin(a) * radius * 0.2;
+    const dx = Math.cos(a), dy = Math.sin(a);
+    ctx.lineWidth = 2 + Math.random() * 2;
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    let curA = a;
+    for (let s = 0; s < 6; s++) {
+      curA += (Math.random() - 0.5) * 0.6;
+      x += Math.cos(curA) * radius * 0.12;
+      y += Math.sin(curA) * radius * 0.12;
+      ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+    // branch
+    if (Math.random() < 0.7) {
+      ctx.lineWidth = 1;
+      const bA = curA + (Math.random() - 0.5) * 1.2;
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(x + Math.cos(bA) * radius * 0.18, y + Math.sin(bA) * radius * 0.18);
+      ctx.stroke();
+    }
+  }
+  // Thin cracks at the edges
+  ctx.strokeStyle = '#000';
+  ctx.globalAlpha = 0.35;
+  ctx.lineWidth = 1;
+  for (let i = 0; i < 12; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const x0 = cx + Math.cos(a) * radius * 0.7;
+    const y0 = cy + Math.sin(a) * radius * 0.7;
+    ctx.beginPath();
+    ctx.moveTo(x0, y0);
+    ctx.lineTo(x0 + (Math.random() - 0.5) * 60, y0 + (Math.random() - 0.5) * 60);
+    ctx.stroke();
+  }
+  ctx.restore();
 }
 
 function drawFlashlightCone() {
@@ -2608,76 +4853,140 @@ function drawFlashlightCone() {
   ctx.restore();
 }
 
-// Perf: cache DOM refs + prev values; only touch DOM when something changed.
+// Agent C: rebuilt HUD — three zones (vital / objective / resources),
+// 28px-tall bars, plain-language readouts, critical-pulse border on the
+// whole HUD when sanity < 30. Compass arrow appears once all cans are picked.
 const _brHud = {
-  cans: document.getElementById('hud-cans'),
-  state: document.getElementById('hud-state'),
-  card: document.querySelector('#hud .hud-card'),
-  sanBar: document.getElementById('hud-sanity-bar'),
-  batBar: document.getElementById('hud-battery-bar'),
-  smk: document.getElementById('hud-smoke'),
-  depth: document.getElementById('hud-depth'),
-  best: document.getElementById('hud-best'),
-  notes: document.getElementById('hud-notes'),
+  root:    document.getElementById('hud'),
+  cans:    document.getElementById('hud-cans'),
+  state:   document.getElementById('hud-state'),
+  sanBar:  document.getElementById('hud-sanity-bar'),
+  sanPct:  document.getElementById('hud-sanity-pct'),
+  batBar:  document.getElementById('hud-battery-bar'),
+  batWrap: document.getElementById('hud-battery-bar-wrap'),
+  batPct:  document.getElementById('hud-battery-pct'),
+  heart:   document.getElementById('hud-heart'),
+  smk:     document.getElementById('hud-smoke'),
+  depth:   document.getElementById('hud-depth'),
+  notes:   document.getElementById('hud-notes'),
+  arch:    document.getElementById('hud-arch'),
+  exitHint:document.getElementById('hud-exit-hint'),
+  exitDir: document.getElementById('hud-exit-dir'),
 };
 let _brHudPrev = {
-  cans: -1, state: '', stateColor: '',
+  cans: -1, cansDone: null, state: '', stateClass: '',
   san: -1, sanColor: '',
   bat: -1, batColor: '', batShadow: null,
-  smk: -1, depth: -1, best: -1, notes: '',
-  chase: null,
+  heart: null, critical: null,
+  smk: -1, depth: '', notes: '',
+  exitShown: null, exitDir: '',
 };
-let _brBestCache = -1, _brBestCacheT = 0;
+function _exitArrow(dx, dy) {
+  const a = Math.atan2(dy, dx);
+  const deg = (a * 180 / Math.PI + 360) % 360;
+  // 8-direction arrow (E=0, S=90, W=180, N=270)
+  if (deg >= 337.5 || deg < 22.5) return '→';
+  if (deg < 67.5)  return '↘';
+  if (deg < 112.5) return '↓';
+  if (deg < 157.5) return '↙';
+  if (deg < 202.5) return '←';
+  if (deg < 247.5) return '↖';
+  if (deg < 292.5) return '↑';
+  return '↗';
+}
 function updateHud() {
-  const cansLeft = 5 - cans.length;
-  if (cansLeft !== _brHudPrev.cans) { _brHud.cans.textContent = `${cansLeft}/5`; _brHudPrev.cans = cansLeft; }
-  const state = monsterDazedT > 0 ? 'SMOKED' : (monster.chase ? 'HUNTED!' : (soundLevel > 0.5 ? 'LOUD' : 'SAFE'));
-  const stateColor = monster.chase ? '#ff3a3a' : (soundLevel > 0.5 ? '#ffd23f' : '#5ef38c');
-  if (state !== _brHudPrev.state) { _brHud.state.textContent = state; _brHudPrev.state = state; }
-  if (stateColor !== _brHudPrev.stateColor) { _brHud.state.style.color = stateColor; _brHudPrev.stateColor = stateColor; }
-  if (_brHud.card) {
-    if (monster.chase) {
-      // pulsing shadow requires per-frame update (sin())
-      const k = 0.5 + Math.sin(performance.now() / 120) * 0.5;
-      _brHud.card.style.boxShadow = `0 0 ${10 + k * 20}px rgba(255,58,58,${0.4 + k * 0.4})`;
-      _brHudPrev.chase = true;
-    } else if (_brHudPrev.chase) {
-      _brHud.card.style.boxShadow = '';
-      _brHudPrev.chase = false;
+  if (!_brHud.root) return;
+  // OBJECTIVE — big can count + EXIT arrow
+  const cansLeft = cans ? cans.length : 0;
+  const got = 5 - cansLeft;
+  if (cansLeft !== _brHudPrev.cans) {
+    if (_brHud.cans) _brHud.cans.textContent = `${got} / 5`;
+    _brHudPrev.cans = cansLeft;
+  }
+  const done = cansLeft === 0;
+  if (done !== _brHudPrev.cansDone) {
+    if (_brHud.cans) _brHud.cans.classList.toggle('is-done', done);
+    _brHudPrev.cansDone = done;
+  }
+  if (_brHud.exitHint) {
+    if (done && exitTile && pug) {
+      const dx = exitTile.x - pug.x, dy = exitTile.y - pug.y;
+      const arr = _exitArrow(dx, dy);
+      if (_brHudPrev.exitShown !== true) {
+        _brHud.exitHint.hidden = false;
+        _brHudPrev.exitShown = true;
+      }
+      if (arr !== _brHudPrev.exitDir) {
+        if (_brHud.exitDir) _brHud.exitDir.textContent = arr;
+        _brHudPrev.exitDir = arr;
+      }
+    } else if (_brHudPrev.exitShown !== false) {
+      _brHud.exitHint.hidden = true;
+      _brHudPrev.exitShown = false;
     }
   }
-  // Sanity bar
+  // STATE — plain-language readout (SAFE / LOUD / HUNTED / SMOKED)
+  let state = 'SAFE', stateClass = '';
+  if (monster && monster.chase) { state = 'HUNTED'; stateClass = 'is-hunted'; }
+  else if (monsterDazedT > 0) { state = 'SMOKED'; stateClass = ''; }
+  else if (soundLevel > 0.5) { state = 'LOUD'; stateClass = 'is-loud'; }
+  if (state !== _brHudPrev.state) { if (_brHud.state) _brHud.state.textContent = state; _brHudPrev.state = state; }
+  if (stateClass !== _brHudPrev.stateClass) {
+    if (_brHud.state) _brHud.state.className = 'hud-state ' + stateClass;
+    _brHudPrev.stateClass = stateClass;
+  }
+  // VITAL — sanity bar
   if (_brHud.sanBar) {
-    const s = Math.round(sanity);
-    if (s !== _brHudPrev.san) { _brHud.sanBar.style.width = s + '%'; _brHudPrev.san = s; }
+    const s = Math.max(0, Math.round(sanity));
+    if (s !== _brHudPrev.san) {
+      _brHud.sanBar.style.width = s + '%';
+      if (_brHud.sanPct) _brHud.sanPct.textContent = s;
+      _brHudPrev.san = s;
+    }
     const c = sanity > 60 ? '#5ef38c' : (sanity > 25 ? '#ffd23f' : '#ff3a3a');
     if (c !== _brHudPrev.sanColor) { _brHud.sanBar.style.background = c; _brHudPrev.sanColor = c; }
   }
-  // Battery bar
+  // VITAL — battery bar
   if (_brHud.batBar) {
-    const b = Math.round(battery);
-    if (b !== _brHudPrev.bat) { _brHud.batBar.style.width = b + '%'; _brHudPrev.bat = b; }
+    const b = Math.max(0, Math.round(battery));
+    if (b !== _brHudPrev.bat) {
+      _brHud.batBar.style.width = b + '%';
+      if (_brHud.batPct) _brHud.batPct.textContent = b;
+      _brHudPrev.bat = b;
+    }
     const c = battery > 50 ? '#ffd23f' : (battery > 15 ? '#ffa83a' : '#ff3a3a');
     if (c !== _brHudPrev.batColor) { _brHud.batBar.style.background = c; _brHudPrev.batColor = c; }
-    const sh = flashlightOn ? '0 0 8px #ffd23f' : 'none';
-    if (sh !== _brHudPrev.batShadow) { _brHud.batBar.style.boxShadow = sh; _brHudPrev.batShadow = sh; }
+    // Glow effect when flashlight is on
+    const glow = !!flashlightOn;
+    if (glow !== _brHudPrev.batShadow) {
+      if (_brHud.batWrap) _brHud.batWrap.classList.toggle('is-glow', glow);
+      _brHudPrev.batShadow = glow;
+    }
   }
-  // Smoke pip
+  // VITAL — heartbeat icon when monster < 280px
+  if (_brHud.heart) {
+    const distM = (monster && pug) ? Math.hypot(monster.x - pug.x, monster.y - pug.y) : 9999;
+    const on = distM < 280;
+    if (on !== _brHudPrev.heart) {
+      _brHud.heart.classList.toggle('is-on', on);
+      _brHudPrev.heart = on;
+    }
+  }
+  // CRITICAL — pulsing red border around entire HUD when sanity < 30
+  const crit = sanity < 30;
+  if (crit !== _brHudPrev.critical) {
+    _brHud.root.classList.toggle('is-critical', crit);
+    _brHudPrev.critical = crit;
+  }
+  // RESOURCES — smoke / depth / notes / archetype tag
   if (_brHud.smk && smokeCount !== _brHudPrev.smk) {
-    _brHud.smk.textContent = '× ' + smokeCount;
+    _brHud.smk.textContent = smokeCount;
     _brHudPrev.smk = smokeCount;
   }
-  if (level !== _brHudPrev.depth) { _brHud.depth.textContent = `Level ${level}`; _brHudPrev.depth = level; }
-  // loadBest hits localStorage — cache for 2s, doesn't change mid-match.
-  const now = performance.now();
-  if (now - _brBestCacheT > 2000) {
-    const best = loadBest('backrooms-pug');
-    _brBestCache = best ? best.level : 0;
-    _brBestCacheT = now;
-  }
-  if (_brBestCache !== _brHudPrev.best) {
-    _brHud.best.textContent = _brBestCache;
-    _brHudPrev.best = _brBestCache;
+  const depthTxt = `${level}/${MAX_LEVEL}`;
+  if (depthTxt !== _brHudPrev.depth) {
+    if (_brHud.depth) _brHud.depth.textContent = depthTxt;
+    _brHudPrev.depth = depthTxt;
   }
   if (_brHud.notes) {
     const n = `${notesFoundCount()}/${NOTE_TOTAL}`;
@@ -2689,32 +4998,39 @@ function die(cause) {
   running = false;
   sfx.sweep(110, 40, 'sawtooth', 1.0, 0.3);
   silenceHum(0.6);
-  const TITLES = {
-    monster: 'SCREAMED', hound: 'TORN APART', smiler: 'GRINNED AT', sanity: 'LOST YOURSELF',
-  };
   const SUBS = {
     monster: 'The giant pug found you.',
     hound: 'A hound caught your scent.',
     smiler: 'The grinning thing got you.',
     sanity: 'The hum took everything.',
+    crawler: 'A crawler lunged from the dark.',
+    whisperer: 'The whispers consumed you.',
+    lurker: 'A lurker dragged you under.',
   };
-  document.getElementById('end-title').textContent = TITLES[cause] || 'SCREAMED';
-  document.getElementById('end-sub').textContent = SUBS[cause] || 'The Backrooms claimed you.';
-  document.getElementById('end-level').textContent = level;
-  document.getElementById('end-cans').textContent = (level - 1) * 5 + (5 - cans.length);
-  const chainsEl = document.getElementById('end-chains');
-  if (chainsEl) chainsEl.textContent = noclipsChained | 0;
-  const notesEndEl = document.getElementById('end-notes');
-  if (notesEndEl) notesEndEl.textContent = `${notesFoundCount()}/${NOTE_TOTAL}`;
-  const { isNewBest, current } = submitRun('backrooms-pug', { score: level, level }, (a, b) => b.level - a.level);
-  const bestEl = document.getElementById('end-best');
-  if (bestEl) {
-    const b = current || { level };
-    bestEl.innerHTML = `Best: <b>level ${b.level}</b>${isNewBest ? ' <span style="color:var(--neon-yellow)">★ NEW</span>' : ''}`;
-  }
+  // Hide HUD + pause button immediately so death card has the screen.
   document.getElementById('hud').hidden = true;
-  document.getElementById('end-overlay').hidden = false;
-  document.getElementById('end-overlay').classList.remove('is-hidden');
+  const pauseBtn = document.getElementById('pause-btn'); if (pauseBtn) pauseBtn.hidden = true;
+  const { isNewBest, current } = submitRun('backrooms-pug', { score: level, level }, (a, b) => b.level - a.level);
+  // Agent C: dramatic 2s hold to let camera zoom + jumpscare resolve before
+  // popping the death card. catchSlowmoT (set by caller) is ~0.4s.
+  const holdMs = 1900;
+  setTimeout(() => {
+    try {
+      _cutDeath({
+        cause: SUBS[cause] || 'The Backrooms claimed you.',
+        level,
+        cans: (level - 1) * 5 + (5 - cans.length),
+        time: Math.max(0, gameTime - runStartT),
+        notesFound: notesFoundCount(),
+        notesTotal: NOTE_TOTAL,
+        best: (current && current.level) || level,
+        isNewBest,
+      }, (action) => {
+        if (action === 'restart') startRun();
+        else if (action === 'select') openLevelSelect();
+      });
+    } catch {}
+  }, holdMs);
 }
 
 // Paint the start-screen notes-found counter (persisted across runs).
@@ -2722,14 +5038,33 @@ function paintStartNotesCounter() {
   const el = document.getElementById('start-notes');
   if (el) el.innerHTML = `Notes recovered: <b>${notesFoundCount()}/${NOTE_TOTAL}</b>`;
 }
+function paintLevelSelectButtonVisibility() {
+  const btn = document.getElementById('level-select-btn');
+  if (!btn) return;
+  const u = _cutLoadUnlocks();
+  // Show after the player has beaten at least 1 level (maxReached >= 2 means
+  // they got TO level 2, i.e. cleared 1).
+  btn.hidden = !((u && (u.maxReached | 0)) >= 2);
+}
 paintStartNotesCounter();
-document.getElementById('start-btn').addEventListener('click', start);
-document.getElementById('end-restart').addEventListener('click', () => { paintStartNotesCounter(); start(); });
+paintLevelSelectButtonVisibility();
+// Public entry from start button — plays intro (skipped if seen) then begins run.
 function start() {
-  level = 1; running = true;
+  // Hide start overlay first so the intro takes the whole screen.
+  document.getElementById('overlay').hidden = true;
+  document.getElementById('overlay').classList.add('is-hidden');
+  _cutIntro(() => startRun({ level: 1 }));
+}
+document.getElementById('start-btn').addEventListener('click', start);
+const _endRestartBtn = document.getElementById('end-restart');
+if (_endRestartBtn) _endRestartBtn.addEventListener('click', () => { paintStartNotesCounter(); start(); });
+// Agent C: full reset + genLevel + show first level card.
+function startRun(opts) {
+  const startLevel = Math.max(1, Math.min(MAX_LEVEL, (opts && opts.level) || 1));
+  level = startLevel; running = true;
   sanity = 100; battery = 50; flashlightOn = false; smokeCount = 0;
   // Reset jump-scare / ambient state
-  gameTime = 0;
+  gameTime = 0; runStartT = 0; levelStartT = 0;
   jumpScareT = 0; jumpScareLife = 0; jumpScareKind = null;
   jumpScareCooldown = 0; redFlashT = 0;
   firstHoundJump = false; lastSmilerJumpAt = -999;
@@ -2740,22 +5075,187 @@ function start() {
   noclipFromLabel = ''; noclipToLabel = '';
   noclipsChained = 0;
   activeNoteText = null;
+  paused = false; levelCardShowing = false;
   // Reset accumulators/Sets so a fresh run isn't tainted by the previous one
   // (held keys carrying over auto-walked the pug into a wall).
   keys.clear(); touchSneak = false;
   monsterWiggle = 0; lightFlicker = 0; heartBeatT = 0; breathT = 0;
   firstSeenScreamed = false; lastSanityTick = 0;
+  // Agent D — monster AI accumulators
+  monsterFootstepT = 0; monsterGrowlT = 5; monsterSniffT = 0; monsterBreathT = 0;
+  monsterHuntingT = 0; monsterLostContactT = 99; monsterWanderRefreshAt = 0;
+  lurkerVisibleT = 0;
   popups = []; chaseVignetteT = 0; hitFlashT = 0; shakeT = 0; shakeMag = 0;
   noteUnfoldT = 0; catchSlowmoT = 0; sanityPulseT = 0; smokeDarkenT = 0; lastSanity = 100;
   scheduleAmbient(); scheduleDoorSlam(); scheduleWhisper();
+  if (typeof schedulePhantom === 'function') schedulePhantom();
+  if (typeof schedulePeripheral === 'function') schedulePeripheral();
+  if (typeof scheduleEyes === 'function') scheduleEyes();
+  if (typeof scheduleBlackout === 'function') scheduleBlackout();
+  if (typeof scheduleDyingBulb === 'function') scheduleDyingBulb();
+  if (typeof scheduleStrobo === 'function') scheduleStrobo();
+  // Reset new horror-system runtime state
+  phantomT = 0; phantomKind = null; phantomCooldown = 0;
+  peripheralT = 0; peripheralSide = 0;
+  eyesT = 0; eyesX = 0; eyesY = 0; eyesDriftX = 0;
+  blackoutT = 0; blackoutLife = 0;
+  dyingBulb = null; dyingBulbT = 0; dyingBulbLife = 30;
+  stroboT = 0;
+  jumpScareFlickerT = 0; jumpScareMaxAudioT = 0;
+  stillT = 0;
+  // Agent B map-overhaul state reset
+  talismanCharges = 0;
+  mapFragmentRevealT = 0;
+  safeRoomT = 0;
+  currentRoomId = -1;
+  secretRoomRevealedT = 0;
+  secretPromptText = null; secretPromptT = 0;
+  closedDoors = []; secretWalls = []; waterTiles = []; fungi = [];
+  garageCars = []; garageRamps = []; envProps = []; waterCoolers = [];
+  talismanItems = []; mapFragments = []; cigaretteItems = [];
+  rooms = []; roomTileMap = []; roomWallpaperIdx = [];
+  deadEndRoomIds = new Set();
   genLevel(level);
   ensureHum();
   ensureMusic();
+  if (typeof ensureStaticNoise === 'function') ensureStaticNoise();
   setHumTargetFor(archetype);
   document.getElementById('overlay').hidden = true; document.getElementById('overlay').classList.add('is-hidden');
   document.getElementById('end-overlay').hidden = true; document.getElementById('end-overlay').classList.add('is-hidden');
   document.getElementById('hud').hidden = false;
+  const pauseBtn = document.getElementById('pause-btn');
+  if (pauseBtn) pauseBtn.hidden = false;
   sfx.resume();
+  // Show level card first; gameplay paused via levelCardShowing flag.
+  triggerLevelCard(level, () => {
+    if (level === 1 && !_cutHasSeenTutorial()) {
+      _cutTutorial(() => {});
+    }
+  });
+}
+
+// Agent C: trigger the per-level card and pause gameplay until dismissed.
+function triggerLevelCard(lvl, onClosed) {
+  const info = levelInfoFor(lvl);
+  levelCardShowing = true;
+  const monsterSummary = monsterSummaryFor(lvl);
+  try {
+    _cutLevelCard({
+      level: lvl,
+      name: info.name,
+      sub: info.sub,
+      theme: info.theme,
+      monsters: monsterSummary,
+    }, () => {
+      levelCardShowing = false;
+      levelStartT = gameTime;
+      if (lvl === 1) runStartT = gameTime;
+      try { onClosed && onClosed(); } catch {}
+    });
+  } catch {
+    levelCardShowing = false;
+    levelStartT = gameTime;
+    if (lvl === 1) runStartT = gameTime;
+    try { onClosed && onClosed(); } catch {}
+  }
+}
+function monsterSummaryFor(lvl) {
+  const arch = levelArchetypeFor(lvl);
+  const parts = ['PUGZILLA × 1'];
+  const sp = arch === 'lobby'     ? { hounds: 0, smilers: 0, crawlers: 0, whisperers: 0 }
+           : arch === 'warehouse' ? { hounds: 2, smilers: 0, crawlers: 1, whisperers: 0 }
+           : arch === 'pipes'     ? { hounds: 2, smilers: 1, crawlers: 0, whisperers: 0 }
+           : arch === 'voidpool'  ? { hounds: 3, smilers: 1, crawlers: 0, whisperers: 1 }
+           :                        { hounds: 2, smilers: 1, crawlers: 1, whisperers: 1 };
+  if (sp.hounds)     parts.push(`HOUNDS × ${sp.hounds}`);
+  if (sp.smilers)    parts.push(`SMILERS × ${sp.smilers}`);
+  if (sp.crawlers)   parts.push(`CRAWLERS × ${sp.crawlers}`);
+  if (sp.whisperers) parts.push(`WHISPERERS × ${sp.whisperers}`);
+  return parts.join(' · ');
+}
+function openLevelSelect() {
+  paintLevelSelectButtonVisibility();
+  const unlocks = _cutLoadUnlocks();
+  _cutLevelSelect({
+    levels: LEVEL_LIST,
+    unlocks,
+    onPick: (lv) => {
+      document.getElementById('overlay').hidden = true;
+      document.getElementById('overlay').classList.add('is-hidden');
+      startRun({ level: lv.idx });
+    },
+    onClose: () => {},
+  });
+}
+// PAUSE
+function togglePause() {
+  if (!running) return;
+  if (levelCardShowing) return;
+  if (_cutIsShowing()) return;
+  paused = !paused;
+  const ov = document.getElementById('pause-overlay');
+  if (!ov) return;
+  if (paused) {
+    const obj = document.getElementById('pause-obj');
+    if (obj) {
+      const info = levelInfoFor(level);
+      const cansLeft = cans ? cans.length : 0;
+      obj.innerHTML = (cansLeft > 0)
+        ? `<b>LEVEL ${level}/${MAX_LEVEL}</b> · ${info.name}<br/>Pick up <b>${cansLeft}</b> more can${cansLeft === 1 ? '' : 's'}, then reach the yellow EXIT.`
+        : `<b>LEVEL ${level}/${MAX_LEVEL}</b> · ${info.name}<br/>All cans collected — head to the yellow <b>EXIT</b> tile.`;
+    }
+    ov.hidden = false; ov.classList.remove('is-hidden');
+  } else {
+    ov.hidden = true; ov.classList.add('is-hidden');
+  }
+}
+// Hook up the pause UI + ESC key + pause button + level-select button.
+{
+  const _levelBtn = document.getElementById('level-select-btn');
+  if (_levelBtn) _levelBtn.addEventListener('click', openLevelSelect);
+  const _pauseBtn = document.getElementById('pause-btn');
+  if (_pauseBtn) _pauseBtn.addEventListener('click', togglePause);
+  const _resume = document.getElementById('pause-resume');
+  if (_resume) _resume.addEventListener('click', () => { paused = false;
+    const ov = document.getElementById('pause-overlay'); if (ov) { ov.hidden = true; ov.classList.add('is-hidden'); } });
+  const _restartLv = document.getElementById('pause-restart');
+  if (_restartLv) _restartLv.addEventListener('click', () => {
+    paused = false;
+    const ov = document.getElementById('pause-overlay'); if (ov) { ov.hidden = true; ov.classList.add('is-hidden'); }
+    startRun({ level });
+  });
+  const _selBtn = document.getElementById('pause-select');
+  if (_selBtn) _selBtn.addEventListener('click', () => {
+    paused = false;
+    const ov = document.getElementById('pause-overlay'); if (ov) { ov.hidden = true; ov.classList.add('is-hidden'); }
+    openLevelSelect();
+  });
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      if (_cutIsShowing()) return; // let cutscene handle escape
+      e.preventDefault();
+      togglePause();
+    }
+  });
+}
+// Agent C: cross-agent hook for other modules to trigger cutscenes.
+if (typeof window !== 'undefined') {
+  window.__backrooms = {
+    showLevelCard: (lvl) => triggerLevelCard(lvl || level),
+    showCutscene: (kind, opts) => {
+      if (kind === 'intro') _cutIntro(opts && opts.cb);
+      else if (kind === 'level') triggerLevelCard((opts && opts.level) || level, opts && opts.cb);
+      else if (kind === 'death') _cutDeath(opts || {}, opts && opts.cb);
+      else if (kind === 'win') _cutWin(opts || {}, opts && opts.cb);
+      else if (kind === 'tutorial') _cutTutorial(opts && opts.cb);
+      else if (kind === 'select') openLevelSelect();
+    },
+    getLevelInfo: (lvl) => levelInfoFor(lvl || level),
+    getMaxLevel: () => MAX_LEVEL,
+    togglePause,
+    isCutsceneShowing: _cutIsShowing,
+    isPaused: () => paused,
+  };
 }
 let lastT = performance.now();
 (function loop(now) {
@@ -2767,16 +5267,11 @@ let lastT = performance.now();
   requestAnimationFrame(loop);
 })(performance.now());
 
-// Tutorial tip
-const _startOv = document.getElementById('overlay');
-if (_startOv) {
-  const _showOnHide = () => {
-    if (_startOv.classList.contains('is-hidden') || _startOv.hidden) {
-      showTip('WASD walk · SHIFT sneak · B toggle flashlight · F smoke · find 5 cans, reach the EXIT', 7000);
-    }
-  };
-  new MutationObserver(_showOnHide).observe(_startOv, { attributes: true, attributeFilter: ['hidden', 'class'] });
-}
+// Agent C: legacy showTip popup disabled — the new cutscene tutorial bubbles
+// (_cutTutorial) handle this on first run, and returning players don't need a
+// repeated tip every time they enter. Kept the import in case other code
+// references it.
+void showTip; // explicit reference so linters don't yell about unused import
 
 // === Round 3B: start/end screen polish ===
 (function _r3bPolish(){
