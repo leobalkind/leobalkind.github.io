@@ -86,6 +86,8 @@ const STARTER_VEHICLES = ['skateboard', 'motorbike', 'van'];
 
 let pug, vehicle, marker, obstacles, time, deliveries, fuel, running, cam;
 let powerups, skidMarks, nitroT, shieldT, magnetT;
+// v4 polish: route-start boost trail timer (decays in update loop).
+let _routeStartBoostT = 0;
 // CARGO FRAGILITY — each delivery starts at 100% intact. Every collision (any
 // damage source) drops it 10%. Payout (= time bonus + tip $$) scales with how
 // intact the cargo arrives: 1.5× at 100%, 1.0× at 50%, 0.5× at 0%.
@@ -836,6 +838,7 @@ function tick(dt) {
   if (shiftBoost && nitroT <= 0) fuel = Math.max(0, fuel - dt * 25);
   fuel = Math.min(100, fuel + dt * 5);
   nitroT = Math.max(0, nitroT - dt);
+  _routeStartBoostT = Math.max(0, _routeStartBoostT - dt);
   shieldT = Math.max(0, shieldT - dt);
   magnetT = Math.max(0, magnetT - dt);
   comboT = Math.max(0, comboT - dt);
@@ -1090,6 +1093,15 @@ function tick(dt) {
     // Round 2C: cheer SFX layered on top (rising arpeggio + bright tone)
     sfx.tone(1320, 'triangle', 0.18, 0.22);
     sfx.tone(1760, 'triangle', 0.12, 0.18);
+    // v4 polish: ROUTE-START — engine rev + speed trail kicks the next route.
+    // 0.45s "boost trail" timer + low-mid-high SFX stack (sub-thump + rev +
+    // honk) so the player feels propelled toward the next stop.
+    _routeStartBoostT = 0.45;
+    try {
+      sfx.tone(110, 'sawtooth', 0.18, 0.32);   // low rumble
+      sfx.tone(330, 'sawtooth', 0.16, 0.24);   // engine rev
+      setTimeout(() => { try { sfx.tone(880, 'square', 0.08, 0.18); } catch {} }, 90); // horn beep
+    } catch {}
     const stuntTag = stuntMult > 1 ? ` ×${stuntMult}` : '';
     addPopup(marker.x, marker.y - 10, `+${bonusTime}s${stuntTag}`, stuntMult > 1 ? '#ffd23f' : '#5ef38c');
     // Round 2C: confetti spray — multi-color burst instead of single green
@@ -1897,6 +1909,19 @@ function render() {
   if (nitroT > 0) {
     ctx.fillStyle = '#ff8e3c'; ctx.fillRect(-26, -4, 8, 8);
     ctx.fillStyle = '#ffd23f'; ctx.fillRect(-30, -2, 4, 4);
+  }
+  // v4 polish: route-start boost trail — pulsing flame puff behind the vehicle
+  // for ~0.45s after each completed delivery. Layered with the existing nitro
+  // so combo runs look extra punchy.
+  if (_routeStartBoostT > 0) {
+    const k = _routeStartBoostT / 0.45;
+    const len = 18 + (1 - k) * 22;
+    ctx.fillStyle = `rgba(255,210,63,${k * 0.85})`;
+    ctx.fillRect(-22 - len, -3, len, 6);
+    ctx.fillStyle = `rgba(255,142,60,${k})`;
+    ctx.fillRect(-22 - len * 0.7, -2, len * 0.7, 4);
+    ctx.fillStyle = `rgba(255,255,255,${k * 0.9})`;
+    ctx.fillRect(-22 - 6, -1.5, 6, 3);
   }
   // Shield bubble
   if (shieldT > 0) {

@@ -4655,6 +4655,20 @@ function tickPlay(dt) {
       const line = NPC_LINES[Math.floor(Math.random() * NPC_LINES.length)];
       showNpcOverlay(line);
       try { audio?.playClownLaugh?.(0, 35); } catch {}
+      // v4 polish: NPC encounter — brief CSS static-flash overlay + heavy
+      // footstep audio sweetener. Reinforces "something just appeared".
+      try {
+        const f = document.createElement('div');
+        f.className = 'cf-npc-flash';
+        document.body.appendChild(f);
+        setTimeout(() => { try { f.remove(); } catch {} }, 420);
+      } catch {}
+      try {
+        if (audio?.playFootstep) {
+          audio.playFootstep(1.4);
+          setTimeout(() => { try { audio.playFootstep(1.6); } catch {} }, 160);
+        }
+      } catch {}
     }
   }
   if (npcState.triggered && npcState.fadeOutAt) {

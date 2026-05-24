@@ -235,6 +235,19 @@ const TODAYS_MUTATOR = MUTATORS[_mutSeed % MUTATORS.length];
 // Apply the mutator each time the game starts. Wraps original start().
 const _origStart = game.start.bind(game);
 game.start = async function(...args) {
+  // Reset previous-run mutator flags BEFORE start() rebuilds powerups/energy/player.
+  // Without this, stale flags from a prior day could double-apply (e.g. yesterday's
+  // LOW GRAVITY lingering today on top of VAMPIRE), and energy/powerups get reset
+  // each start so their per-run hooks must be re-applied.
+  this._mutatorGravScale = 0;
+  this._mutatorXpScale = 0;
+  this._mutatorNoPickup = false;
+  this._mutatorVampire = 0;
+  this._mutatorDmgOut = 0;
+  this._mutatorDmgIn = 0;
+  this._mutatorTreatScale = 0;
+  // energy/powerups are recreated each start — clear per-instance hook flags
+  this._treatHooked = false;
   const r = await _origStart(...args);
   try { TODAYS_MUTATOR.apply(this); } catch (e) { /* */ }
   // VAMPIRE: hook _handleKill to heal player on kill
@@ -249,7 +262,7 @@ game.start = async function(...args) {
       }
     };
   }
-  // NO PICKUPS: gut the powerup spawner
+  // NO PICKUPS: gut the powerup spawner (powerups is recreated each start)
   if (this._mutatorNoPickup && this.powerups) {
     if (this.powerups.maybeSpawnAt) this.powerups.maybeSpawnAt = () => {};
   }
@@ -257,7 +270,8 @@ game.start = async function(...args) {
   if (this._mutatorXpScale && this.difficulty) {
     this.difficulty = Object.assign({}, this.difficulty, { xpMult: this.difficulty.xpMult * this._mutatorXpScale });
   }
-  // TREAT RAIN: scale energy spawn (each treat = 1 unit, so we just spawn more)
+  // TREAT RAIN: scale energy spawn (each treat = 1 unit, so we just spawn more).
+  // energy is recreated each start so we must re-hook fresh per run.
   if (this._mutatorTreatScale && this.energy && !this._treatHooked) {
     this._treatHooked = true;
     const _origBurst = this.energy.spawnBurst.bind(this.energy);

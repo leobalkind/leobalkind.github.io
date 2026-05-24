@@ -281,6 +281,14 @@ const VISUAL_CSS = `
 .cafe-tip { position: absolute; font-family: var(--font-display);
   font-size: 1.1rem; color: #ffd23f; text-shadow: 0 2px 0 #000, 0 0 12px #ffd23f;
   pointer-events: none; animation: cafe-tip-fly 1.4s cubic-bezier(0.2,0.7,0.3,1) forwards; }
+/* v4 polish: cash counter bounce on increment */
+.cf-money-pop { animation: cfMoneyPop 0.35s cubic-bezier(.3,1.6,.4,1); display: inline-block; }
+@keyframes cfMoneyPop {
+  0%   { transform: scale(1); color: #ffd23f; }
+  40%  { transform: scale(1.3) translateY(-2px); color: #fff; text-shadow: 0 0 12px #ffd23f, 0 0 18px #fff; }
+  100% { transform: scale(1) translateY(0); color: #ffd23f; }
+}
+body.reduced-motion .cf-money-pop { animation: none; }
 @keyframes cafe-tip-fly {
   0%   { transform: translate(-50%,-50%) scale(0.4) rotate(-20deg); opacity: 0; }
   20%  { transform: translate(-50%,-80%) scale(1.4) rotate(0deg);  opacity: 1; }
@@ -1027,9 +1035,28 @@ function flashChip(stationEl) {
 function tipPopup(x, y, text) {
   const div = document.createElement('div');
   div.className = 'cafe-tip';
-  div.textContent = text;
   div.style.left = x + 'px'; div.style.top = y + 'px';
   _popups.appendChild(div);
+  // v4 polish: tween the $ value upward (snap → count-up) so the payout
+  // feels earned. Accepts "$NN" — keeps the prefix, counts 0→NN over 320ms.
+  const m = /^\$(\d+)/.exec(text);
+  if (m) {
+    const target = parseInt(m[1], 10);
+    const start = performance.now();
+    const dur = 320;
+    const tick = () => {
+      const k = Math.min(1, (performance.now() - start) / dur);
+      // ease-out cubic
+      const e = 1 - Math.pow(1 - k, 3);
+      const v = Math.round(target * e);
+      div.textContent = '$' + v;
+      if (k < 1) requestAnimationFrame(tick);
+      else div.textContent = text; // final state restored
+    };
+    tick();
+  } else {
+    div.textContent = text;
+  }
   setTimeout(() => div.remove(), 1500);
 }
 // Round 2C: angry customer leaving — red smoke + cloud emote at a screen pt
@@ -2077,7 +2104,18 @@ const _cfHud = {
 let _cfHudPrev = { money: -1, served: -1, lives: -1, best: '', critical: null };
 let _cfBestCache = '', _cfBestCacheT = 0;
 function updateHud() {
-  if (money !== _cfHudPrev.money) { _cfHud.money.textContent = '$' + money; _cfHudPrev.money = money; }
+  if (money !== _cfHudPrev.money) {
+    _cfHud.money.textContent = '$' + money;
+    // v4 polish: bounce when money increments (skip on shop-purchase decreases)
+    if (money > _cfHudPrev.money && _cfHudPrev.money >= 0) {
+      try {
+        _cfHud.money.classList.remove('cf-money-pop');
+        void _cfHud.money.offsetWidth; // restart anim
+        _cfHud.money.classList.add('cf-money-pop');
+      } catch {}
+    }
+    _cfHudPrev.money = money;
+  }
   if (served !== _cfHudPrev.served) { _cfHud.served.textContent = served; _cfHudPrev.served = served; }
   if (lives !== _cfHudPrev.lives) {
     _cfHud.lives.textContent = '❤️'.repeat(lives) + '🖤'.repeat(4 - lives);

@@ -597,6 +597,20 @@ const LAB_CSS = `
   35%  { box-shadow: 0 0 28px 6px rgba(255,210,63,0.75); }
   100% { box-shadow: 0 0 0 0 rgba(255,210,63,0.0); }
 }
+/* v4 polish: tap-ripple radiates from the click point inside the cell. */
+.lab-codex-cell { position: relative; overflow: hidden; }
+.lab-codex-cell__ripple {
+  position: absolute; pointer-events: none;
+  width: 6px; height: 6px; margin-left: -3px; margin-top: -3px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.55);
+  animation: lab-codex-ripple 0.6s cubic-bezier(.2,.7,.3,1) forwards;
+}
+@keyframes lab-codex-ripple {
+  0%   { transform: scale(1); opacity: 0.7; }
+  100% { transform: scale(34); opacity: 0; }
+}
+body.reduced-motion .lab-codex-cell__ripple { animation: none; opacity: 0; }
 
 @keyframes lab-leg-pulse { 0%,100% { box-shadow: 0 0 40px var(--neon-yellow); }
   50% { box-shadow: 0 0 80px var(--neon-yellow), 0 0 120px rgba(255,210,63,0.5); } }
@@ -2373,6 +2387,12 @@ function renderEvolutionTree() {
   const all = Object.values(discoveries || {});
   const sub = document.getElementById('tree-sub');
   if (sub) sub.textContent = `${all.length} species discovered · click any node for details`;
+  // Empty-state: with 0 discoveries the tree renders only the tier labels at
+  // the left edge, which looks broken. Show a centered hint instead.
+  if (all.length === 0) {
+    svg.innerHTML = `<text x="430" y="260" text-anchor="middle" fill="#c8c0e8" font-family="monospace" font-size="14" opacity="0.7">Discover your first pug to populate the tree.</text>`;
+    return;
+  }
   // Layout by tier (rows): LEGENDARY top, then EPIC, RARE, COMMON, CURSED bottom.
   const tierRows = { LEGENDARY: 0, EPIC: 1, RARE: 2, COMMON: 3, CURSED: 4 };
   const tierColor = { LEGENDARY: '#ffd23f', EPIC: '#b055ff', RARE: '#4cc9f0', COMMON: '#c8c8d8', CURSED: '#ff3a3a' };
@@ -2583,6 +2603,20 @@ function _makeCodexCell(d, tier) {
   const nameEl = document.createElement('div'); nameEl.className = 'lab-codex-cell__name';
   nameEl.textContent = (d.name || '???').split(' ').slice(0, 2).join(' ');
   cell.appendChild(nameEl);
+  // v4 polish: tap ripple — expanding circle from click point
+  cell.addEventListener('click', (ev) => {
+    try {
+      const r = cell.getBoundingClientRect();
+      const ripple = document.createElement('span');
+      ripple.className = 'lab-codex-cell__ripple';
+      const px = (ev.clientX || (r.left + r.width / 2)) - r.left;
+      const py = (ev.clientY || (r.top + r.height / 2)) - r.top;
+      ripple.style.left = px + 'px';
+      ripple.style.top = py + 'px';
+      cell.appendChild(ripple);
+      setTimeout(() => { try { ripple.remove(); } catch {} }, 620);
+    } catch {}
+  });
   return cell;
 }
 

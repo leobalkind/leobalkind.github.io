@@ -1502,6 +1502,22 @@ body.reduced-motion #end-overlay.is-escape .end-bg {
   opacity: 0;
   transition: opacity 0.45s ease, transform 0.45s ease;
 }
+/* v4 polish: static flash on NPC appearance. Brief horizontal-line distortion
+   over the full viewport, fades out in 0.4s. */
+.cf-npc-flash {
+  position: fixed; inset: 0; z-index: 29; pointer-events: none;
+  background:
+    repeating-linear-gradient(0deg, rgba(255,255,255,0.18) 0 1px, transparent 1px 3px),
+    repeating-linear-gradient(0deg, rgba(0,0,0,0.42) 0 2px, transparent 2px 5px);
+  mix-blend-mode: screen;
+  animation: cfNpcFlash 0.4s steps(6, end) forwards;
+}
+@keyframes cfNpcFlash {
+  0%   { opacity: 0.95; filter: brightness(1.4); transform: translateY(0); }
+  40%  { opacity: 0.7;  filter: brightness(1.1); transform: translateY(2px); }
+  100% { opacity: 0;    filter: brightness(1);   transform: translateY(0); }
+}
+body.reduced-motion .cf-npc-flash { animation: none; opacity: 0; }
 .npc-overlay[hidden] { display: none; }
 .npc-overlay.is-shown { opacity: 1; transform: translate(-50%, -10px); }
 .npc-overlay__bubble {

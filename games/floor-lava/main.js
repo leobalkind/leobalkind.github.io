@@ -152,6 +152,29 @@ function _evalBiomeChallenge() {
     score += activeBiomeChal.bonus;
     banner = { text: `★ CHALLENGE +${activeBiomeChal.bonus} ★`, life: 0, max: 2 };
     try { sfx.arp([523, 784, 1047, 1320], 'triangle', 0.07, 0.22, 0.16); } catch (e) { /* */ }
+    // v4 polish: biome-colored particle burst at player position. Uses the
+    // current biome palette for visual identity. Heavy (40 embers) but only
+    // fires once per biome shift so safe for the cap (180 max).
+    try {
+      const b = BIOMES[Math.min(BIOMES.length - 1, biomeIdx)];
+      const palette = [b.lava0, b.lava1, '#ffffff', '#ffd23f'];
+      const px = pug ? pug.x : W / 2;
+      const py = pug ? pug.y : H / 2;
+      for (let i = 0; i < 36; i++) {
+        if (embers.length > 170) break;
+        const a = Math.random() * Math.PI * 2;
+        const sp = 80 + Math.random() * 220;
+        const col = palette[i % palette.length];
+        embers.push({
+          x: px + (Math.random() - 0.5) * 8, y: py + (Math.random() - 0.5) * 8,
+          vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 60,
+          life: 0, max: 0.9 + Math.random() * 0.4,
+          r: 1.5 + Math.random() * 2.5,
+          color: col,
+          dust: false, glow: true,
+        });
+      }
+    } catch {}
   }
   activeBiomeChal = null;
 }
@@ -221,6 +244,9 @@ function reset() {
   runStartT = performance.now(); runPowerupsGrabbed = 0; biomeStartDamage = false;
   lastPlat = null; comboJumps = 0; comboRestT = 0; maxComboThisRun = 0;
   biomeIdx = 0; nextBiomeAtHeight = 500; biomeShiftT = 0; biomeShiftTarget = 0;
+  // Wave 2.x: clear last run's biome challenge so its banner/tracker doesn't
+  // leak into a fresh run (and so the first biome shift will roll a NEW one).
+  activeBiomeChal = null;
   nextMilestone = 5;
   hitFlashT = 0; shakeT = 0; shakeMag = 0; caveOffset = 0;
   lastPlatY = H - 100;

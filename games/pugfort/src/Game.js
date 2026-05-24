@@ -1188,6 +1188,9 @@ export class Game {
       this.build.placeAt({ x: wx, y: wy });
       spend(this.resources, def.cost);
       Sfx.buildPlace();
+      // v4 polish: tower upgrade visual sparkle — golden ring + drifting sparkle
+      // particles confirm the placement felt good.
+      this._spawnBuildSparkle(wx, wy);
       const labels = {
         wall: '🧱 Wall placed', sandbag: '🟫 Sandbag dropped',
         spike: '⚔️ Spikes armed', mine: '💣 Mine planted',
@@ -1197,6 +1200,49 @@ export class Game {
       this.hud.toastMessage(labels[this.build.selected] || 'Built!', 'good');
       if (this.build.selected === 'wall' || this.build.selected === 'sandbag') this.wallsBuilt += 1;
       if (this.build.selected === 'turret' || this.build.selected === 'sniperTurret') this.turretsBuilt += 1;
+    }
+  }
+
+  // v4 polish: golden ring + 8 sparkle particles at the placement site.
+  // Pure visual sweetener — no gameplay effect. Reuses raf-tick pattern from
+  // _spawnDepotPop so it's consistent in feel and doesn't load the engine.
+  _spawnBuildSparkle(x, y) {
+    // Expanding gold ring
+    const ring = new Graphics();
+    ring.x = x; ring.y = y;
+    this.world.effectsLayer.addChild(ring);
+    let rt = 0;
+    const ringLife = 0.42;
+    const tickRing = () => {
+      rt += 1 / 60;
+      if (rt >= ringLife) { try { ring.destroy(); } catch {} return; }
+      const k = rt / ringLife;
+      ring.clear();
+      const r = 8 + k * 48;
+      ring.circle(0, 0, r).stroke({ color: 0xffd23f, width: 2.5, alpha: 1 - k });
+      ring.circle(0, 0, r + 3).stroke({ color: 0xffffff, width: 1, alpha: 0.7 * (1 - k) });
+      requestAnimationFrame(tickRing);
+    };
+    requestAnimationFrame(tickRing);
+    // 8 sparkles upward
+    for (let i = 0; i < 8; i++) {
+      const a = -Math.PI / 2 + (Math.random() - 0.5) * Math.PI;
+      const sp = 80 + Math.random() * 110;
+      const g = new Graphics();
+      const col = Math.random() < 0.5 ? 0xffd23f : 0xffffff;
+      g.rect(-1.5, -1.5, 3, 3).fill(col);
+      g.x = x; g.y = y;
+      this.world.effectsLayer.addChild(g);
+      let life = 0.55, t = 0;
+      const vx = Math.cos(a) * sp, vy = Math.sin(a) * sp - 60;
+      const tick = () => {
+        t += 1 / 60;
+        if (t >= life) { try { g.destroy(); } catch {} return; }
+        g.x += vx / 60; g.y += (vy + t * 60) / 60;
+        g.alpha = Math.max(0, 1 - t / life);
+        requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
     }
   }
 

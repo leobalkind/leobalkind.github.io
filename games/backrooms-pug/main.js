@@ -4876,6 +4876,27 @@ function render() {
   // viewport for ~0.15s, then fade in a top-down schematic with cans + exit.
   if (psychicFlashT > 0) {
     const phase = 1 - psychicFlashT; // 0..1
+    // v4 polish: sanity tilt — subtle rotation+shake during the flash,
+    // strongest at the bright-out moment. Tilt range: ±2.5deg.
+    if (phase < 0.55) {
+      const tk = phase < 0.25 ? (phase / 0.25) : (1 - (phase - 0.25) / 0.3);
+      const tilt = Math.sin(performance.now() * 0.014) * 0.044 * tk;
+      // Apply screen-space tilt by pivoting around viewport center.
+      ctx.save();
+      ctx.translate(W / 2, H / 2); ctx.rotate(tilt); ctx.translate(-W / 2, -H / 2);
+      // tear-drop streaks falling across the screen — vertical chromatic blur lines
+      const streakA = Math.min(1, (phase < 0.2 ? phase / 0.2 : 1 - phase) * 1.2);
+      if (streakA > 0) {
+        ctx.fillStyle = `rgba(255,255,255,${streakA * 0.18})`;
+        const t = performance.now() * 0.001;
+        for (let i = 0; i < 14; i++) {
+          const sx = ((i * 91 + Math.floor(t * 60)) % W);
+          const sh = 30 + (i % 5) * 18;
+          ctx.fillRect(sx, ((i * 53) % H), 1.5, sh);
+        }
+      }
+      ctx.restore();
+    }
     // Initial bright flash (first 25% of duration)
     const flashA = phase < 0.25 ? (1 - phase / 0.25) * 0.75 : 0;
     if (flashA > 0) { ctx.fillStyle = `rgba(255,255,255,${flashA})`; ctx.fillRect(0, 0, W, H); }
@@ -4900,9 +4921,12 @@ function render() {
       ctx.fillStyle = `rgba(76,201,240,${0.6 + pulse * 0.4})`;
       for (const c of cans || []) if (!c.taken) ctx.fillRect(mmX + c.x * sxS - 3, mmY + c.y * syS - 3, 6, 6);
       // exit
-      if (exitTile) { ctx.fillStyle = '#ffd23f'; ctx.fillRect(mmX + exitTile.tx * TILE * sxS - 4, mmY + exitTile.ty * TILE * syS - 4, 8, 8); }
+      // exitTile stores world coords (.x/.y), not tile coords (.tx/.ty);
+      // the original `.tx*TILE` math produced NaN so the exit dot never drew.
+      if (exitTile) { ctx.fillStyle = '#ffd23f'; ctx.fillRect(mmX + exitTile.x * sxS - 4, mmY + exitTile.y * syS - 4, 8, 8); }
       // pug
-      if (pug) { ctx.fillStyle = '#ff3aa1'; ctx.fillRect(mmX + pug.x * sxS - 3, mmY + pug.y * sxS - 3, 6, 6); }
+      // Was using sxS for the y-axis — pug dot rendered at wrong vertical pos.
+      if (pug) { ctx.fillStyle = '#ff3aa1'; ctx.fillRect(mmX + pug.x * sxS - 3, mmY + pug.y * syS - 3, 6, 6); }
       // label
       ctx.fillStyle = '#5ef38c'; ctx.font = "10px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
       ctx.fillText('PSYCHIC FLASH', mmX + mmW / 2, mmY - 8);
@@ -6456,6 +6480,9 @@ function startRun(opts) {
   firstHoundJump = false; lastSmilerJumpAt = -999;
   ambientEvent = null;
   activeTriggerScare = null; lastTriggerScareAt = -999;
+  // Clear any in-flight PSYCHIC FLASH from a prior run and re-arm the
+  // schedule so the next reveal is timed from the new run's gameTime.
+  psychicFlashT = 0; nextPsychicFlashAt = 0;
   // Reset noclip-chain + lore-note transient state for this run.
   noclipTransitionT = 0; noclipSwapped = false;
   noclipFromLabel = ''; noclipToLabel = '';

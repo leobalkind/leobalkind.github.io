@@ -740,7 +740,19 @@ function toggleCart() {
   inCart = !inCart;
   heat = Math.min(1, heat + 0.1);
   sfx.tone(550, 'square', 0.06, 0.16);
+  // v4 polish: when entering the cart, ring a horn beep + drive a 0.5s
+  // "glide-in" trail visual via _cartEntryT (read by render).
+  if (inCart) {
+    _cartEntryT = 0.5;
+    try {
+      sfx.tone(740, 'square', 0.08, 0.22);
+      setTimeout(() => { try { sfx.tone(880, 'square', 0.06, 0.18); } catch {} }, 90);
+    } catch {}
+  }
 }
+// v4 polish: cart-entry trail timer — read by render to draw a brief glide
+// streak behind the pug, signaling the speed shift from foot → cart.
+let _cartEntryT = 0;
 
 function tick(dt) {
   if (!running) return;
@@ -788,6 +800,7 @@ function tick(dt) {
     if (inCart) heat = Math.min(1, heat + dt * 0.04 * (activeGetaway && alarm && alarm.on ? activeGetaway.heatMul : 1));
   }
   if (pug.cartWobbleT > 0) pug.cartWobbleT = Math.max(0, pug.cartWobbleT - dt);
+  if (_cartEntryT > 0) _cartEntryT = Math.max(0, _cartEntryT - dt);
   // Cart is heavier (slower ramp); on-foot is snappier.
   const accel = inCart ? 5 : 8;
   const blend = Math.min(1, accel * dt);
@@ -1832,6 +1845,33 @@ function render() {
   }
   // depth3D drop shadow under the pug (and cart if any)
   _depthShadow(ctx, pug.x, pug.y + 14, inCart ? 22 : 16, { alpha: 0.45 });
+  // v4 polish: cart-entry GLIDE TRAIL — two angled streaks behind the cart
+  // for the first 0.5s after pressing C. Sells the speed shift visually.
+  if (_cartEntryT > 0 && inCart) {
+    const k = _cartEntryT / 0.5; // 1..0
+    const len = 24 + (1 - k) * 36;
+    // direction: opposite of current velocity, fall back to behind+left
+    const vmag = Math.hypot(pug.vx || 0, pug.vy || 0) + 0.001;
+    const dx = -(pug.vx || -1) / vmag;
+    const dy = -(pug.vy || 0) / vmag;
+    const px = pug.x, py = pug.y + 6;
+    ctx.save();
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = `rgba(255,210,63,${k * 0.85})`;
+    ctx.lineWidth = 4;
+    ctx.beginPath(); ctx.moveTo(px - 8, py); ctx.lineTo(px - 8 + dx * len, py + dy * len); ctx.stroke();
+    ctx.strokeStyle = `rgba(255,255,255,${k * 0.7})`;
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(px + 8, py); ctx.lineTo(px + 8 + dx * len, py + dy * len); ctx.stroke();
+    // small puff of motion-lines on top
+    ctx.fillStyle = `rgba(255,255,255,${k * 0.55})`;
+    for (let i = 0; i < 3; i++) {
+      const fx = px + dx * (10 + i * 8);
+      const fy = py + dy * (10 + i * 8);
+      ctx.fillRect(fx - 1, fy - 1, 2, 2);
+    }
+    ctx.restore();
+  }
   if (inCart) drawCart(pug.x, pug.y + 4 + wobbleY, 0);
   // Pug shopper with rotating disguise — cycles by map for a "different store
   // different cover" feel. Stays cosmetic (does not change gameplay).
@@ -2260,6 +2300,10 @@ function start() {
   // Apply selected getaway BEFORE reset() so it's available in the run.
   activeGetaway = GETAWAY_VEHICLES.find((v) => v.id === selectedGetawayId) || GETAWAY_VEHICLES[0];
   _origMaxBag = null;
+  // Reset alarm-edge tracker so a leftover "alarm was on at game-end" state
+  // doesn't mis-fire the off-transition handler on the first tick of the
+  // next run and inadvertently mutate maxBag.
+  _lastAlarmOn = false;
   reset(); running = true;
   keys.clear(); touchAt = null; // wipe stuck inputs from prior match
   document.getElementById('overlay').hidden = true; document.getElementById('overlay').classList.add('is-hidden');

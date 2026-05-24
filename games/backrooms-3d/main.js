@@ -1113,9 +1113,12 @@ camera.position.copy(player.pos);
 // the level-sting audio + brief flash + reveal banner.
 // =============================================================================
 let currentLevel = 0;
+let _hasAppliedFirstLevel = false;
 function applyLevel(lvl) {
   if (lvl < 0 || lvl >= LEVELS.length) return;
+  const wasChange = _hasAppliedFirstLevel && currentLevel !== lvl;
   currentLevel = lvl;
+  _hasAppliedFirstLevel = true;
   const L = LEVELS[lvl];
   scene.background = new THREE.Color(L.sky);
   scene.fog.color = new THREE.Color(L.fogColor);
@@ -1155,7 +1158,14 @@ function applyLevel(lvl) {
   }
   // Re-set ambience track volume on Pipes (extra hiss).
   playSteam(L.showSteam ? 0.5 : 0);
+  // v4 polish: tunnel-zoom — brief FOV pull-in then snap back, simulating
+  // a "warp" into the next level. ~0.7s total. Runs only when this is a
+  // real level CHANGE (not the initial apply).
+  if (wasChange) _tunnelZoomT = 0.7;
 }
+// v4 polish: tunnel-zoom timer driven by main loop.
+let _tunnelZoomT = 0;
+let _tunnelZoomBaseFov = 90;
 
 // =============================================================================
 // INPUT — keyboard + mouse + mobile drag-look
@@ -1485,6 +1495,23 @@ function loop(nowMs) {
     tickWinSequence(dt);
   } else if (jumpscaring) {
     tickJumpscare(dt);
+  }
+  // v4 polish: tunnel-zoom FOV pulse on level change. Pulls FOV down (zoom in)
+  // for the first ~0.35s then back to base. Skip during jumpscare (it owns FOV).
+  if (_tunnelZoomT > 0 && !jumpscaring) {
+    _tunnelZoomT = Math.max(0, _tunnelZoomT - dt);
+    const k = 1 - _tunnelZoomT / 0.7; // 0..1
+    // ease: in-out, peak at k=0.4
+    const pulse = k < 0.4 ? (k / 0.4) : (1 - (k - 0.4) / 0.6);
+    const fov = _tunnelZoomBaseFov - pulse * 28;
+    if (camera.fov !== fov) {
+      camera.fov = fov;
+      camera.updateProjectionMatrix();
+    }
+    if (_tunnelZoomT === 0) {
+      camera.fov = _tunnelZoomBaseFov;
+      camera.updateProjectionMatrix();
+    }
   }
   renderer.render(scene, camera);
 }

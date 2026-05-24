@@ -2609,6 +2609,17 @@ function drawGadgetHud() {
   }
   // MINI-MAP (toggle M) — top-right
   if (miniMapOn) drawMiniMap();
+  // v4 polish: STEALTH MODE VIGNETTE — subtle blue tint pulse when fully
+  // undetected (alarmTier 0). Reinforces the "you're invisible" feeling
+  // without screen distraction. Suppressed during slow-mo (its overlay
+  // already dominates) or when any alarm is active.
+  if (alarmTier === 0 && slowmoT <= 0 && running) {
+    const pulse = 0.55 + 0.45 * Math.sin(performance.now() / 1200);
+    const tg = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.35, W / 2, H / 2, Math.max(W, H) * 0.75);
+    tg.addColorStop(0, 'rgba(76,201,240,0)');
+    tg.addColorStop(1, `rgba(40,140,200,${0.13 * pulse})`);
+    ctx.fillStyle = tg; ctx.fillRect(0, 0, W, H);
+  }
   // SLOW-MO chroma — much stronger blue overlay so it's instantly readable.
   // Was barely visible (0.06 alpha). Now a 14% blue wash + scanlines + edge
   // glow + a "SLOW-MO" chip in the top-center.
@@ -2869,16 +2880,25 @@ function start() {
     if (endOv.hidden || endOv.classList.contains('is-hidden')) {
       // Hide banner when run ends and user goes back to start
       const b = document.getElementById('contract-banner'); if (b) b.style.display = 'none';
+      // Clear stale end-contract-banner so next run gets a fresh one with
+      // its own contract result (the per-run banner was sticking around).
+      const ecb = document.getElementById('end-contract-banner'); if (ecb) ecb.remove();
       return;
     }
     const now = performance.now();
     if (now - lastT < 1500) return; lastT = now;
     if (!activeContract) return;
+    // Guard so rapid overlay re-shows during the same run don't add the
+    // bonus twice to totalLootValue.
+    if (activeContract._bonusAwarded) return;
     const passed = (() => { try { return !!activeContract.check(); } catch { return false; } })();
     if (passed) {
+      activeContract._bonusAwarded = true;
       totalLootValue += activeContract.bonus;
       const haulEl = document.getElementById('end-haul') || document.querySelector('#end-overlay .end-haul');
       if (haulEl) haulEl.textContent = '$' + totalLootValue;
+    } else {
+      activeContract._bonusAwarded = true; // mark resolved either way
     }
     // Inject contract result into end stats
     const stats = endOv.querySelector('.end-stats') || endOv.querySelector('.overlay__sub');

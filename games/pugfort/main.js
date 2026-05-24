@@ -407,6 +407,20 @@ function renderTechPanel() {
 // don't compound). Also award RP on end (hooked alongside recordSurvival).
 const _origStart_pft = game.start.bind(game);
 game.start = async function(...args) {
+  // If a prior snapshot is still live (e.g. mid-run crash, or rapid restart
+  // before end-overlay observer fired), restore it FIRST so we re-snapshot
+  // from clean baseline instead of capturing already-boosted stats and
+  // compounding bonuses on every rematch.
+  if (this._techSnap) {
+    for (const id of Object.keys(this._techSnap)) {
+      const snap = this._techSnap[id];
+      if (!snap || !BUILDABLES[id]) continue;
+      for (const k of Object.keys(snap)) {
+        if (snap[k] != null) BUILDABLES[id][k] = snap[k];
+      }
+    }
+    this._techSnap = null;
+  }
   // Snapshot relevant numeric stats on each def so we can revert later.
   this._techSnap = {};
   for (const id of Object.keys(BUILDABLES)) {

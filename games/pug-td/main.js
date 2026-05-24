@@ -2281,12 +2281,28 @@ function render() {
   if (waveBannerT > 0) {
     const k = Math.min(1, waveBannerT / 1.4);
     const alpha = waveBannerT > 1.1 ? (1.4 - waveBannerT) / 0.3 : k;
+    // v4 polish: shake banner during opening 0.45s when modifier active,
+    // emphasizing the modifier name with a flashing color cycle.
+    const opening = waveBannerT > 0.95;
+    const shakeK = opening && activeWaveMod ? (waveBannerT - 0.95) / 0.45 : 0;
+    const sx = shakeK > 0 ? (Math.random() - 0.5) * 8 * shakeK : 0;
+    const sy = shakeK > 0 ? (Math.random() - 0.5) * 4 * shakeK : 0;
     ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
     ctx.font = "26px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
     ctx.fillStyle = 'rgba(0,0,0,0.7)';
-    ctx.fillText(waveBannerText, W / 2 + 2, H / 2 + 2);
-    ctx.fillStyle = '#ffd23f';
-    ctx.fillText(waveBannerText, W / 2, H / 2);
+    ctx.fillText(waveBannerText, W / 2 + 2 + sx, H / 2 + 2 + sy);
+    // Flash between yellow and pink during the shake phase
+    const flash = shakeK > 0 && (Math.floor(performance.now() / 70) & 1) ? '#ff3aa1' : '#ffd23f';
+    ctx.fillStyle = flash;
+    ctx.fillText(waveBannerText, W / 2 + sx, H / 2 + sy);
+    // emphasis line for the modifier name (drops in under main banner)
+    if (activeWaveMod && opening) {
+      const modK = (waveBannerT - 0.95) / 0.45;
+      ctx.font = "16px 'Press Start 2P', monospace";
+      ctx.fillStyle = `rgba(255,58,161,${modK * 0.95})`;
+      const yOff = H / 2 + 28 + (1 - modK) * 12;
+      ctx.fillText(`${activeWaveMod.icon} ${activeWaveMod.name.toUpperCase()}`, W / 2 + sx * 0.5, yOff);
+    }
     ctx.globalAlpha = 1;
   }
   // Placement preview (if a tower is selected & mouse hovers a buildable cell)

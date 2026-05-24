@@ -462,6 +462,10 @@ function triggerEvolve() {
   particles.push({ ring: true, x: pug.x, y: pug.y, t: 0, maxR: 320 });
   particles.push({ ring: true, x: pug.x, y: pug.y, t: -0.1, maxR: 220 });
   particles.push({ ring: true, x: pug.x, y: pug.y, t: -0.2, maxR: 420 });
+  // v4 polish: SUPERSIZED form-change shockwave — single big visible ring,
+  // thicker stroke with rainbow palette, expands 0→800 over 1.1s. Doubles
+  // as the "feel" anchor so the player KNOWS this is a transformation event.
+  particles.push({ formShock: true, x: pug.x, y: pug.y, t: 0, life: 1.1, maxR: 800 });
   const rainbow = ['#ff3aa1', '#4cc9f0', '#ffd23f', '#5ef38c', '#b055ff', '#ffffff'];
   for (let k = 0; k < 60; k++) {
     const a = (k / 60) * Math.PI * 2;
@@ -1738,6 +1742,9 @@ function tick(dt) {
     p.t += dt;
     if (p.ring) {
       if (p.t > 0.5) particles.splice(i, 1);
+    } else if (p.formShock) {
+      // v4 polish: long-lived expanding shockwave
+      if (p.t >= p.life) particles.splice(i, 1);
     } else {
       if (p.gravity) p.vy += p.gravity * dt;
       p.x += p.vx * dt; p.y += p.vy * dt;
@@ -2301,6 +2308,24 @@ function render() {
       if (p.color) ctx.globalAlpha = 1 - p.t / 0.5;
       ctx.lineWidth = p.color ? 4 : 6;
       ctx.beginPath(); ctx.arc(p.x, p.y, p.maxR * (p.t / 0.5), 0, Math.PI * 2); ctx.stroke();
+      ctx.globalAlpha = 1;
+    } else if (p.formShock) {
+      // v4 polish: thick rainbow shockwave for form-change
+      const k = Math.min(1, p.t / p.life);
+      const r = p.maxR * k;
+      const a = 1 - k;
+      // outer thick gold band
+      ctx.strokeStyle = `rgba(255,210,63,${a * 0.8})`;
+      ctx.lineWidth = 14 * (1 - k * 0.5);
+      ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI * 2); ctx.stroke();
+      // mid pink band
+      ctx.strokeStyle = `rgba(255,58,161,${a * 0.7})`;
+      ctx.lineWidth = 6;
+      ctx.beginPath(); ctx.arc(p.x, p.y, r - 12, 0, Math.PI * 2); ctx.stroke();
+      // inner white core
+      ctx.strokeStyle = `rgba(255,255,255,${a * 0.95})`;
+      ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.arc(p.x, p.y, r - 22, 0, Math.PI * 2); ctx.stroke();
       ctx.globalAlpha = 1;
     } else if (p.scream) {
       ctx.globalAlpha = 1 - p.t / p.life;

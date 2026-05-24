@@ -1618,13 +1618,13 @@ export class Game {
         life: 0.35, t: 0,
       });
     }
-    // the variant — 13th option SPLAT added for visceral pug crunch
+    // the variant — 13th option SPLAT, 14th BODYPARTS for visceral pug crunch
     const fns = [
       this._deathFxSpaghetti, this._deathFxConfetti, this._deathFxHearts,
       this._deathFxBones,     this._deathFxEmoji,    this._deathFxTreats,
       this._deathFxBurp,      this._deathFxDisco,    this._deathFxGhost,
       this._deathFxToast,     this._deathFxNuggets,  this._deathFxYeet,
-      this._deathFxSplat,
+      this._deathFxSplat,     this._deathFxBodyParts,
     ];
     const pick = fns[Math.floor(Math.random() * fns.length)];
     pick.call(this, x, y);
@@ -2246,6 +2246,91 @@ export class Game {
       life: 1.5, t: 0,
     });
     this._spawnTextBurst(x, y, 'Y E E T', COLORS.cyan, 18);
+  }
+
+  // 14. BODY PARTS — bouncing pug ears + tongue + paws + tail with gravity.
+  // Each piece tumbles, bounces off the floor once, then settles. Goofy and
+  // visceral at once — reinforces "pug-themed shooter" identity on every kill.
+  _deathFxBodyParts(x, y) {
+    // 2 ears (brown rectangles)
+    for (let i = 0; i < 2; i++) {
+      const g = new Graphics();
+      g.rect(-3, -6, 6, 12).fill(0x6b3a1c);
+      g.rect(-2, -5, 4, 10).fill(0x8a4a24);
+      g.x = x; g.y = y;
+      g.rotation = Math.random() * Math.PI * 2;
+      this.effectsLayer.addChild(g);
+      const a = -Math.PI / 2 + (i === 0 ? -0.7 : 0.7) + (Math.random() - 0.5) * 0.4;
+      const sp = 220 + Math.random() * 140;
+      this.particles.push({
+        kind: 'noodle', g, x, y,
+        vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
+        rotVel: (Math.random() - 0.5) * 16,
+        gravity: 520,
+        life: 1.4 + Math.random() * 0.4, t: 0,
+      });
+    }
+    // 4 paws (small pink/tan ovals)
+    for (let i = 0; i < 4; i++) {
+      const g = new Graphics();
+      g.ellipse(0, 0, 4, 3).fill(0xc8854a);
+      g.ellipse(0, -0.5, 2.5, 1.8).fill(0xffb89a);
+      g.x = x; g.y = y;
+      g.rotation = Math.random() * Math.PI * 2;
+      this.effectsLayer.addChild(g);
+      const a = Math.random() * Math.PI * 2;
+      const sp = 150 + Math.random() * 200;
+      this.particles.push({
+        kind: 'noodle', g, x, y,
+        vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 80,
+        rotVel: (Math.random() - 0.5) * 14,
+        gravity: 540,
+        life: 1.3 + Math.random() * 0.4, t: 0,
+      });
+    }
+    // 1 tongue (pink wiggle)
+    {
+      const g = new Graphics();
+      g.rect(-4, -1, 8, 2).fill(0xff5a82);
+      g.rect(-3, -2, 6, 1).fill(0xff8aa8);
+      g.x = x; g.y = y;
+      this.effectsLayer.addChild(g);
+      const a = -Math.PI / 2 + (Math.random() - 0.5) * 0.5;
+      const sp = 260 + Math.random() * 80;
+      this.particles.push({
+        kind: 'noodle', g, x, y,
+        vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
+        rotVel: (Math.random() - 0.5) * 22,
+        gravity: 500,
+        life: 1.5, t: 0,
+      });
+    }
+    // 1 tail (curly brown)
+    {
+      const g = new Graphics();
+      g.circle(0, 0, 3).fill(0x6b3a1c);
+      g.circle(2, -1, 2).fill(0x8a4a24);
+      g.x = x; g.y = y;
+      this.effectsLayer.addChild(g);
+      const a = Math.random() * Math.PI * 2;
+      const sp = 180 + Math.random() * 120;
+      this.particles.push({
+        kind: 'noodle', g, x, y,
+        vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 100,
+        rotVel: (Math.random() - 0.5) * 18,
+        gravity: 530,
+        life: 1.4, t: 0,
+      });
+    }
+    // tiny impact ring
+    const ring = new Graphics();
+    ring.x = x; ring.y = y;
+    this.effectsLayer.addChild(ring);
+    this.particles.push({
+      kind: 'shockring', g: ring, t: 0, life: 0.4, x, y,
+      startR: 4, endR: 60, color: 0xff8aa8,
+    });
+    this._spawnTextBurst(x, y, 'OOF!', COLORS.pink, 14);
   }
 
   // v1.8 — Ensure pug.container has a held-weapon Graphics + rotate by aim.

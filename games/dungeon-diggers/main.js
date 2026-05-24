@@ -434,6 +434,10 @@ function reset() {
   _treasureRoomReveals = []; _digShakeT = 0; _digShakeAmp = 0; _confusionT = 0;
   _bossIntroT = 0; _bossNameBannerT = 0; _petEvolved = false;
   _masteryStamDrainMul = 1.0; _masteryLootMul = 1.0; _masteryPetDmg = 1.0;
+  // Wave 2.x: clear TREASURE MAP reveal so prior-run pings don't bleed
+  // through to the new level/run grid (the row/col coordinates would be
+  // stale and point at tiles that no longer exist in the freshly-laid map).
+  treasureMapT = 0; treasureMapPings = [];
   // POLISH ROUND 2 — spawn 2-4 ROCK GOLEMS deep in the level
   const numGolems = 2 + Math.floor(Math.random() * 3);
   for (let i = 0; i < numGolems; i++) {
@@ -488,8 +492,13 @@ let _treasureRoomReveals = []; // {x, y, t, life} for golden light shaft anims
 // =============================================================================
 let treasureMapT = 0;            // seconds remaining of active reveal
 let treasureMapPings = [];       // [{row, col, x, y}] — snapshot when activated
+// v4 polish: paper-unfurl overlay timer — plays a centered scroll-unfurl
+// animation for the first 0.85s after the map is used. Pure visual; no
+// gameplay effect. Drawn over the HUD in renderHud.
+let _mapUnfurlT = 0;
 function _activateTreasureMap() {
   treasureMapT = 30;
+  _mapUnfurlT = 0.85;
   // Find 5 nearest unmined loot tiles to the player.
   const found = [];
   for (let r = 0; r < rows; r++) {
@@ -1121,6 +1130,7 @@ function tick(dt) {
       });
     }
   }
+  if (_mapUnfurlT > 0) _mapUnfurlT = Math.max(0, _mapUnfurlT - dt);
   if (comboBannerT > 0) comboBannerT = Math.max(0, comboBannerT - dt);
   if (achievementsT > 0) achievementsT = Math.max(0, achievementsT - dt);
   // Wave 1D: lantern drain, ancient pots, pet rescue, pet AI, boss
@@ -2317,6 +2327,75 @@ function render() {
       ctx.font = "7px 'Press Start 2P', monospace";
       ctx.fillStyle = '#fff';
       ctx.fillText('NEXT MILESTONE ×' + next, cx, cy + 22);
+    }
+    ctx.restore();
+  }
+  // v4 polish: TREASURE MAP UNFURL — large parchment scroll unrolls
+  // from a tight rod into a wide paper for ~0.85s when the map activates.
+  // Centered on screen, draws X marks + map markings as it unfurls.
+  if (_mapUnfurlT > 0) {
+    const k = 1 - _mapUnfurlT / 0.85; // 0..1 over duration
+    // ease-out cubic for the unroll
+    const e = 1 - Math.pow(1 - k, 3);
+    const cx = W / 2, cy = H / 2;
+    const maxW = 260, maxH = 160;
+    const w = 12 + (maxW - 12) * e;
+    const h = maxH;
+    // fade out at the very end
+    const fadeOut = k > 0.78 ? Math.max(0, 1 - (k - 0.78) / 0.22) : 1;
+    ctx.save();
+    ctx.globalAlpha = fadeOut;
+    // backing shadow
+    ctx.fillStyle = 'rgba(0,0,0,0.45)';
+    ctx.fillRect(cx - w / 2 + 4, cy - h / 2 + 4, w, h);
+    // parchment body — gradient cream
+    const grd = ctx.createLinearGradient(cx, cy - h / 2, cx, cy + h / 2);
+    grd.addColorStop(0, '#f0d8a0');
+    grd.addColorStop(0.5, '#e8c890');
+    grd.addColorStop(1, '#d8b070');
+    ctx.fillStyle = grd;
+    ctx.fillRect(cx - w / 2, cy - h / 2, w, h);
+    // burnt edges
+    ctx.strokeStyle = '#6a4020';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(cx - w / 2 + 1, cy - h / 2 + 1, w - 2, h - 2);
+    // scroll rod end caps (left + right)
+    ctx.fillStyle = '#5a3a1a';
+    ctx.fillRect(cx - w / 2 - 6, cy - h / 2 - 4, 6, h + 8);
+    ctx.fillRect(cx + w / 2,     cy - h / 2 - 4, 6, h + 8);
+    ctx.fillStyle = '#8a5a2a';
+    ctx.fillRect(cx - w / 2 - 6, cy - h / 2 - 4, 6, 4);
+    ctx.fillRect(cx - w / 2 - 6, cy + h / 2,     6, 4);
+    ctx.fillRect(cx + w / 2,     cy - h / 2 - 4, 6, 4);
+    ctx.fillRect(cx + w / 2,     cy + h / 2,     6, 4);
+    // map contents — only visible once unfurled past 0.45
+    if (e > 0.45) {
+      const ca = Math.min(1, (e - 0.45) / 0.55);
+      ctx.globalAlpha = fadeOut * ca;
+      // dotted path + X marks
+      ctx.strokeStyle = '#6a4020';
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([4, 3]);
+      ctx.beginPath();
+      ctx.moveTo(cx - 100, cy + 40);
+      ctx.bezierCurveTo(cx - 60, cy - 20, cx + 20, cy + 50, cx + 100, cy - 30);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      // X markers
+      ctx.strokeStyle = '#c8281f';
+      ctx.lineWidth = 2.5;
+      const xs = [[-100, 40], [-30, 10], [60, 30], [100, -30]];
+      for (const [dx, dy] of xs) {
+        ctx.beginPath();
+        ctx.moveTo(cx + dx - 5, cy + dy - 5); ctx.lineTo(cx + dx + 5, cy + dy + 5);
+        ctx.moveTo(cx + dx + 5, cy + dy - 5); ctx.lineTo(cx + dx - 5, cy + dy + 5);
+        ctx.stroke();
+      }
+      // title
+      ctx.fillStyle = '#5a3a1a';
+      ctx.font = "bold 14px 'Press Start 2P', monospace";
+      ctx.textAlign = 'center';
+      ctx.fillText('TREASURE MAP', cx, cy - h / 2 + 22);
     }
     ctx.restore();
   }

@@ -250,7 +250,18 @@ export class Hud {
   }
 
   updateKills(n) {
-    if (n !== this._prev.kills) { this.kills.textContent = n; this._prev.kills = n; }
+    if (n !== this._prev.kills) {
+      this.kills.textContent = n;
+      this._prev.kills = n;
+      // Bounce pulse on kill increment — restart anim by toggling class.
+      try {
+        this.kills.classList.remove('hud-pop');
+        // force reflow so the keyframe restarts even on rapid kills
+        // eslint-disable-next-line no-unused-expressions
+        void this.kills.offsetWidth;
+        this.kills.classList.add('hud-pop');
+      } catch {}
+    }
   }
   updateBotsLeft(alive, total) {
     if (!this.botsLeft) return;

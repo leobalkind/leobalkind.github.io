@@ -209,8 +209,25 @@ function masteryRecordKill(weaponId) {
     const perkText = ['+5% KNOCKBACK', '-8% COOLDOWN', '+10% DAMAGE'][after - 1] || 'PERK';
     popup(pug.x, pug.y - 36, `★ ${w ? w.name.toUpperCase() : weaponId} MASTERY LV ${after} ★`, '#ffd23f');
     popup(pug.x, pug.y - 24, perkText, '#5ef38c');
+    // v4 polish: weapon emblem flash + ascending chime so mastery-up
+    // hits multi-sensory. _masteryFlashT drives a yellow ring around pug
+    // for ~0.7s in render. Color depends on tier.
+    _masteryFlashT = 0.75;
+    _masteryFlashLv = after;
+    try {
+      if (sfx && typeof sfx.arp === 'function') {
+        sfx.arp([659, 880, 1175], 'triangle', 0.08, 0.22, 0.1);
+      } else if (sfx) {
+        sfx.tone(659, 'triangle', 0.12, 0.22);
+        setTimeout(() => sfx.tone(880, 'triangle', 0.12, 0.22), 80);
+        setTimeout(() => sfx.tone(1175, 'triangle', 0.16, 0.28), 160);
+      }
+    } catch {}
   }
 }
+// v4 polish: mastery flash state read by render loop. Drives a gold ring +
+// pulsing emblem around the player for ~0.75s on level-up.
+let _masteryFlashT = 0, _masteryFlashLv = 0;
 function masteryGetMul(weaponId, kind) {
   const lv = masteryLevel(weaponId);
   if (lv >= 3 && kind === 'damage') return 1.10;
@@ -1184,6 +1201,7 @@ function tick(dt) {
   comboT = Math.max(0, comboT - dt); if (comboT === 0) comboN = 0;
   comboBannerT = Math.max(0, comboBannerT - dt);
   lastHitT = Math.max(0, lastHitT - dt);
+  if (_masteryFlashT > 0) _masteryFlashT = Math.max(0, _masteryFlashT - dt);
   for (const p of _fighters()) p.hitFlashT = Math.max(0, p.hitFlashT - dt);
   // crowd ambient sway uses real-time, no state to update
 
@@ -1805,6 +1823,28 @@ function render() {
       ctx.filter = 'none'; ctx.restore();
     } else {
       drawPug(ctx, p.x, p.y, { size: 36, body: p.color, mask: p.mask });
+    }
+    // v4 polish: mastery flash ring + emblem star around player
+    if (p === pug && _masteryFlashT > 0) {
+      const k = _masteryFlashT / 0.75;
+      const r = 22 + (1 - k) * 24;
+      ctx.save();
+      ctx.strokeStyle = `rgba(255, 210, 63, ${k * 0.9})`;
+      ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI * 2); ctx.stroke();
+      ctx.strokeStyle = `rgba(255, 255, 255, ${k * 0.7})`;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.arc(p.x, p.y, r + 4, 0, Math.PI * 2); ctx.stroke();
+      // mini star emblem above pug
+      const sa = (1 - k) * 0.6;
+      const sx = p.x, sy = p.y - 42 - (1 - k) * 8;
+      ctx.translate(sx, sy);
+      ctx.rotate((1 - k) * 1.4);
+      ctx.fillStyle = `rgba(255, 210, 63, ${k})`;
+      ctx.font = `bold ${14 + sa * 4}px monospace`;
+      ctx.textAlign = 'center';
+      ctx.fillText('★', 0, 0);
+      ctx.restore();
     }
     // weapon (custom canvas icon, centered ~22px out along aim)
     if (p.weapon.drawIconFn) {

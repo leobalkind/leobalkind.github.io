@@ -839,8 +839,29 @@ body.reduced-motion .pugfort-cutscene { animation: none; }
   color: #d8ffe6;
   font-size: 0.55rem;
   letter-spacing: 0.05em;
-  animation: ul-pulse 1.4s ease-out 2;
+  animation: ulBannerPop 0.7s cubic-bezier(.3,1.7,.4,1), ul-pulse 1.4s ease-out 2 0.7s;
+  position: relative;
+  overflow: hidden;
 }
+/* Confetti shimmer sweep across the banner */
+.end-unlock-banner::after {
+  content: '';
+  position: absolute; inset: 0;
+  background: linear-gradient(110deg, transparent 30%, rgba(255,210,63,0.5) 50%, transparent 70%);
+  animation: ulShimmer 1.2s ease-out 0.4s 1;
+  pointer-events: none;
+}
+@keyframes ulBannerPop {
+  0%   { opacity: 0; transform: scale(0.7) translateY(8px); }
+  60%  { opacity: 1; transform: scale(1.06) translateY(-2px); }
+  100% { opacity: 1; transform: scale(1) translateY(0); }
+}
+@keyframes ulShimmer {
+  from { transform: translateX(-110%); }
+  to   { transform: translateX(110%); }
+}
+body.reduced-motion .end-unlock-banner,
+body.reduced-motion .end-unlock-banner::after { animation: none !important; }
 
 /* =========================================================================
    PRO POLISH WAVE 1A — map/mode picker + stats overlay
