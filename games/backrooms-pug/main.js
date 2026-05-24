@@ -300,11 +300,23 @@ let noclipSwapped = false;       // true once we've actually swapped to the new 
 // LORE NOTES (collectibles) --------------------------------------------------
 let noteCollectibles = [];       // {x, y, id} in-world notes for current level
 let activeNoteText = null;       // string currently shown in the modal, null if closed
+// Round 2C: parchment-unfold animation timer (counts UP from 0 to 0.45 when
+// note opens; scales the paper card from a tight folded form to full open).
+let noteUnfoldT = 0;
+// Round 2C: monster-catch slow-mo / zoom timer. When set, render() does a
+// brief camera zoom-in toward the monster and the main loop slows world dt.
+let catchSlowmoT = 0;
+// Round 2C: sanity-drop iris-pulse — set when sanity drops 5+ in a single tick
+let sanityPulseT = 0;
+let lastSanity = 100;
+// Round 2C: smoke deploy darken timer (extra atmospheric screen-darken)
+let smokeDarkenT = 0;
 
 function shake(mag, dur) { const k = _shakeMul(); shakeMag = Math.max(shakeMag, mag * k); shakeT = Math.max(shakeT, dur); }
 function pop(x, y, text, color) {
   if (popups.length > 60) popups.shift();
-  popups.push({ x, y, vy: -28, life: 0, max: 0.9, text, color: color || '#5ef38c' });
+  // Round 2C: lateral spawn velocity so popups don't stack on each other
+  popups.push({ x, y, vx: (Math.random() - 0.5) * 50, vy: -50, life: 0, max: 0.9, text, color: color || '#5ef38c' });
 }
 function nowSec() { return performance.now() / 1000; }
 function silenceHum(durSec) { humSilenceUntil = Math.max(humSilenceUntil, nowSec() + durSec); }
@@ -397,6 +409,10 @@ window.addEventListener('keydown', (e) => {
     smokeBombs.push({ x: pug.x, y: pug.y, t: 0, life: 4 });
     monsterDazedT = 4;
     sfx.tone(330, 'sawtooth', 0.3, 0.22);
+    // Round 2C: denser smoke + brief screen-darken pulse on deploy
+    sfx.noise(0.22, 0.3, 600);
+    smokeDarkenT = 0.7;
+    shake(3, 0.18);
   }
   if (k === 'b' && running) toggleFlashlight();
 });
@@ -434,6 +450,10 @@ createMobileControls({
       smokeBombs.push({ x: pug.x, y: pug.y, t: 0, life: 4 });
       monsterDazedT = 4;
       sfx.tone(330, 'sawtooth', 0.3, 0.22);
+      // Round 2C: matched effect on mobile smoke deploy
+      sfx.noise(0.22, 0.3, 600);
+      smokeDarkenT = 0.7;
+      shake(3, 0.18);
     }
     if (id === 'sneak') touchSneak = pressed;
   },
@@ -759,6 +779,7 @@ function genLevel(lvl) {
   // Reset active trigger scare state
   activeTriggerScare = null;
   popups = []; shakeT = 0; shakeMag = 0; hitFlashT = 0; chaseVignetteT = 0;
+  noteUnfoldT = 0; catchSlowmoT = 0; sanityPulseT = 0; smokeDarkenT = 0; lastSanity = 100;
   firstSeenScreamed = false;
   cam = { x: pug.x, y: pug.y };
   // Sanity restored on entering a new level (gentle)
@@ -1152,7 +1173,13 @@ function tick(dt) {
       const id = (typeof n.id === 'number' && n.id >= 0 && n.id < NOTE_TOTAL) ? n.id : 0;
       const wasNew = markNoteFound(id);
       activeNoteText = LORE_NOTES[id] || '...';
-      try { sfx.tone(440, 'sine', 0.18, 0.10); } catch {}
+      // Round 2C: trigger parchment-unfold animation timer
+      noteUnfoldT = 0.45;
+      try {
+        sfx.tone(440, 'sine', 0.18, 0.10);
+        // Round 2C: tiny paper-rustle layer to sell the unfold
+        sfx.noise(0.08, 0.08, 200);
+      } catch {}
       if (wasNew) {
         pop(n.x, n.y - 14, `+NOTE ${notesFoundCount()}/${NOTE_TOTAL}`, '#ffd23f');
       } else {
@@ -1367,8 +1394,17 @@ function tick(dt) {
     if (lit) drain -= 2.5; // lit safe cells regen
     sanity = Math.max(0, Math.min(100, sanity - drain));
     if (drain > 1.5) silenceHum(0.12); // dread tick — momentary dead silence
+    // Round 2C: detect a sanity DROP > 3 in a single tick — iris-pulse it.
+    const dropAmt = lastSanity - sanity;
+    if (dropAmt > 3) sanityPulseT = 0.5;
+    lastSanity = sanity;
   }
   if (sanity <= 0) { hitFlashT = 0.5; return die('sanity'); }
+  // Round 2C: decay iris pulse + smoke darken timers + parchment unfold
+  if (sanityPulseT > 0) sanityPulseT = Math.max(0, sanityPulseT - dt);
+  if (smokeDarkenT > 0) smokeDarkenT = Math.max(0, smokeDarkenT - dt);
+  if (noteUnfoldT > 0) noteUnfoldT = Math.max(0, noteUnfoldT - dt);
+  if (catchSlowmoT > 0) catchSlowmoT = Math.max(0, catchSlowmoT - dt);
 
   // Heartbeat when monster close & chase
   if (monster.chase && distToPug < 360) {
@@ -1383,6 +1419,7 @@ function tick(dt) {
   for (let i = popups.length - 1; i >= 0; i--) {
     const p = popups[i];
     p.life += dt; p.y += p.vy * dt; p.vy += 22 * dt;
+    if (p.vx) { p.x += p.vx * dt; p.vx *= 0.88; }
     if (p.life >= p.max) popups.splice(i, 1);
   }
   // Light flicker accelerates when monster is close (< 200px = wild flicker)
@@ -1396,8 +1433,11 @@ function tick(dt) {
   if (distToPug < 24) {
     // Force jumpscare even if cooldown — death scare always plays.
     jumpScareCooldown = 0;
+    // Round 2C: camera-zoom slow-mo final frame before death (renders during
+    // the jumpscare with extra zoom + slightly longer hit-flash).
+    catchSlowmoT = 0.4;
     jumpScare('monster');
-    hitFlashT = 0.4; shake(7, 0.4);
+    hitFlashT = 0.6; shake(12, 0.55);
     return die('monster');
   }
 
@@ -1655,7 +1695,18 @@ function render() {
   // Background fog tone for archetype
   ctx.fillStyle = LV.fog; ctx.fillRect(0, 0, W, H);
   ctx.save();
-  ctx.translate(W / 2 - cam.x + sx, H / 2 - cam.y + sy);
+  // Round 2C: MONSTER CATCH camera zoom — eases the world up to 1.5x and
+  // pivots toward the monster during the slow-mo death frame.
+  if (catchSlowmoT > 0) {
+    const k = 1 - (catchSlowmoT / 0.4);   // 0 -> 1
+    const zoom = 1 + 0.5 * k;
+    const cx = (monster && monster.x) || pug.x;
+    const cy = (monster && monster.y) || pug.y;
+    ctx.translate(W / 2 - cx * zoom + sx, H / 2 - cy * zoom + sy);
+    ctx.scale(zoom, zoom);
+  } else {
+    ctx.translate(W / 2 - cam.x + sx, H / 2 - cam.y + sy);
+  }
   // View radius — slightly larger when flashlight ON.
   // Tightened so visible area is ~7 tiles even with bigger TILE — more dread.
   const viewR = flashlightOn ? 340 : 200;
@@ -1803,8 +1854,17 @@ function render() {
   // Smoke bombs (active clouds)
   for (const sb of smokeBombs) {
     const a = sb.t < 0.3 ? sb.t / 0.3 : (sb.t > 3.5 ? (sb.life - sb.t) / 0.5 : 1);
+    // Round 2C: denser smoke — layered puffs that pulse around the center
     ctx.fillStyle = `rgba(140,140,160,${a * 0.6})`;
     ctx.beginPath(); ctx.arc(sb.x, sb.y, 70, 0, Math.PI * 2); ctx.fill();
+    // Outer billow
+    ctx.fillStyle = `rgba(100,100,120,${a * 0.45})`;
+    const off = Math.sin(sb.t * 4) * 4;
+    ctx.beginPath(); ctx.arc(sb.x + off, sb.y - 8, 56, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(sb.x - off, sb.y + 6, 50, 0, Math.PI * 2); ctx.fill();
+    // Bright inner highlight
+    ctx.fillStyle = `rgba(180,180,200,${a * 0.3})`;
+    ctx.beginPath(); ctx.arc(sb.x - 12, sb.y - 6, 24, 0, Math.PI * 2); ctx.fill();
   }
   // Steam vents (pipes archetype) — visible during their burst
   for (const v of steamVents) {
@@ -1904,6 +1964,22 @@ function render() {
     rgrd.addColorStop(0, 'rgba(255,58,58,0)');
     rgrd.addColorStop(1, `rgba(255,58,58,${0.35 * chaseVignetteT * (0.6 + 0.4 * pulse)})`);
     ctx.fillStyle = rgrd; ctx.fillRect(0, 0, W, H);
+  }
+  // Round 2C: SANITY-DROP IRIS PULSE — subtle dark ring contracts inward when
+  // a big sanity hit just landed (telegraphs "you got mentally smacked").
+  if (sanityPulseT > 0) {
+    const k = sanityPulseT / 0.5; // 1 -> 0
+    const pgrd = ctx.createRadialGradient(W / 2, H / 2, viewR * 0.2 + (1 - k) * 80, W / 2, H / 2, viewR * 1.1);
+    pgrd.addColorStop(0, 'rgba(0,0,0,0)');
+    pgrd.addColorStop(0.85, `rgba(0,0,0,${0.55 * k})`);
+    pgrd.addColorStop(1, `rgba(0,0,0,${0.85 * k})`);
+    ctx.fillStyle = pgrd; ctx.fillRect(0, 0, W, H);
+  }
+  // Round 2C: SMOKE DEPLOY SCREEN-DARKEN — full-screen grey wash for ~0.7s
+  if (smokeDarkenT > 0) {
+    const k = smokeDarkenT / 0.7;
+    ctx.fillStyle = `rgba(80,80,90,${0.35 * k})`;
+    ctx.fillRect(0, 0, W, H);
   }
   // Film grain / static overlay when monster very close in chase
   if (monster.chase && distToPug < 220) {
@@ -2137,6 +2213,19 @@ function render() {
     const cw = Math.min(560, W - 80);
     const ch = 320;
     const cx = (W - cw) / 2, cy = (H - ch) / 2;
+    // Round 2C: parchment-unfold scale-Y animation. noteUnfoldT counts down
+    // from 0.45 to 0; we map (1 - t/0.45) to an ease-out cubic curve so the
+    // card "snaps open" then settles. Anchor scaling at card center so it
+    // visually unfolds vertically.
+    if (noteUnfoldT > 0) {
+      const k = 1 - (noteUnfoldT / 0.45);          // 0..1
+      const ease = 1 - Math.pow(1 - k, 3);         // ease-out cubic
+      const sx = 0.6 + 0.4 * ease;                 // 0.6 -> 1.0 width
+      const sy = 0.08 + 0.92 * ease;               // 0.08 -> 1.0 height (folded → open)
+      ctx.translate(cx + cw / 2, cy + ch / 2);
+      ctx.scale(sx, sy);
+      ctx.translate(-(cx + cw / 2), -(cy + ch / 2));
+    }
     // shadow
     ctx.fillStyle = 'rgba(0,0,0,0.5)';
     ctx.fillRect(cx + 8, cy + 10, cw, ch);
@@ -2607,6 +2696,7 @@ function start() {
   monsterWiggle = 0; lightFlicker = 0; heartBeatT = 0; breathT = 0;
   firstSeenScreamed = false; lastSanityTick = 0;
   popups = []; chaseVignetteT = 0; hitFlashT = 0; shakeT = 0; shakeMag = 0;
+  noteUnfoldT = 0; catchSlowmoT = 0; sanityPulseT = 0; smokeDarkenT = 0; lastSanity = 100;
   scheduleAmbient(); scheduleDoorSlam(); scheduleWhisper();
   genLevel(level);
   ensureHum();
@@ -2619,7 +2709,10 @@ function start() {
 }
 let lastT = performance.now();
 (function loop(now) {
-  const dt = Math.min((now - lastT) / 1000, 0.05);
+  let dt = Math.min((now - lastT) / 1000, 0.05);
+  // Round 2C: slow-mo final frame on monster catch — drop dt to 25% for the
+  // duration of catchSlowmoT so the world freezes briefly with juicy weight.
+  if (catchSlowmoT > 0) dt *= 0.25;
   lastT = now; tick(dt); if (running) render();
   requestAnimationFrame(loop);
 })(performance.now());

@@ -96,6 +96,10 @@ let mouse = { x: 0, y: 0 };
 let shakeT = 0, shakeAmp = 0;
 let comboT = 0, comboN = 0, comboBannerT = 0;
 let lastHitT = 0; // for player hit-flash
+// Round 2C polish: hit-pause window pauses physics for ~0.08s on big hits, and
+// ring shockwaves expand outward on detonation/kills (drawn under particles).
+let hitPauseT = 0;
+let shockwaves = []; // {x, y, r, maxR, life, t, color}
 // PWNED freeze-frame: when set, tick() pauses physics/AI; render still runs and
 // draws the giant PWNED banner over the victim with slight zoom-in.
 let pwnedT = 0;     // seconds remaining of freeze (0.6 total)
@@ -116,7 +120,10 @@ let activeBuffs = new Map(); // pug -> {type, t}
 function shake(amp, dur) { const k = _shakeMul(); shakeAmp = Math.max(shakeAmp, amp * k); shakeT = Math.max(shakeT, dur); }
 function popup(x, y, text, color) {
   if (popups.length > 32) popups.shift();
-  popups.push({ x, y, vy: -40, text, color: color || '#ffd23f', life: 1.0, t: 0 });
+  // Round 2C: random horizontal spawn velocity + slight vertical jitter so
+  // multiple popups don't stack atop each other (juicier score spew).
+  const vx = (Math.random() - 0.5) * 60;
+  popups.push({ x, y, vx, vy: -80, text, color: color || '#ffd23f', life: 1.0, t: 0 });
 }
 function mkPug(x, y, isPlayer, color, mask) {
   return {
@@ -267,6 +274,7 @@ function reset() {
   projectiles = []; particles = []; popups = []; sparks = []; kills = 0;
   comboT = 0; comboN = 0; comboBannerT = 0;
   shakeT = 0; shakeAmp = 0;
+  shockwaves = []; hitPauseT = 0;
   weaponPickups = []; weaponSpawnT = 6; // first pickup after 6s
   mouse = { x: W / 2, y: H / 2 };
   activeBuffs = new Map();
@@ -352,6 +360,18 @@ function tick(dt) {
   if (pwnedT > 0) {
     pwnedT = Math.max(0, pwnedT - dt);
     if (pwnedT === 0) pwnedVictim = null;
+    return;
+  }
+  // Round 2C: brief 0.05-0.08s hit-pause on big projectile hits — pauses world
+  // physics but still updates the timer + sparks/shockwaves visuals (those
+  // advance below in the particles/sparks/shockwaves block via separate decay).
+  if (hitPauseT > 0) {
+    hitPauseT = Math.max(0, hitPauseT - dt);
+    // still advance shockwave animations during pause for visual snap
+    for (let i = shockwaves.length - 1; i >= 0; i--) {
+      const s = shockwaves[i]; s.t += dt;
+      if (s.t >= s.life) shockwaves.splice(i, 1);
+    }
     return;
   }
   // Weapon pickups — periodic spawn + collision check
@@ -543,7 +563,11 @@ function tick(dt) {
           if (intensity > 0.5) target.slipT = Math.max(target.slipT, 0.35);
         }
         spawnHit(pr.x, pr.y, pr.color);
+        // Round 2C: small ring shockwave on heavy weapons (toast/sausage)
+        if (pr.dmg >= 20) spawnShockwave(pr.x, pr.y, pr.color, 36, 0.28);
         sfx.tone(220, 'square', 0.05, 0.18);
+        // Round 2C: brief hit-pause on heavier impacts (not bubbles) — 0.05s
+        if (pr.dmg >= 20) hitPauseT = Math.max(hitPauseT, 0.05);
         if (target === pug) { lastHitT = 0.25; shake(4, 0.18); }
         if (target.hp <= 0) {
           if (pr.owner === pug && target !== pug) {
@@ -552,8 +576,13 @@ function tick(dt) {
             if (comboT > 0) comboN++; else comboN = 1;
             comboT = 3.0;
             if (comboN >= 2) comboBannerT = 1.4;
-            popup(target.x, target.y - 30, '+25', '#5ef38c');
-            shake(8, 0.28);
+            // Round 2C: combo escalation popup — bigger text with each step
+            const popText = comboN >= 3 ? `+${25 * comboN} x${comboN}!` : '+25';
+            const popCol = comboN >= 3 ? '#ffd23f' : '#5ef38c';
+            popup(target.x, target.y - 30, popText, popCol);
+            // Round 2C: bigger shake + hit-pause on kill (juicy stop-frame)
+            shake(comboN >= 2 ? 12 : 9, 0.32);
+            hitPauseT = Math.max(hitPauseT, 0.10);
           } else {
             shake(5, 0.18);
           }
@@ -590,9 +619,16 @@ function tick(dt) {
     s.vx *= 0.86; s.vy *= 0.86;
     if (s.t >= s.life) sparks.splice(i, 1);
   }
+  // shockwaves (ring detonations) — expand and fade independently
+  for (let i = shockwaves.length - 1; i >= 0; i--) {
+    const s = shockwaves[i];
+    s.t += dt;
+    if (s.t >= s.life) shockwaves.splice(i, 1);
+  }
   // popups
   for (let i = popups.length - 1; i >= 0; i--) {
     const p = popups[i]; p.t += dt; p.y += p.vy * dt; p.vy *= 0.9;
+    if (p.vx) { p.x += p.vx * dt; p.vx *= 0.88; }
     if (p.t >= p.life) popups.splice(i, 1);
   }
   // timers
@@ -609,19 +645,27 @@ function tick(dt) {
   updateHud();
 }
 
+function spawnShockwave(x, y, color, maxR, life) {
+  if (shockwaves.length > 14) shockwaves.shift();
+  shockwaves.push({ x, y, r: 0, maxR: maxR || 60, life: life || 0.35, t: 0, color: color || '#ffd23f' });
+}
 function spawnHit(x, y, color) {
-  for (let i = 0; i < 6; i++) {
+  // Round 2C: denser hit burst (6 -> 9 particles) for juicier impacts
+  for (let i = 0; i < 9; i++) {
     const ang = Math.random() * Math.PI * 2;
-    const sp = 60 + Math.random() * 100;
-    particles.push({ x, y, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp, color, life: 0.3, t: 0, size: 3 });
+    const sp = 70 + Math.random() * 120;
+    particles.push({ x, y, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp, color, life: 0.32, t: 0, size: 3 });
   }
 }
 function spawnDeath(x, y, color) {
-  for (let i = 0; i < 16; i++) {
+  // Round 2C: bigger blood spray (16 -> 26 particles, slower fade for read)
+  for (let i = 0; i < 26; i++) {
     const ang = Math.random() * Math.PI * 2;
-    const sp = 120 + Math.random() * 200;
-    particles.push({ x, y, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp, color, life: 0.8, t: 0, size: 4 });
+    const sp = 140 + Math.random() * 240;
+    particles.push({ x, y, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp, color, life: 0.95, t: 0, size: 4 + Math.random() * 2 });
   }
+  // ring shockwave on kill (red-orange detonation)
+  spawnShockwave(x, y, '#ff5a3a', 90, 0.45);
 }
 function spawnSpark(x, y) {
   if (sparks.length > 60) return;
@@ -633,15 +677,16 @@ function spawnSpark(x, y) {
 }
 function spawnJet(x, y) {
   if (particles.length > 200) return;
-  for (let i = 0; i < 2; i++) {
-    const ang = Math.PI / 2 + (Math.random() - 0.5) * 0.6;
-    const sp = 120 + Math.random() * 120;
-    const cols = ['#ffd23f', '#ff8e3c', '#ff5a3a'];
+  // Round 2C: denser flame trail (2 -> 4 particles per frame) for juicier jet
+  for (let i = 0; i < 4; i++) {
+    const ang = Math.PI / 2 + (Math.random() - 0.5) * 0.8;
+    const sp = 140 + Math.random() * 140;
+    const cols = ['#ffd23f', '#ff8e3c', '#ff5a3a', '#fff1b0'];
     particles.push({
-      x: x + (Math.random() - 0.5) * 6, y: y + 14,
-      vx: Math.cos(ang) * sp * 0.4, vy: Math.sin(ang) * sp,
+      x: x + (Math.random() - 0.5) * 8, y: y + 14,
+      vx: Math.cos(ang) * sp * 0.5, vy: Math.sin(ang) * sp,
       color: cols[Math.floor(Math.random() * cols.length)],
-      life: 0.35, t: 0, size: 3 + Math.random() * 3,
+      life: 0.4 + Math.random() * 0.15, t: 0, size: 3 + Math.random() * 4,
     });
   }
 }
@@ -971,6 +1016,22 @@ function render() {
     const a = 1 - s.t / s.life;
     ctx.strokeStyle = `rgba(255,210,63,${a})`; ctx.lineWidth = 1.5;
     ctx.beginPath(); ctx.moveTo(s.x, s.y); ctx.lineTo(s.x - s.vx * 0.02, s.y - s.vy * 0.02); ctx.stroke();
+  }
+  // Round 2C: ring shockwaves (kills + heavy hits) — expand outward, fade
+  for (const sw of shockwaves) {
+    const k = sw.t / sw.life;
+    const r = sw.maxR * k;
+    const a = (1 - k) * 0.75;
+    ctx.save();
+    ctx.strokeStyle = sw.color;
+    ctx.lineWidth = Math.max(1, 3 * (1 - k));
+    ctx.globalAlpha = a;
+    ctx.beginPath(); ctx.arc(sw.x, sw.y, r, 0, Math.PI * 2); ctx.stroke();
+    // inner ring for depth
+    ctx.lineWidth = Math.max(1, 1.5 * (1 - k));
+    ctx.globalAlpha = a * 0.5;
+    ctx.beginPath(); ctx.arc(sw.x, sw.y, r * 0.8, 0, Math.PI * 2); ctx.stroke();
+    ctx.restore();
   }
   // Particles
   for (const p of particles) {

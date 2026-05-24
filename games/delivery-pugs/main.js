@@ -88,7 +88,26 @@ let smog = []; // ambient dust drift particles
 let exhaust = []; // tiny exhaust puffs from vehicle
 let burst = []; // pickup burst particles
 function addShake(mag, dur) { const k = _shakeMul(); shakeMag = Math.max(shakeMag, mag * k); shakeT = Math.max(shakeT, dur); }
-function addPopup(x, y, text, color) { popups.push({ x, y, text, color: color || '#ffd23f', t: 0 }); if (popups.length > 30) popups.shift(); }
+function addPopup(x, y, text, color) {
+  // Round 2C: lateral spawn velocity so popups don't stack atop each other
+  popups.push({ x, y, vx: (Math.random() - 0.5) * 80, text, color: color || '#ffd23f', t: 0 });
+  if (popups.length > 30) popups.shift();
+}
+// Round 2C: tire smoke trail for drifting. Cap at 50 to avoid frame drops.
+let tireSmoke = [];
+function spawnTireSmoke(x, y) {
+  if (tireSmoke.length > 50) return;
+  tireSmoke.push({
+    x: x + (Math.random() - 0.5) * 18,
+    y: y + (Math.random() - 0.5) * 8,
+    vx: (Math.random() - 0.5) * 25,
+    vy: (Math.random() - 0.5) * 25,
+    t: 0, life: 0.65, r: 6 + Math.random() * 5,
+  });
+}
+// Round 2C: weather change flash — brief screen wash on transition
+let weatherFlashT = 0;
+let weatherFlashCol = 'rgba(255,255,255,0)';
 // Stunt multiplier — bumped by drift/near-miss/delivery events. Each bump
 // adds 1 to the multiplier (capped at 5x) and refreshes the 6s window. While
 // active, awarded score values are scaled up. Decay is handled in tick().
@@ -143,6 +162,7 @@ function reset() {
   cam = { x: pug.x, y: pug.y };
   shakeT = 0; shakeMag = 0; hitFlashT = 0;
   popups = []; exhaust = []; burst = [];
+  tireSmoke = []; weatherFlashT = 0;
   // seed smog particles across viewport (drift across screen)
   smog = [];
   for (let i = 0; i < 30; i++) {
@@ -376,6 +396,12 @@ function tick(dt) {
       for (let i = 0; i < 120; i++) raindrops.push({ x: rand(0, W), y: rand(-H, H), vy: 600 + Math.random() * 200 });
     }
     if (weather !== 'clear') toasts.push({ text: weather === 'rain' ? '🌧 RAIN — slower vehicle' : (weather === 'fog' ? '🌫 FOG — short sight' : '🌙 NIGHT'), t: 0 });
+    // Round 2C: atmospheric flash on weather change so the transition reads
+    weatherFlashT = 0.6;
+    weatherFlashCol = weather === 'rain' ? 'rgba(120,180,255,0.18)'
+                    : weather === 'fog'  ? 'rgba(220,220,220,0.22)'
+                    : weather === 'night' ? 'rgba(20,20,80,0.28)'
+                    : 'rgba(255,230,180,0.16)';
   }
   if (weather === 'rain') {
     for (const d of raindrops) { d.y += d.vy * dt; if (d.y > H) { d.y = -10; d.x = rand(0, W); } }
@@ -473,7 +499,7 @@ function tick(dt) {
   if (shakeT > 0) { shakeT -= dt; if (shakeT <= 0) shakeMag = 0; }
   if (hitFlashT > 0) hitFlashT = Math.max(0, hitFlashT - dt);
   if (intactFlashT > 0) intactFlashT = Math.max(0, intactFlashT - dt);
-  for (const p of popups) { p.t += dt; p.y -= 28 * dt; }
+  for (const p of popups) { p.t += dt; p.y -= 28 * dt; if (p.vx) { p.x += p.vx * dt; p.vx *= 0.88; } }
   popups = popups.filter((p) => p.t < 1.2);
   for (const p of burst) { p.t += dt; p.x += p.vx * dt; p.y += p.vy * dt; p.vx *= 0.92; p.vy *= 0.92; }
   burst = burst.filter((p) => p.t < p.life);
@@ -528,9 +554,18 @@ function tick(dt) {
   if (spd > 100 && (drifting || nitroT > 0)) {
     skidMarks.push({ x: pug.x, y: pug.y, ang: pug.ang, t: 0 });
     if (skidMarks.length > 200) skidMarks.shift();
+    // Round 2C: tire smoke puffs during drift (denser when actually drifting)
+    if (Math.random() < (drifting ? 0.55 : 0.3)) spawnTireSmoke(pug.x, pug.y);
   }
   for (const s of skidMarks) s.t += dt;
   skidMarks = skidMarks.filter((s) => s.t < 3);
+  // Round 2C: tire smoke decay
+  for (const ts of tireSmoke) {
+    ts.t += dt; ts.x += ts.vx * dt; ts.y += ts.vy * dt;
+    ts.vx *= 0.93; ts.vy *= 0.93; ts.r += 18 * dt;
+  }
+  tireSmoke = tireSmoke.filter((ts) => ts.t < ts.life);
+  if (weatherFlashT > 0) weatherFlashT = Math.max(0, weatherFlashT - dt);
   // Crazy Taxi DRIFT bonus — sustained skid >1.5s pops "DRIFT +50".
   // Counts both true drift AND nitro-skid (matches the skid-mark trigger
   // above so the visual and the scoring stay coupled).
@@ -615,10 +650,17 @@ function tick(dt) {
     // runs feel rewarding).
     if (stuntMult > 1) stuntMultT = 6;
     sfx.arp([523, 659, 784, 1047], 'triangle', 0.08, 0.22, 0.25);
+    // Round 2C: cheer SFX layered on top (rising arpeggio + bright tone)
+    sfx.tone(1320, 'triangle', 0.18, 0.22);
+    sfx.tone(1760, 'triangle', 0.12, 0.18);
     const stuntTag = stuntMult > 1 ? ` ×${stuntMult}` : '';
     addPopup(marker.x, marker.y - 10, `+${bonusTime}s${stuntTag}`, stuntMult > 1 ? '#ffd23f' : '#5ef38c');
+    // Round 2C: confetti spray — multi-color burst instead of single green
     addBurst(marker.x, marker.y, '#5ef38c', 16);
-    addShake(4, 0.18);
+    addBurst(marker.x, marker.y, '#ffd23f', 12);
+    addBurst(marker.x, marker.y, '#ff3aa1', 10);
+    addBurst(marker.x, marker.y, '#4cc9f0', 10);
+    addShake(6, 0.24);
     try {
       const tag = combo > 1 ? ` x${combo}` : '';
       __deliveryFeed.push(`DELIVERED #${deliveries}${tag}`, combo > 1 ? '#ff3aa1' : '#5ef38c');
@@ -745,9 +787,14 @@ function damage() {
   pug.hp--;
   invuln = 1.0;
   sfx.sweep(220, 110, 'sawtooth', 0.15, 0.22);
-  hitFlashT = 0.18;
-  addShake(7, 0.28);
+  // Round 2C: bigger shake + lower bass thump for impact weight
+  sfx.tone(110, 'square', 0.12, 0.22);
+  hitFlashT = 0.22;
+  addShake(10, 0.34);
+  // Round 2C: shatter spray — paint chips + sparks instead of single red puff
   addBurst(pug.x, pug.y, '#ff3a3a', 14);
+  addBurst(pug.x, pug.y, '#ffd23f', 8);
+  addBurst(pug.x, pug.y, '#cacacf', 8);
   // CARGO FRAGILITY — every collision drops intact% by 10. Bottom at 0.
   // Flash the bar so the player sees the hit cost them payout, not just HP.
   intact = Math.max(0, intact - 10);
@@ -1076,6 +1123,12 @@ function render() {
       : `rgba(120,120,140,${a})`;
     ctx.beginPath(); ctx.arc(e.x, e.y, e.r, 0, Math.PI * 2); ctx.fill();
   }
+  // Round 2C: tire smoke puffs during drift (rendered above skid marks for read)
+  for (const ts of tireSmoke) {
+    const a = (1 - ts.t / ts.life) * 0.4;
+    ctx.fillStyle = `rgba(220,220,230,${a})`;
+    ctx.beginPath(); ctx.arc(ts.x, ts.y, ts.r, 0, Math.PI * 2); ctx.fill();
+  }
   // Skid marks (under everything)
   for (const s of skidMarks) {
     const a = (1 - s.t / 3) * 0.6;
@@ -1167,6 +1220,15 @@ function render() {
   if (hitFlashT > 0) {
     ctx.fillStyle = `rgba(255,58,58,${Math.min(0.45, hitFlashT * 2.2)})`;
     ctx.fillRect(0, 0, W, H);
+  }
+  // Round 2C: weather change flash (full screen, fades out fast)
+  if (weatherFlashT > 0) {
+    const a = weatherFlashT / 0.6;
+    // weatherFlashCol is already an rgba string, just modulate via globalAlpha
+    ctx.globalAlpha = a;
+    ctx.fillStyle = weatherFlashCol;
+    ctx.fillRect(0, 0, W, H);
+    ctx.globalAlpha = 1;
   }
   // Ambient smog drift (screen-space, atmospheric)
   for (const s of smog) {

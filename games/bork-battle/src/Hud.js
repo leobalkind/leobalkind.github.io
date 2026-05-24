@@ -137,11 +137,21 @@ export class Hud {
     const hpRatio = Math.max(0, pug.hp / pug.maxHp) * 100;
     this.hpFill.style.width = `${hpRatio}%`;
     this.hpText.textContent = `${Math.ceil(pug.hp)}/${pug.maxHp}`;
-    // Pulse the player HUD card border red when HP is critical
+    // Pulse the player HUD card border red when HP is critical.
+    // Pulse intensifies (faster + brighter) as HP drops below 25% → 0%.
     if (!this._playerCard) this._playerCard = this.formName ? this.formName.closest('.hud-card') : null;
     if (this._playerCard) {
-      if (pug.alive && hpRatio < 25) this._playerCard.classList.add('hud-card--critical');
-      else this._playerCard.classList.remove('hud-card--critical');
+      if (pug.alive && hpRatio < 25) {
+        this._playerCard.classList.add('hud-card--critical');
+        // Map hpRatio 0..25 → speed 0.32s..0.6s + glow 0.5..0.95
+        const t = Math.max(0, Math.min(1, hpRatio / 25));
+        const speed = (0.32 + t * 0.28).toFixed(2);
+        const glow  = (0.55 + (1 - t) * 0.4).toFixed(2);
+        this._playerCard.style.setProperty('--crit-speed', speed + 's');
+        this._playerCard.style.setProperty('--crit-glow', glow);
+      } else {
+        this._playerCard.classList.remove('hud-card--critical');
+      }
     }
     // weapon/ammo
     const ammoFill = document.getElementById('hud-ammo-fill');

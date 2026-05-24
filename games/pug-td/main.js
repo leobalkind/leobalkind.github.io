@@ -598,15 +598,26 @@ let _lastFireSfxT = 0;
 let __speedMult = 1;
 // Screen-shake state (canvas translate during render) + wave banner
 let shakeT = 0, shakeMag = 0, waveBannerT = 0, waveBannerText = '', vaultFlashT = 0;
+// Hit-pause — short freeze on major events (mini-boss kill, vault hit, etc).
+let _tdHitstopT = 0;
 function screenShake(mag, dur) { shakeMag = Math.max(shakeMag, mag); shakeT = Math.max(shakeT, dur); }
-function spawnPopup(x, y, text, color = '#5ef38c') { popups.push({ x, y, text, color, t: 0, life: 0.9 }); }
+function spawnPopup(x, y, text, color = '#5ef38c') {
+  // Slight random angle + horizontal drift so back-to-back popups don't stack.
+  const a = (Math.random() - 0.5) * 0.7;
+  popups.push({
+    x: x + Math.cos(a) * 6,
+    y: y + (Math.random() - 0.5) * 4,
+    vx: Math.sin(a) * 18,
+    text, color, t: 0, life: 0.9,
+  });
+}
 
 function reset() {
   money = 100; lives = 10; waveIdx = 0;
   enemies = []; towers = []; projectiles = []; particles = []; popups = [];
   spawnQueue = []; spawnT = 0; betweenWaveT = 0; inWave = false;
   selectedTowerType = null; selectedTower = null;
-  shakeT = 0; shakeMag = 0; waveBannerT = 0; vaultFlashT = 0;
+  shakeT = 0; shakeMag = 0; waveBannerT = 0; vaultFlashT = 0; _tdHitstopT = 0;
 }
 
 function buildBar() {
@@ -804,8 +815,30 @@ function handleClick(x, y) {
     const t = TOWERS[selectedTowerType];
     if (money < t.cost) return;
     money -= t.cost;
-    towers.push({ type: selectedTowerType, col: c, row: r, cd: 0, level: 0, totalCost: t.cost, targeting: 'FIRST', bob: Math.random() * Math.PI * 2 });
+    // `placeT` drives a quick squash → settle scale ramp inside drawTower.
+    towers.push({
+      type: selectedTowerType, col: c, row: r, cd: 0, level: 0,
+      totalCost: t.cost, targeting: 'FIRST', bob: Math.random() * Math.PI * 2,
+      placeT: 0,
+    });
+    // Two-tone thud (sub-bass + click) for placement "thunk".
+    sfx.tone(140, 'sine', 0.18, 0.35);
     sfx.tone(880, 'triangle', 0.08, 0.22);
+    // Brief screen shake — anchors the placement.
+    screenShake(2.5, 0.14);
+    // Dust ring + sparks at placement cell so player sees the impact.
+    const px = (c + 0.5) * TILE + gridOffsetX();
+    const py = (r + 0.5) * TILE + gridOffsetY();
+    particles.push({ x: px, y: py, t: 0, life: 0.35, ring: true, maxR: 26, color: '#c8a878' });
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2;
+      const s = 70 + Math.random() * 50;
+      particles.push({
+        x: px, y: py,
+        vx: Math.cos(a) * s, vy: Math.sin(a) * s,
+        color: '#c8a878', life: 0.5, t: 0, size: 3,
+      });
+    }
     selectedTowerType = null;
     buildBar(); updateHud();
   } else {
@@ -871,8 +904,11 @@ function spawnMiniBoss() {
   });
   miniBossBannerText = `★ MINI-BOSS INCOMING ★`;
   miniBossBannerT = 2;
-  screenShake(6, 0.3);
-  sfx.sweep(110, 60, 'sawtooth', 0.4, 0.25);
+  // Cinematic intro shake — longer + heavier so MINI-BOSS arrival reads.
+  screenShake(9, 0.55);
+  sfx.sweep(110, 60, 'sawtooth', 0.5, 0.3);
+  // Bass thud — gives the intro a sub-low layer.
+  sfx.tone(60, 'sine', 0.4, 0.5);
 }
 
 function spawnEnemy(typeId) {
@@ -891,6 +927,14 @@ function spawnEnemy(typeId) {
 
 function tick(dt) {
   if (!running) return;
+  // Hit-pause — freeze gameplay (still tick ambient + popups + shake decay
+  // so the moment doesn't feel completely dead).
+  if (_tdHitstopT > 0) {
+    _tdHitstopT -= dt;
+    tickAmbient(dt);
+    if (shakeT > 0) shakeT = Math.max(0, shakeT - dt);
+    return;
+  }
   // Ambient particles tick (independent of wave state)
   tickAmbient(dt);
   // Wave-banner decay
@@ -910,11 +954,28 @@ function tick(dt) {
       // bonus
       const bonus = 20 + waveIdx * 5;
       money += bonus;
-      // Wave-complete pop near the vault
+      // Wave-complete pop near the vault — bigger celebratory ring + golden burst.
       const vlast = currentMap.path[currentMap.path.length - 1];
-      spawnPopup(vlast[0] * TILE + gridOffsetX() + TILE / 2, vlast[1] * TILE + gridOffsetY() - 6, `WAVE CLEAR  +$${bonus}`, '#ffd23f');
+      const vx = vlast[0] * TILE + gridOffsetX() + TILE / 2;
+      const vy = vlast[1] * TILE + gridOffsetY() - 6;
+      spawnPopup(vx, vy, `WAVE CLEAR  +$${bonus}`, '#ffd23f');
       screenShake(4, 0.22);
-      sfx.arp([523, 659, 784], 'triangle', 0.08, 0.22, 0.25);
+      // Two expanding rings + sparkle ring of particles
+      particles.push({ x: vx, y: vy + 6, t: 0, life: 0.6, ring: true, maxR: 60, color: '#ffd23f' });
+      particles.push({ x: vx, y: vy + 6, t: 0, life: 0.7, ring: true, maxR: 90, color: '#5ef38c' });
+      for (let i = 0; i < 14; i++) {
+        const a = (i / 14) * Math.PI * 2;
+        const s = 80 + Math.random() * 70;
+        particles.push({
+          x: vx, y: vy + 6,
+          vx: Math.cos(a) * s, vy: Math.sin(a) * s,
+          color: i % 2 ? '#ffd23f' : '#fff0a0',
+          life: 0.7, t: 0, size: 4,
+        });
+      }
+      // Richer victory chime — 4-note major arp + bell-top.
+      sfx.arp([523, 659, 784, 1047], 'triangle', 0.07, 0.22, 0.18);
+      sfx.tone(1568, 'sine', 0.06, 0.25);
       if (waveIdx >= WAVES.length) return end(true);
       buildBar();
     }
@@ -959,6 +1020,7 @@ function tick(dt) {
 
   // Towers fire
   for (const tw of towers) {
+    if (tw.placeT != null && tw.placeT < 0.35) tw.placeT += dt;
     const def = TOWERS[tw.type];
     const path = getPathDef(tw);
     // BANK path: passive income (BUFF tower, BANK chosen)
@@ -1171,8 +1233,12 @@ function tick(dt) {
             goldDrop = 100;
             miniBossBannerText = '★ MINI-BOSS DOWN ★';
             miniBossBannerT = 2;
-            screenShake(10, 0.35);
+            screenShake(12, 0.45);
+            // Hit-pause so the kill feels weighty.
+            _tdHitstopT = 0.12;
             sfx.arp([523, 659, 880, 1175], 'triangle', 0.08, 0.25, 0.25);
+            // Sub-bass thud sweetener.
+            sfx.tone(70, 'sine', 0.3, 0.4);
           }
           money += goldDrop;
           sfx.tone(660, 'triangle', 0.05, 0.16);
@@ -1202,8 +1268,12 @@ function tick(dt) {
     if (!p.ring) { p.x += (p.vx || 0) * dt; p.y += (p.vy || 0) * dt; p.vx *= 0.94; p.vy *= 0.94; }
   }
   particles = particles.filter((p) => p.t < p.life);
-  // Floating score popups (drift upward, fade)
-  for (const p of popups) { p.t += dt; p.y -= 28 * dt; }
+  // Floating score popups (drift upward + slight horizontal, fade)
+  for (const p of popups) {
+    p.t += dt;
+    p.y -= 28 * dt;
+    if (p.vx) { p.x += p.vx * dt; p.vx *= 1 - dt * 2; }
+  }
   popups = popups.filter((p) => p.t < p.life);
   // Shake decay + banner + vault flash
   if (shakeT > 0) shakeT = Math.max(0, shakeT - dt);
@@ -1301,7 +1371,25 @@ function render() {
     // so players can read PATH at a glance. PIERCE blue trail, CRIT gold,
     // etc. The pug body inherits the color when a path is set.
     const tPath = getPathDef(tw);
-    drawPug(ctx, x, bobY + 4, { size: 30, body: tPath ? tPath.badge : (def.color || '#c8854a') });
+    // Placement squash-stretch: drop in (scaleY → 0.55 → 1) over 0.3s.
+    let _placeY = 0, _scaleX = 1, _scaleY = 1;
+    if (tw.placeT != null && tw.placeT < 0.3) {
+      const k = tw.placeT / 0.3;
+      // Ease-out cubic
+      const ek = 1 - Math.pow(1 - k, 3);
+      _scaleY = 0.55 + 0.45 * ek;
+      _scaleX = 1.25 - 0.25 * ek;
+      _placeY = (1 - ek) * -10;
+    }
+    if (_scaleX !== 1 || _scaleY !== 1) {
+      ctx.save();
+      ctx.translate(x, bobY + 4);
+      ctx.scale(_scaleX, _scaleY);
+      drawPug(ctx, 0, _placeY, { size: 30, body: tPath ? tPath.badge : (def.color || '#c8854a') });
+      ctx.restore();
+    } else {
+      drawPug(ctx, x, bobY + 4, { size: 30, body: tPath ? tPath.badge : (def.color || '#c8854a') });
+    }
     // Tower-type icon overlay above the pug head (small badge).
     if (def.iconName && drawIcon[def.iconName]) {
       drawIcon[def.iconName](ctx, x, bobY - 22, 12);

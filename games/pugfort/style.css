@@ -35,6 +35,12 @@ html, body {
   touch-action: none;
   -webkit-tap-highlight-color: transparent;
 }
+/* Smooth game-load fade-in (matches gameBase.css for the games that don't import it). */
+body { opacity: 0; transition: opacity 0.6s ease; animation: wgBodyFadeIn 0.6s ease 0.05s forwards; }
+@keyframes wgBodyFadeIn { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  body { transition: none; animation: none; opacity: 1; }
+}
 
 #game-root { position: fixed; inset: 0; z-index: 0; }
 
@@ -520,14 +526,16 @@ canvas { display: block; image-rendering: pixelated; image-rendering: crisp-edge
   100% { opacity: 0; transform: translate(-50%, -50%) scale(1.12); }
 }
 
-/* Critical HUD card pulse — low HP or low generator HP */
+/* Critical HUD card pulse — low HP or low generator HP. JS sets --crit-speed
+   (0.32s ↔ 0.6s) and --crit-glow (0.55 ↔ 0.95) so the pulse intensifies as
+   HP drops further into the critical band. */
 .hud-card--critical {
   border-color: var(--crimson, #ff3a3a) !important;
-  animation: pfHudCritical 0.55s ease-in-out infinite;
+  animation: pfHudCritical var(--crit-speed, 0.55s) ease-in-out infinite;
 }
 @keyframes pfHudCritical {
   0%, 100% { box-shadow: 0 0 0 rgba(255, 58, 58, 0); }
-  50%      { box-shadow: 0 0 18px rgba(255, 58, 58, 0.85); }
+  50%      { box-shadow: 0 0 22px rgba(255, 58, 58, var(--crit-glow, 0.85)); }
 }
 
 /* =================================================================

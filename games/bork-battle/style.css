@@ -73,6 +73,12 @@ html, body {
   -webkit-tap-highlight-color: transparent;
   letter-spacing: 0.02em;
 }
+/* Smooth game-load fade-in (matches gameBase.css for the games that don't import it). */
+body { opacity: 0; transition: opacity 0.6s ease; animation: wgBodyFadeIn 0.6s ease 0.05s forwards; }
+@keyframes wgBodyFadeIn { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  body { transition: none; animation: none; opacity: 1; }
+}
 
 #game-root {
   position: fixed;
@@ -347,7 +353,9 @@ canvas {
 }
 .combo-bubble.is-show {
   opacity: 1;
-  transform: translateY(-50%) scale(1.1);
+  /* --combo-scale is set by JS (1.1 → 1.45) based on combo count, so 5-streaks
+     look visibly bigger than a double-kill. */
+  transform: translateY(-50%) scale(var(--combo-scale, 1.1));
 }
 .combo-bubble__bar {
   height: 4px;
@@ -1065,11 +1073,12 @@ body.colorblind {
 }
 .hud-card--critical {
   border-color: var(--magenta) !important;
-  animation: hudCardCritical 0.55s ease-in-out infinite;
+  /* JS sets --crit-speed (0.32s ↔ 0.6s) + --crit-glow (0.55 ↔ 0.95) based on HP%. */
+  animation: hudCardCritical var(--crit-speed, 0.55s) ease-in-out infinite;
 }
 @keyframes hudCardCritical {
   0%, 100% { box-shadow: 0 2px 8px rgba(0,0,0,0.4); }
-  50%      { box-shadow: 0 0 18px rgba(255, 43, 214, 0.85); }
+  50%      { box-shadow: 0 0 22px rgba(255, 43, 214, var(--crit-glow, 0.85)); }
 }
 
 .ability-name {

@@ -26,9 +26,23 @@ html, body {
   overscroll-behavior: none; touch-action: none;
   -webkit-tap-highlight-color: transparent;
 }
+/* Smooth game-load fade-in: body starts faded and fades to 1 on .is-loaded
+ * (added in the next microtask via inline script in shared head). Falls back
+ * to the :not selector if no class is set so we never get stuck invisible. */
+body { opacity: 0; transition: opacity 0.6s ease; }
+body.is-loaded, html.no-fade body { opacity: 1; }
+/* Final safety fallback: if the load fires before our script attaches, an
+ * animation kicks in to reveal the page after ~700ms. */
+@keyframes wgBodyFadeIn { from { opacity: 0; } to { opacity: 1; } }
+body { animation: wgBodyFadeIn 0.6s ease 0.05s forwards; }
+@media (prefers-reduced-motion: reduce) {
+  body { transition: none; animation: none; opacity: 1; }
+}
 #game-canvas {
   display: block; position: fixed; inset: 0;
   width: 100%; height: 100%;
+  /* Hard caps so a stray DPR scale never lets the canvas exceed the viewport. */
+  max-width: 100vw; max-height: 100vh;
   image-rendering: pixelated;
 }
 .mute-btn {

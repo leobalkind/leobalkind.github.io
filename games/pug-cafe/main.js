@@ -259,6 +259,62 @@ const VISUAL_CSS = `
   0%, 100% { box-shadow: 0 0 0 rgba(255,58,58,0); }
   50%      { box-shadow: 0 0 14px rgba(255,58,58,0.7); }
 }
+
+/* Round 2C: tip popup — $-symbol that floats up bigger than the regular
+   popup so the player feels the satisfying tip-jar clink. */
+.cafe-tip { position: absolute; font-family: var(--font-display);
+  font-size: 1.1rem; color: #ffd23f; text-shadow: 0 2px 0 #000, 0 0 12px #ffd23f;
+  pointer-events: none; animation: cafe-tip-fly 1.4s cubic-bezier(0.2,0.7,0.3,1) forwards; }
+@keyframes cafe-tip-fly {
+  0%   { transform: translate(-50%,-50%) scale(0.4) rotate(-20deg); opacity: 0; }
+  20%  { transform: translate(-50%,-80%) scale(1.4) rotate(0deg);  opacity: 1; }
+  100% { transform: translate(-50%,-220%) scale(0.9) rotate(15deg); opacity: 0; }
+}
+
+/* Round 2C: angry customer leaving — red smoke puff that quickly billows up
+   from the order card area, plus a small cloud-emote that scales in. */
+.cafe-angry-smoke { position: absolute; width: 60px; height: 60px;
+  border-radius: 50%; pointer-events: none;
+  background: radial-gradient(circle, rgba(255,80,80,0.85), rgba(255,80,80,0));
+  animation: cafe-angry-smoke 0.9s ease-out forwards; opacity: 0;
+}
+@keyframes cafe-angry-smoke {
+  0% { transform: translate(-50%,-50%) scale(0.4); opacity: 0.9; }
+  100% { transform: translate(-50%,-180%) scale(1.8); opacity: 0; }
+}
+.cafe-angry-cloud { position: absolute; pointer-events: none;
+  font-size: 1.4rem; line-height: 1;
+  animation: cafe-angry-cloud 1.2s ease-out forwards; }
+@keyframes cafe-angry-cloud {
+  0% { transform: translate(-50%,-40%) scale(0.5); opacity: 0; }
+  30% { transform: translate(-50%,-90%) scale(1.2); opacity: 1; }
+  100% { transform: translate(-50%,-200%) scale(1); opacity: 0; }
+}
+
+/* Round 2C: burnt smoke wisps — small grey curls drifting from a burnt
+   order so the auto-discard moment reads as "kitchen on fire". */
+.cafe-burnt-wisp { position: absolute; width: 18px; height: 18px;
+  pointer-events: none; border-radius: 50%;
+  background: radial-gradient(circle, rgba(80,80,80,0.7), transparent 70%);
+  animation: cafe-burnt-wisp 1.6s ease-out forwards; opacity: 0;
+}
+@keyframes cafe-burnt-wisp {
+  0% { transform: translate(-50%,-50%) scale(0.5); opacity: 0.8; }
+  100% { transform: translate(calc(-50% + var(--wx, 0)), -250%) scale(2); opacity: 0; }
+}
+
+/* Round 2C: color-chain bonus arcs — bright SVG-line that snakes between
+   two same-color tables to telegraph the chain. Element is positioned/styled
+   inline since the geometry is dynamic. */
+.cafe-chain-arc { position: fixed; pointer-events: none; z-index: 240;
+  filter: drop-shadow(0 0 6px #ffd23f);
+  animation: cafe-chain-arc 0.7s ease-out forwards; opacity: 0;
+}
+@keyframes cafe-chain-arc {
+  0% { opacity: 0; stroke-dashoffset: 100; }
+  20% { opacity: 1; }
+  100% { opacity: 0; stroke-dashoffset: 0; }
+}
 `;
 const _s = document.createElement('style'); _s.textContent = VISUAL_CSS; document.head.appendChild(_s);
 
@@ -399,6 +455,68 @@ function flashChip(stationEl) {
   stationEl.classList.remove('cafe-flash');
   void stationEl.offsetWidth;
   stationEl.classList.add('cafe-flash');
+}
+// Round 2C: bigger "$" tip popup with rotation + scale punch
+function tipPopup(x, y, text) {
+  const div = document.createElement('div');
+  div.className = 'cafe-tip';
+  div.textContent = text;
+  div.style.left = x + 'px'; div.style.top = y + 'px';
+  _popups.appendChild(div);
+  setTimeout(() => div.remove(), 1500);
+}
+// Round 2C: angry customer leaving — red smoke + cloud emote at a screen pt
+function angryEmote(x, y) {
+  const sm = document.createElement('div');
+  sm.className = 'cafe-angry-smoke';
+  sm.style.left = x + 'px'; sm.style.top = y + 'px';
+  _popups.appendChild(sm);
+  setTimeout(() => sm.remove(), 1000);
+  const em = document.createElement('div');
+  em.className = 'cafe-angry-cloud';
+  em.textContent = Math.random() < 0.5 ? '💢' : '😡';
+  em.style.left = x + 'px'; em.style.top = y + 'px';
+  _popups.appendChild(em);
+  setTimeout(() => em.remove(), 1300);
+}
+// Round 2C: drift wisps for burnt orders (3 small grey puffs)
+function burntWisps(x, y) {
+  for (let i = 0; i < 3; i++) {
+    const w = document.createElement('div');
+    w.className = 'cafe-burnt-wisp';
+    w.style.left = x + 'px'; w.style.top = (y - i * 6) + 'px';
+    w.style.setProperty('--wx', ((Math.random() - 0.5) * 40) + 'px');
+    w.style.animationDelay = (i * 0.18) + 's';
+    _popups.appendChild(w);
+    setTimeout(() => w.remove(), 1700);
+  }
+}
+// Round 2C: color-chain bonus arc — quick SVG curve between two points to
+// reinforce the same-color combo visually. Both points are viewport coords.
+function chainArc(x1, y1, x2, y2, color) {
+  const svgNs = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(svgNs, 'svg');
+  svg.setAttribute('class', 'cafe-chain-arc');
+  const left = Math.min(x1, x2) - 20;
+  const top = Math.min(y1, y2) - 60;
+  const w = Math.abs(x2 - x1) + 40;
+  const h = Math.abs(y2 - y1) + 120;
+  svg.setAttribute('width', w);
+  svg.setAttribute('height', h);
+  svg.style.left = left + 'px';
+  svg.style.top = top + 'px';
+  const path = document.createElementNS(svgNs, 'path');
+  const sx = x1 - left, sy = y1 - top;
+  const ex = x2 - left, ey = y2 - top;
+  const cx = (sx + ex) / 2, cy = Math.min(sy, ey) - 60;
+  path.setAttribute('d', `M${sx},${sy} Q${cx},${cy} ${ex},${ey}`);
+  path.setAttribute('fill', 'none');
+  path.setAttribute('stroke', color || '#ffd23f');
+  path.setAttribute('stroke-width', 3);
+  path.setAttribute('stroke-dasharray', 100);
+  svg.appendChild(path);
+  _popups.appendChild(svg);
+  setTimeout(() => svg.remove(), 760);
 }
 function screenShake() {
   document.body.classList.remove('cafe-shake');
@@ -742,6 +860,22 @@ function serve(idx) {
   const rect = ordersEl ? ordersEl.getBoundingClientRect() : { left: window.innerWidth / 2, top: 100, width: 0, height: 0 };
   const popTag = (comboCount > 1 ? ` x${comboCount}` : '') + (o.chainLen > 1 ? ` CHAIN×${o.chainLen}` : '');
   popup(rect.left + rect.width / 2, rect.top + rect.height / 2, `+$${pay}${popTag}`, o.chainLen > 1 ? '#ffd23f' : (comboCount > 1 ? '#ff3aa1' : '#5ef38c'));
+  // Round 2C: bigger $ tip popup over the bench so it reads as a real cash-out
+  tipPopup(rect.left + rect.width / 2, rect.top + rect.height / 2 - 26, `$${pay}`);
+  // Round 2C: arcing light between this order and the previous same-color
+  // order when chained (telegraphs the chain bonus visually).
+  if (o.chainLen > 1) {
+    try {
+      const orderBars = ordersEl ? ordersEl.querySelectorAll('.order') : [];
+      // Connect first to last order so the arc spans visible chain
+      if (orderBars.length >= 1) {
+        const b = orderBars[0].getBoundingClientRect();
+        const startX = b.left + b.width / 2, startY = b.top + b.height / 2;
+        const endX = rect.left + rect.width / 2, endY = rect.top + rect.height / 2;
+        chainArc(startX, startY, endX, endY, '#ffd23f');
+      }
+    } catch (e) { /* */ }
+  }
   // Flash all kitchen chips when comboing
   if (comboCount > 1) {
     document.querySelectorAll('#kitchen .station').forEach((el, i) => setTimeout(() => flashChip(el), i * 20));
@@ -798,6 +932,13 @@ function tick(dt) {
         setTimeout(() => sfx.tone(1320, 'square', 0.18, 0.28), 180);
         screenShake();
         popup(window.innerWidth / 2, window.innerHeight / 3, '🔥 BURNT!', '#ff3a3a');
+        // Round 2C: smoke wisps + angry emote drift up from the orders bar
+        const ordersBar = document.getElementById('orders');
+        if (ordersBar) {
+          const r = ordersBar.getBoundingClientRect();
+          burntWisps(r.left + r.width / 2, r.top + r.height / 2);
+          angryEmote(r.left + r.width / 2, r.top + 8);
+        }
         try { __cafeFeed && __cafeFeed.push(`★ BURNT — discarded`, '#ff3a3a'); } catch (e) { /* */ }
         if (lives <= 0) return end();
         updateHud();
@@ -811,6 +952,13 @@ function tick(dt) {
       sfx.sweep(220, 110, 'sawtooth', 0.3, 0.22);
       screenShake();
       popup(window.innerWidth / 2, window.innerHeight / 3, 'ANGRY!', '#ff3a3a');
+      // Round 2C: angry customer cloud-emote + red smoke (where the order was)
+      const ordersBar = document.getElementById('orders');
+      if (ordersBar) {
+        const r = ordersBar.getBoundingClientRect();
+        angryEmote(r.left + r.width / 2, r.top + 8);
+        burntWisps(r.left + r.width / 2, r.top + r.height / 2);
+      }
       if (lives <= 0) return end();
       updateHud();
       updateChalkboard();

@@ -127,6 +127,9 @@ export class Game {
     this.turretsBuilt = 0;
     this.fireCooldown = 0;
     this._killStreak = 0;
+    this._deathFreezeFired = false;
+    this._genDeathFreezeFired = false;
+    this._hitstopT = 0;
     this.running = true;
 
     this.hud.show();
@@ -160,7 +163,13 @@ export class Game {
     // Only the night phase honours the 1x/2x/3x speed toggle. Day/sunset/dawn
     // stay at 1x so prep-time pacing doesn't get squashed.
     const speed = (this.phase === 'night') ? (this._speedMult || 1) : 1;
-    const dt = Math.min(ticker.deltaMS / 1000, 1 / 30) * speed;
+    let dt = Math.min(ticker.deltaMS / 1000, 1 / 30) * speed;
+    // Hit-pause — short freeze on big events (boss stomp, night start, etc).
+    // We tick the timer with raw frame dt but zero the gameplay dt while active.
+    if (this._hitstopT && this._hitstopT > 0) {
+      this._hitstopT -= Math.min(ticker.deltaMS / 1000, 1 / 30);
+      dt = 0;
+    }
     this.matchTime += dt;
     this.phaseT += dt;
 
@@ -201,7 +210,10 @@ export class Game {
       this.nightSpawnTimer = 0;
       this._announceWave();
       this.hud.showWaveBanner(`NIGHT ${this.nightIdx}`);
-      this._screenShake(5, 0.35);
+      // Cinematic night-start: longer + heavier shake; bigger on later nights.
+      this._screenShake(8 + this.nightIdx * 1.5, 0.5);
+      // Quick brief hit-pause so the wave-banner pop reads as an EVENT.
+      this._hitstopT = 0.1;
       Sfx.phaseNight();
       // Bottom-center "incoming" wave preview — fired AFTER state set so callers
       // see correct night index. Non-critical, wrap in try/catch.
@@ -395,6 +407,11 @@ export class Game {
       if (!z.alive) {
         if (z.def.explodes) this._explode(z);
         this._spawnDeathPoof(z.x, z.y, z.def.color);
+        // Small punch-shake on every kill — heavier for tanks/special zombies.
+        const isHeavy = z.type === 'tank' || z.type === 'screamer' || z.type === 'digger';
+        this._screenShake(isHeavy ? 3.5 : 1.5, isHeavy ? 0.18 : 0.1);
+        // Hit-pause on tank kills only (rare events).
+        if (isHeavy) this._hitstopT = Math.max(this._hitstopT || 0, 0.06);
         // ----- material drops by zombie type -----
         const drops = this._dropsForZombie(z);
         // Pity safeguard: every Nth kill, boost the player's lowest stockpile
@@ -685,24 +702,84 @@ export class Game {
     }
   }
 
+  // Tiny brown rectangular splinters fly outward — used on every wall-chew tick.
+  // Count default = 5 (fast spam-safe); set higher when a wall finally breaks.
+  _spawnWoodSplinters(x, y, count = 5) {
+    for (let i = 0; i < count; i++) {
+      const g = new Graphics();
+      const wcols = [0x8a5a2c, 0xb87a40, 0x6a3a1c, 0xc8a878];
+      const c = wcols[Math.floor(Math.random() * wcols.length)];
+      g.rect(-2, -1, 4, 2).fill(c);
+      g.rect(-2, -1, 1, 1).fill(0xffffff);
+      g.x = x; g.y = y;
+      g.rotation = Math.random() * Math.PI * 2;
+      this.world.effectsLayer.addChild(g);
+      const ang = Math.random() * Math.PI * 2;
+      const sp = 60 + Math.random() * 90;
+      const vx = Math.cos(ang) * sp;
+      const vy = Math.sin(ang) * sp - 40;
+      let life = 0.5 + Math.random() * 0.25, t = 0;
+      const rotv = (Math.random() - 0.5) * 12;
+      const gravity = 320;
+      const tick = () => {
+        t += 1 / 60;
+        if (t >= life) { g.destroy(); return; }
+        g.x += vx / 60;
+        g.y += (vy + gravity * t) / 60;
+        g.rotation += rotv / 60;
+        g.alpha = Math.max(0, 1 - t / life);
+        requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    }
+  }
+
   _spawnDeathPoof(x, y, color = COLORS.zombieGreen) {
-    for (let i = 0; i < 10; i++) {
+    // Bumped from 10 → 14 sparks + 3 dust puffs for a chunkier kill burst.
+    for (let i = 0; i < 14; i++) {
       const g = new Graphics();
       const angle = Math.random() * Math.PI * 2;
-      const sp = 80 + Math.random() * 140;
+      const sp = 90 + Math.random() * 160;
       const c = [color, COLORS.bloodRed, COLORS.zombieEye, 0xffffff][Math.floor(Math.random() * 4)];
-      g.rect(-2, -2, 4, 4).fill(c);
+      // Larger sparks every 4th particle add visual weight.
+      if (i % 4 === 0) {
+        g.rect(-3, -3, 6, 6).fill(c);
+        g.rect(-1, -1, 2, 2).fill(0xffffff);
+      } else {
+        g.rect(-2, -2, 4, 4).fill(c);
+      }
       g.x = x; g.y = y;
       this.world.effectsLayer.addChild(g);
       const vx = Math.cos(angle) * sp;
-      const vy = Math.sin(angle) * sp;
-      let life = 0.6 + Math.random() * 0.3;
+      const vy = Math.sin(angle) * sp - 30;
+      let life = 0.6 + Math.random() * 0.4;
+      const gravity = 240;
       const tick = () => {
         if (life <= 0) { g.destroy(); return; }
         life -= 1 / 60;
         g.x += vx / 60;
         g.y += vy / 60;
         g.alpha = Math.max(0, life / 0.8);
+        requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    }
+    // Three soft dust puffs that expand + fade — gives the kill spot
+    // a lingering ground impact instead of just sparks vanishing.
+    for (let i = 0; i < 3; i++) {
+      const puff = new Graphics();
+      puff.x = x + (Math.random() - 0.5) * 12;
+      puff.y = y + (Math.random() - 0.5) * 6;
+      this.world.effectsLayer.addChildAt(puff, 0);
+      let pl = 0.55, pt = 0;
+      const startR = 4 + Math.random() * 3, endR = 16 + Math.random() * 6;
+      const tick = () => {
+        pt += 1 / 60;
+        if (pt >= pl) { puff.destroy(); return; }
+        const k = pt / pl;
+        const r = startR + (endR - startR) * k;
+        puff.clear();
+        puff.circle(0, 0, r).fill({ color: 0x8a7a52, alpha: (1 - k) * 0.55 });
         requestAnimationFrame(tick);
       };
       requestAnimationFrame(tick);
@@ -792,11 +869,15 @@ export class Game {
       }
       if (nearest) {
         const aim = Math.atan2(nearest.y - t.cy, nearest.x - t.cx);
-        // smoothly rotate toward target
+        // Ease toward target — separate gains for "snap to a new target" (fast)
+        // and "track a moving target" (smoother). Sniper turrets ease slower so
+        // they feel deliberate and heavy.
         let dA = aim - t.rotation;
         while (dA > Math.PI) dA -= Math.PI * 2;
         while (dA < -Math.PI) dA += Math.PI * 2;
-        t.rotation += dA * Math.min(1, 10 * dt);
+        const isSniper = t.id === 'sniperTurret';
+        const easeRate = isSniper ? 6 : 8;
+        t.rotation += dA * Math.min(1, easeRate * dt);
         t.mesh.rotation = t.rotation;
         t.fireCd -= dt;
         if (t.fireCd <= 0 && Math.abs(dA) < 0.3) {
@@ -1019,8 +1100,13 @@ export class Game {
             if (z._wallChewT > 0.6) {
               z._wallChewT = 0;
               p.hp -= z.damage * 0.5;
+              // Wood-splinter burst at the impact point so each chew reads.
+              this._spawnWoodSplinters(z.x, z.y);
               if (p.hp <= 0) {
                 this.build.removePlaced(p);
+                // Bigger burst + small shake when a wall finally breaks.
+                this._spawnWoodSplinters(p.cx ?? (p.x + p.width / 2), p.cy ?? (p.y + p.height / 2), 12);
+                this._screenShake(3, 0.16);
                 break;
               }
             }
@@ -1153,17 +1239,44 @@ export class Game {
       if (gDrop > 0.5) this._screenShake(Math.min(7, 4 + gDrop * 0.05), 0.22);
       this._lastGenHp = this.generator.hp;
     }
-    // Critical HUD pulses — low player HP + low generator HP
-    const playerCrit = this.player && this.player.alive && (this.player.hp / this.player.maxHp) < 0.25;
-    this.hud.setPlayerCritical(playerCrit);
-    const genCrit = this.generator && this.generator.alive && (this.generator.hp / this.generator.maxHp) < 0.3;
-    this.hud.setGenCritical(genCrit);
+    // Critical HUD pulses — low player HP + low generator HP. Pass the in-band
+    // ratio (0 at critical-low, 1 at edge) so the pulse intensifies as HP drops.
+    if (this.player && this.player.alive) {
+      const phpRatio = this.player.hp / this.player.maxHp;
+      const playerCrit = phpRatio < 0.25;
+      this.hud.setPlayerCritical(playerCrit, playerCrit ? (phpRatio / 0.25) : undefined);
+    } else this.hud.setPlayerCritical(false);
+    if (this.generator && this.generator.alive) {
+      const ghpRatio = this.generator.hp / this.generator.maxHp;
+      const genCrit = ghpRatio < 0.3;
+      this.hud.setGenCritical(genCrit, genCrit ? (ghpRatio / 0.3) : undefined);
+    } else this.hud.setGenCritical(false);
     // Wave banner ticker (DOM-driven, fade controlled by CSS animation)
   }
 
   _checkEndConditions() {
-    if (!this.player.alive) { this._endMatch(false, 'YOU GOT BONKED'); return; }
-    if (this.generator && !this.generator.alive) { this._endMatch(false, 'GENERATOR DESTROYED'); return; }
+    if (!this.player.alive) {
+      // Final-frame freeze (0.12s hitstop + screen-shake spike) before end
+      // overlay — the death feels like AN EVENT, not just a state flip.
+      if (!this._deathFreezeFired) {
+        this._deathFreezeFired = true;
+        this._hitstopT = 0.25;
+        this._screenShake(10, 0.45);
+        setTimeout(() => this._endMatch(false, 'YOU GOT BONKED'), 320);
+        return;
+      }
+      return;
+    }
+    if (this.generator && !this.generator.alive) {
+      if (!this._genDeathFreezeFired) {
+        this._genDeathFreezeFired = true;
+        this._hitstopT = 0.2;
+        this._screenShake(10, 0.4);
+        setTimeout(() => this._endMatch(false, 'GENERATOR DESTROYED'), 320);
+        return;
+      }
+      return;
+    }
     if (this.nightsSurvived >= TOTAL_NIGHTS) { this._endMatch(true); }
   }
 

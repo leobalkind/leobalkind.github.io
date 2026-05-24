@@ -377,6 +377,47 @@ const LAB_CSS = `
 .lab-result.has-tier-aura.EPIC { color: #b055ff; }
 .lab-result.has-tier-aura.LEGENDARY { color: #ffd23f; }
 .lab-result.has-tier-aura.CURSED { color: #ff3a3a; }
+
+/* Round 2C: ENTRY UNLOCKED banner — sheet-style notification for every new
+   discovery (separate from the heavy tier-complete banner). Slides in from
+   the right and dissolves after ~1.6s. Layered above sparkles. */
+.lab-entry-banner { position: fixed; top: 14%; right: 4%;
+  z-index: 252; pointer-events: none;
+  font-family: var(--font-display); font-size: 0.5rem; letter-spacing: 0.12em;
+  padding: 8px 14px; border-radius: 6px;
+  background: rgba(10,7,22,0.94); border: 2px solid currentColor;
+  color: var(--neon-yellow);
+  box-shadow: 0 0 18px currentColor, inset 0 0 12px rgba(255,210,63,0.18);
+  transform: translateX(120%); transition: transform 0.32s cubic-bezier(0.34, 1.56, 0.64, 1);
+  display: flex; flex-direction: column; align-items: flex-end; gap: 2px;
+}
+.lab-entry-banner.is-show { transform: translateX(0); }
+.lab-entry-banner__sub { font-size: 0.4rem; color: var(--text-soft); letter-spacing: 0.06em; }
+.lab-entry-banner.COMMON    { color: #c8c8d8; box-shadow: 0 0 14px #c8c8d8; }
+.lab-entry-banner.RARE      { color: #4cc9f0; box-shadow: 0 0 14px #4cc9f0; }
+.lab-entry-banner.EPIC      { color: #b055ff; box-shadow: 0 0 14px #b055ff; }
+.lab-entry-banner.LEGENDARY { color: #ffd23f; box-shadow: 0 0 18px #ffd23f, 0 0 36px rgba(255,210,63,0.5); }
+.lab-entry-banner.CURSED    { color: #ff3a3a; box-shadow: 0 0 14px #ff3a3a; }
+
+/* Round 2C: ghost-trail when an ingredient flies into the beaker.
+   Brief radial fade flying from cursor point to the beaker. */
+.lab-ghost-trail { position: fixed; pointer-events: none; z-index: 240;
+  width: 36px; height: 36px; transform: translate(-50%, -50%) scale(0.6);
+  border-radius: 50%; background: radial-gradient(circle, rgba(76,201,240,0.7), rgba(76,201,240,0));
+  opacity: 0; animation: lab-ghost-fly 0.42s ease-out forwards;
+}
+@keyframes lab-ghost-fly {
+  0% { opacity: 0.9; transform: translate(-50%, -50%) scale(1.1); }
+  100% { opacity: 0; transform: translate(-50%, -50%) scale(0.4) translate(var(--gx, 0), var(--gy, 0)); }
+}
+
+/* Round 2C: ingredient-card pulse on pick — quick scale punch */
+.lab-item.is-picked { animation: lab-item-pick 0.32s ease-out; }
+@keyframes lab-item-pick {
+  0% { transform: scale(1); filter: brightness(1); }
+  50% { transform: scale(1.18); filter: brightness(1.6); }
+  100% { transform: scale(1); filter: brightness(1); }
+}
 `;
 const _lstyle = document.createElement('style'); _lstyle.textContent = LAB_CSS; document.head.appendChild(_lstyle);
 const _lbg = document.createElement('div');
@@ -518,6 +559,34 @@ function shakeEl(el) {
   setTimeout(() => el.classList.remove('lab-shake'), 420);
 }
 
+// Round 2C: SHEET-ENTRY style "ENTRY UNLOCKED" pill — appears top-right on
+// every NEW discovery (separate from the tier-complete celebration banner).
+function showEntryBanner(name, tier) {
+  const el = document.createElement('div');
+  el.className = `lab-entry-banner ${tier || 'COMMON'}`;
+  el.innerHTML = `★ ENTRY UNLOCKED<div class="lab-entry-banner__sub">${(name || '').slice(0, 32)}</div>`;
+  document.body.appendChild(el);
+  requestAnimationFrame(() => el.classList.add('is-show'));
+  setTimeout(() => { el.classList.remove('is-show'); setTimeout(() => el.remove(), 380); }, 1800);
+}
+// Round 2C: ghost-trail from the clicked ingredient towards the beaker — a
+// soft radial flicker that hints at the ingredient flying into the beaker.
+function ghostTrailToBeaker(fromX, fromY) {
+  const beakerEl = document.querySelector('.lab-beaker');
+  if (!beakerEl) return;
+  const r = beakerEl.getBoundingClientRect();
+  const tx = r.left + r.width / 2;
+  const ty = r.top + r.height / 2;
+  const el = document.createElement('div');
+  el.className = 'lab-ghost-trail';
+  el.style.left = fromX + 'px';
+  el.style.top = fromY + 'px';
+  el.style.setProperty('--gx', (tx - fromX) + 'px');
+  el.style.setProperty('--gy', (ty - fromY) + 'px');
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 480);
+}
+
 // 20 ingredients. Every id has a matching pixel-art drawer in
 // src/shared/ingredientIcons.js — emoji is kept only as an accessibility
 // fallback/title hint and is never rendered in the UI directly anymore.
@@ -637,16 +706,32 @@ function renderIngredients() {
     badge.textContent = String(n);
     badge.title = `${n} discovered combo${n === 1 ? '' : 's'} use ${ing.name}`;
     el.appendChild(badge);
-    el.addEventListener('click', () => addToBeaker(ing));
+    el.addEventListener('click', (ev) => {
+      // Round 2C: ghost trail flying from card -> beaker + brief pulse pop.
+      // Reading bounding rect once is cheap and avoids needing layout-shift
+      // in addToBeaker (which other callers might invoke without an event).
+      const r = el.getBoundingClientRect();
+      const fx = r.left + r.width / 2;
+      const fy = r.top + r.height / 2;
+      addToBeaker(ing, fx, fy);
+      el.classList.remove('is-picked'); void el.offsetWidth; el.classList.add('is-picked');
+      setTimeout(() => el.classList.remove('is-picked'), 340);
+    });
     ingEl.appendChild(el);
   }
 }
 
-function addToBeaker(ing) {
+function addToBeaker(ing, fromX, fromY) {
   const slot = beaker.findIndex((s) => s == null);
   if (slot === -1) return;
   beaker[slot] = ing;
   sfx.tone(440 + slot * 110, 'triangle', 0.08, 0.18);
+  // Round 2C: layered higher tone for the satisfying "click" when slot fills
+  sfx.tone(880 + slot * 80, 'triangle', 0.04, 0.12);
+  // Round 2C: ghost trail from clicked card to beaker (if a source was given)
+  if (typeof fromX === 'number' && typeof fromY === 'number') {
+    ghostTrailToBeaker(fromX, fromY);
+  }
   syncBeaker();
 }
 
@@ -826,8 +911,19 @@ function fuse() {
     }
   }
   showResult(result, isNew);
-  // Big lightning flash on every fuse
+  // Round 2C: SHEET-ENTRY style "ENTRY UNLOCKED" banner for every new combo.
+  // Fires on isNew (fresh species discovery), not on combo repeats — the
+  // existing handleAlreadyDiscovered() path already returns before fuse runs.
+  if (isNew) {
+    const tier = result.tier || (result.legendary ? 'LEGENDARY' : (result.cursed ? 'CURSED' : 'COMMON'));
+    showEntryBanner(result.name, tier);
+  }
+  // Big lightning flash on every fuse (+ extra flashes for legendaries)
   flashArc();
+  if (result.legendary || result.tier === 'EPIC') {
+    setTimeout(() => flashArc(), 90);
+    setTimeout(() => flashArc(), 200);
+  }
   beaker = [null, null, null];
   syncBeaker();
   save();
@@ -842,10 +938,14 @@ function fuse() {
   const cx = rect ? rect.left + rect.width / 2 : window.innerWidth / 2;
   const cy = rect ? rect.top + rect.height / 2 : window.innerHeight / 2;
   if (result.legendary) {
-    sparkleBurst(cx, cy, 36, '#ffd23f');
-    setTimeout(() => sparkleBurst(cx, cy, 24, '#ff8ac8'), 120);
-    setTimeout(() => sparkleBurst(cx, cy, 24, '#4cc9f0'), 240);
+    // Round 2C: bigger celebration burst — denser sparkles + confetti chase
+    sparkleBurst(cx, cy, 52, '#ffd23f');
+    setTimeout(() => sparkleBurst(cx, cy, 36, '#ff8ac8'), 120);
+    setTimeout(() => sparkleBurst(cx, cy, 36, '#4cc9f0'), 240);
+    setTimeout(() => sparkleBurst(cx, cy, 24, '#fff0a0'), 360);
+    try { confettiBurst(cx, cy, 20, ['#ffd23f', '#ff8e3c', '#ff3aa1', '#fff0a0']); } catch (e) { /* */ }
     shakeEl(beakerEl);
+    shakeEl(document.querySelector('.lab-result'));
     if (isNew) {
       const hudCard = document.querySelector('#hud .hud-card');
       if (hudCard) {

@@ -944,11 +944,18 @@ export class Game {
   }
 
   _spawnHitParticles(x, y, color) {
-    for (let i = 0; i < 5; i++) {
+    // Bumped from 5 → 8 sparks + a bright white core fleck for chunkier impact.
+    for (let i = 0; i < 8; i++) {
       const g = new Graphics();
       const angle = Math.random() * Math.PI * 2;
-      const speed = 80 + Math.random() * 100;
-      g.rect(-2, -2, 4, 4).fill(color);
+      const speed = 90 + Math.random() * 130;
+      // Every 3rd spark gets a white core for visual variety.
+      if (i % 3 === 0) {
+        g.rect(-3, -3, 6, 6).fill(color);
+        g.rect(-2, -2, 4, 4).fill(0xffffff);
+      } else {
+        g.rect(-2, -2, 4, 4).fill(color);
+      }
       g.x = x; g.y = y;
       this.effectsLayer.addChild(g);
       this.particles.push({
@@ -957,7 +964,7 @@ export class Game {
         x, y,
         vx: Math.cos(angle) * speed,
         vy: Math.sin(angle) * speed,
-        life: 0.4 + Math.random() * 0.3,
+        life: 0.4 + Math.random() * 0.35,
         t: 0,
       });
     }
@@ -1097,9 +1104,18 @@ export class Game {
       },
     });
     t.anchor.set(0.5);
-    t.x = x; t.y = y - 32;
+    // Random small offset + slight horizontal drift so back-to-back popups
+    // don't overlap and the burst reads as "spawned at action point".
+    const angle = (Math.random() - 0.5) * 0.8;
+    const sx = x + Math.cos(angle) * 8;
+    const sy = y - 32 + (Math.random() - 0.5) * 6;
+    t.x = sx; t.y = sy;
     this.effectsLayer.addChild(t);
-    this.particles.push({ kind: 'text', g: t, x, y: y - 32, vy: -60, life: 1.0, t: 0 });
+    this.particles.push({
+      kind: 'text', g: t, x: sx, y: sy,
+      vx: Math.sin(angle) * 18,
+      vy: -60, life: 1.0, t: 0,
+    });
   }
 
   // 2. CONFETTI BLAST — multi-color storm with starburst flash
@@ -1601,7 +1617,10 @@ export class Game {
         p.g.circle(-r * 0.3, -r * 0.3, r * 0.5).fill({ color: 0xffffff, alpha: (1 - k) * 0.2 });
         p.g.x = p.x; p.g.y = p.y;
       } else if (p.kind === 'text') {
+        if (p.vx) p.x += p.vx * dt;
         p.y += p.vy * dt;
+        // slight upward decay so popup drifts gracefully
+        p.vy *= 1 - dt * 1.5;
         p.g.x = p.x; p.g.y = p.y;
         p.g.alpha = Math.max(0, 1 - p.t / p.life);
       } else if (p.kind === 'ring') {
@@ -1645,6 +1664,13 @@ export class Game {
       const k = Math.max(0, this.shakeT) * this.shakeMag;
       camX += (Math.random() - 0.5) * k;
       camY += (Math.random() - 0.5) * k;
+    }
+    // Camera nudge — short directional pull toward last action point.
+    if (this._camNudgeT > 0) {
+      this._camNudgeT -= dt;
+      const t = Math.max(0, this._camNudgeT) / 0.25;
+      camX -= (this._camNudgeX || 0) * t;
+      camY -= (this._camNudgeY || 0) * t;
     }
     cam.x = camX;
     cam.y = camY;
@@ -1903,11 +1929,29 @@ export class Game {
       }
     }
 
-    // Slow-mo + screen shake when player gets a kill
+    // Slow-mo + screen shake + hit-pause when player gets a kill.
+    // Hit-pause = 0.08s freeze frame; combo escalates shake intensity so a
+    // chain feels meaningfully more punchy than a single kill.
     if (killer === this.player) {
       this._slowmoT = 0.3;
-      this._screenShake(8, 0.3);
+      this._hitstopT = Math.max(this._hitstopT || 0, 0.08);
+      const comboBoost = Math.min(2.2, 1 + ((this._combo || 1) - 1) * 0.18);
+      this._screenShake(8 * comboBoost, 0.3);
       this._spawnKillBanner(this.player.x, this.player.y - 60);
+      // Bigger blood/spark burst on kill so it reads as a major event.
+      this._spawnHitParticles(victim.x, victim.y, 0xff3a3a);
+      this._spawnHitParticles(victim.x, victim.y, 0xffd23f);
+      // Subtle camera nudge toward the kill site (5px decaying offset).
+      const dx = victim.x - this.player.x, dy = victim.y - this.player.y;
+      const dLen = Math.hypot(dx, dy) || 1;
+      this._camNudgeX = (dx / dLen) * 5;
+      this._camNudgeY = (dy / dLen) * 5;
+      this._camNudgeT = 0.25;
+    }
+    // Player-death slow-mo final frame — gives the kill a beat to register.
+    if (victim === this.player) {
+      this._slowmoT = Math.max(this._slowmoT || 0, 0.3);
+      this._hitstopT = Math.max(this._hitstopT || 0, 0.12);
     }
     // Toast
     const k = killer ? killer.name : 'THE ZONE';
@@ -2051,6 +2095,35 @@ export class Game {
   }
 
   _openLevelUpMenu() {
+    // Big celebratory sparkle around the player BEFORE the overlay opens.
+    // (effectsLayer + particles will still tick when evolving=true is set,
+    // but they're rendered the next frame regardless.)
+    if (this.player && this.player.alive) {
+      const px = this.player.x, py = this.player.y;
+      // Triple rainbow ring
+      this._spawnBorkRing(px, py, 160, 0xffd23f);
+      this._spawnBorkRing(px, py, 220, 0xff3aa1);
+      this._spawnBorkRing(px, py, 100, 0xffffff);
+      // 22 outward sparkles (rainbow)
+      const sparkColors = [0xffd23f, 0xff3aa1, 0x4cc9f0, 0x5ef38c, 0xffffff, 0xb055ff];
+      for (let i = 0; i < 22; i++) {
+        const ang = (i / 22) * Math.PI * 2;
+        const sp = 180 + Math.random() * 140;
+        const g = new Graphics();
+        const c = sparkColors[i % sparkColors.length];
+        g.rect(-3, -3, 6, 6).fill(c);
+        g.rect(-2, -2, 4, 4).fill(0xffffff);
+        g.x = px; g.y = py;
+        this.effectsLayer.addChild(g);
+        this.particles.push({
+          kind: 'spark', g, x: px, y: py,
+          vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp - 40,
+          gravity: 60, life: 0.9, t: 0,
+        });
+      }
+      this._spawnTextBurst(px, py - 50, 'LEVEL UP!', 0xffd23f, 22);
+      this._screenShake(6, 0.28);
+    }
     this.evolving = true; // pauses game loop similarly
     const overlay = document.getElementById('evolve-overlay');
     const choices = document.getElementById('evolve-choices');
@@ -2239,9 +2312,15 @@ export class Game {
     const label = labels[this._combo] || 'MEGA';
     text.textContent = `${label} ×${this._combo}`;
     bubble.classList.add('is-show');
-    // Tint hotter as combo grows
+    // Tint hotter + grow scale as combo climbs.
     bubble.style.borderColor = this._combo >= 4 ? 'var(--neon-pink)' : 'var(--neon-yellow)';
     bubble.style.color = this._combo >= 4 ? 'var(--neon-pink)' : 'var(--neon-yellow)';
+    const growScale = Math.min(1.45, 1.1 + (this._combo - 2) * 0.06);
+    bubble.style.setProperty('--combo-scale', growScale.toFixed(2));
+    // Extra screen-shake spike on milestone combos (3/5/7) for combo escalation.
+    if (this._combo === 3 || this._combo === 5 || this._combo === 7) {
+      this._screenShake(4 + this._combo * 0.8, 0.22);
+    }
     // Reset fill animation
     fill.style.transition = 'none';
     fill.style.transform = 'scaleX(1)';

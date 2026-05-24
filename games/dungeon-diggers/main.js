@@ -143,7 +143,8 @@ function bumpCombo(worldX, worldY) {
 function shake(amp, dur) { const k = _shakeMul(); shakeAmp = Math.max(shakeAmp, amp * k); shakeT = Math.max(shakeT, dur); }
 function popup(x, y, text, color) {
   if (popups.length > 24) popups.shift();
-  popups.push({ x, y, vy: -32, text, color: color || '#ffd23f', life: 1.0, t: 0 });
+  // Round 2C: lateral spawn velocity so popups don't stack & feel snappier
+  popups.push({ x, y, vx: (Math.random() - 0.5) * 50, vy: -55, text, color: color || '#ffd23f', life: 1.0, t: 0 });
 }
 function spawnDust(x, y, color, n) {
   for (let i = 0; i < (n || 6); i++) {
@@ -151,6 +152,23 @@ function spawnDust(x, y, color, n) {
     const ang = Math.random() * Math.PI * 2;
     const sp = 30 + Math.random() * 90;
     particles.push({ x, y, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp - 20, gy: 140, color, life: 0.45 + Math.random() * 0.25, t: 0, size: 2 + Math.random() * 2 });
+  }
+}
+// Round 2C: rectangular block shards — larger pixel chunks that tumble outward
+// when a wall is dug. Differs from dust by size (4-7px) + slower fade for more
+// "satisfying break-apart" read.
+function spawnShards(x, y, color, n) {
+  for (let i = 0; i < (n || 6); i++) {
+    if (particles.length > 200) break;
+    const ang = Math.random() * Math.PI * 2;
+    const sp = 50 + Math.random() * 140;
+    particles.push({
+      x, y,
+      vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp - 40,
+      gy: 280, color,
+      life: 0.55 + Math.random() * 0.35, t: 0,
+      size: 4 + Math.random() * 4,
+    });
   }
 }
 function spawnAmbient(camY) {
@@ -476,6 +494,11 @@ function tryMove(dc, dr) {
       sfx.tone(330, 'square', 0.05, 0.15);
       const dustC = t === 'stone' ? '#8a8aa0' : (t === 'cheese' ? '#ffd23f' : '#8a5a2c');
       spawnDust(tileX, tileY, dustC, 6 + Math.floor(nr / 12));
+      // Round 2C: block-shatter shards on wall break — stone/cheese throw
+      // bigger chunks since they're tougher
+      const shardN = t === 'stone' ? 5 : (t === 'cheese' ? 4 : 3);
+      const shardC = t === 'stone' ? '#5a5a72' : (t === 'cheese' ? '#c89c20' : '#4a2a0c');
+      spawnShards(tileX, tileY, shardC, shardN);
     }
     stam -= cost;
     grid[nr][nc] = 'air';
@@ -504,9 +527,24 @@ function tryMove(dc, dr) {
         }
       }
       popup(tileX, tileY - 20, '☆ BONUS ROOM ☆', '#ffd23f');
-      shake(5, 0.25);
+      // Round 2C: bigger shake + extra burst + brief electric arc visual flash
+      // (rendered via spark particles emanating from break point).
+      shake(7, 0.32);
       sfx.arp([523, 659, 784, 1047], 'triangle', 0.06, 0.2, 0.12);
-      spawnDust(tileX, tileY, '#ffd23f', 14);
+      spawnDust(tileX, tileY, '#ffd23f', 18);
+      spawnShards(tileX, tileY, '#ffd23f', 8);
+      // Electric arc — fast bright particles snake outward (high speed, low life)
+      for (let i = 0; i < 10; i++) {
+        if (particles.length > 200) break;
+        const ang = (i / 10) * Math.PI * 2;
+        const sp = 220 + Math.random() * 120;
+        particles.push({
+          x: tileX, y: tileY,
+          vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp,
+          gy: 0, color: '#fff8e0',
+          life: 0.22, t: 0, size: 2.5,
+        });
+      }
     }
     pug.col = nc; pug.row = nr;
     syncXY();
@@ -641,6 +679,7 @@ function tick(dt) {
   // popups
   for (let i = popups.length - 1; i >= 0; i--) {
     const p = popups[i]; p.t += dt; p.y += p.vy * dt; p.vy *= 0.92;
+    if (p.vx) { p.x += p.vx * dt; p.vx *= 0.88; }
     if (p.t >= p.life) popups.splice(i, 1);
   }
   shakeT = Math.max(0, shakeT - dt); if (shakeT === 0) shakeAmp = 0;
@@ -695,8 +734,10 @@ function tick(dt) {
     const stopY = stopRow * TILE + TILE / 2 - 6;
     if (b.y >= stopY) {
       // Landed
-      spawnDust(b.x, stopY, '#6a4a28', 12);
-      shake(4, 0.2);
+      // Round 2C: bigger debris on cave-in landing — dust + shards + harder shake
+      spawnDust(b.x, stopY, '#6a4a28', 16);
+      spawnShards(b.x, stopY, '#5a3a1c', 8);
+      shake(6, 0.28);
       if (!b.blocked && !b.hit && Math.abs(b.x - pug.x) < TILE * 0.6 && Math.abs(stopY - pug.y) < TILE) {
         if (amuletCharges > 0) {
           // AMULET dodges the hit
@@ -1132,6 +1173,23 @@ function render() {
     const k = Math.min(1, (pug.row - CHEESE_DEPTH_ROW) / 10);
     ctx.fillStyle = `rgba(255,210,63,${0.10 + k * 0.08})`;
     ctx.fillRect(0, 0, W, H);
+  }
+  // Round 2C: SHOPKEEPER RAGE red overlay — pulsing crimson tint + iris
+  // vignette around the player while the hunter is active, ramping with how
+  // close he is (closer = darker, more saturated).
+  if (ragedShopkeeper) {
+    const rh = ragedShopkeeper;
+    const d = Math.hypot(rh.x - pug.x, rh.y - pug.y);
+    const closeness = Math.max(0, Math.min(1, 1 - d / 400));
+    const pulse = 0.6 + 0.4 * Math.sin(performance.now() * 0.012);
+    ctx.fillStyle = `rgba(160,30,30,${(0.08 + closeness * 0.18) * pulse})`;
+    ctx.fillRect(0, 0, W, H);
+    // dark iris vignette so the player feels hunted
+    const cx = W / 2, cy = H / 2;
+    const ig = ctx.createRadialGradient(cx, cy, Math.min(W, H) * 0.18, cx, cy, Math.max(W, H) * 0.6);
+    ig.addColorStop(0, 'rgba(0,0,0,0)');
+    ig.addColorStop(1, `rgba(0,0,0,${0.35 + closeness * 0.25})`);
+    ctx.fillStyle = ig; ctx.fillRect(0, 0, W, H);
   }
 
   // Biome banner — centered, fades over its lifetime

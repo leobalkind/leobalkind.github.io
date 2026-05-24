@@ -139,7 +139,42 @@ function seedCaveSpikes(yAround) {
 function shake(mag, dur) { const k = _shakeMul(); shakeMag = Math.max(shakeMag, mag * k); shakeT = Math.max(shakeT, dur); }
 function pop(x, y, text, color) {
   if (popups.length > 80) popups.shift();
-  popups.push({ x, y, vy: -40, life: 0, max: 0.9, text, color: color || '#ffd23f' });
+  // Round 2C: random lateral spawn velocity so chained popups fan out
+  popups.push({ x, y, vx: (Math.random() - 0.5) * 60, vy: -60, life: 0, max: 0.9, text, color: color || '#ffd23f' });
+}
+// Round 2C: jump dust puff — light brown particles at pug's feet on takeoff
+function spawnJumpDust(x, y) {
+  for (let i = 0; i < 5; i++) {
+    if (embers.length > 160) break;
+    const ang = Math.PI + (Math.random() - 0.5) * 1.2; // mostly horizontal/downward
+    const sp = 30 + Math.random() * 50;
+    embers.push({
+      x: x + (Math.random() - 0.5) * 14, y: y + 8,
+      vx: Math.cos(ang) * sp + (Math.random() - 0.5) * 40,
+      vy: Math.sin(ang) * sp - 10,
+      life: 0, max: 0.4, r: 1.5 + Math.random() * 1.5,
+      color: 'rgba(200,180,150,0.7)', dust: true,
+    });
+  }
+}
+// Round 2C: feather burst on bat death (small dark-grey feathers spray out)
+function spawnFeathers(x, y) {
+  for (let i = 0; i < 10; i++) {
+    if (embers.length > 180) break;
+    const ang = Math.random() * Math.PI * 2;
+    const sp = 60 + Math.random() * 120;
+    embers.push({
+      x, y,
+      vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp - 40,
+      life: 0, max: 0.8, r: 1.5 + Math.random() * 2,
+      color: ['#3a2a3a', '#2a1a2a', '#4a3a4a', '#1a0d1a'][Math.floor(Math.random() * 4)],
+      feather: true,
+    });
+  }
+}
+// Round 2C: bounce squash visual — bouncy platforms briefly compress
+function squashPlat(p) {
+  p.squashT = 0.25;
 }
 function addPlatformAbove() {
   lastPlatY -= 80 + Math.random() * 50;
@@ -199,6 +234,9 @@ createMobileControls({ layout: 'platformer', keys });
 function jump() {
   if (!running || pug.jumpsLeft <= 0) return;
   pug.vy = JUMP_V * (wingsT > 0 ? 1.1 : 1);
+  // Round 2C: jump dust puff only when launching from the ground (looks weird
+  // exploding mid-air on double-jump). Heuristic: pug.onGround was true.
+  if (pug.onGround) spawnJumpDust(pug.x, pug.y);
   pug.jumpsLeft--;
   pug.onGround = false;
   sfx.tone(wingsT > 0 ? 990 : (pug.jumpsLeft === 1 ? 660 : 880), 'triangle', 0.08, 0.18);
@@ -234,6 +272,10 @@ function tick(dt) {
   freezeT = Math.max(0, freezeT - dt);
   shrinkT = Math.max(0, shrinkT - dt);
   wingsT = Math.max(0, wingsT - dt);
+  // Round 2C: decay squash on bouncy platforms
+  for (const p of plats) {
+    if (p.squashT > 0) p.squashT = Math.max(0, p.squashT - dt);
+  }
   // Drift platforms left/right (sin oscillation around baseX)
   const driftT = performance.now() * 0.001;
   for (const p of plats) {
@@ -270,7 +312,10 @@ function tick(dt) {
             pug.vy = JUMP_V * 1.3;
             refillJumps();
             sfx.tone(990, 'triangle', 0.08, 0.2);
-            shake(2, 0.12);
+            // Round 2C: bigger shake + larger spring squash + extra dust puff
+            shake(4, 0.18);
+            squashPlat(p);
+            spawnJumpDust(pug.x, p.y);
             // Icy Tower combo: bouncy launch counts as a chained landing.
             if (p !== lastPlat) {
               comboJumps++; lastPlat = p; comboRestT = 0;
@@ -396,8 +441,12 @@ function tick(dt) {
         comboRestT = 0;
         score += 75;
         pop(b.x, b.y - 10, '+75 STOMP', '#ff8e3c');
-        shake(3, 0.18);
+        // Round 2C: bigger stomp shake + feather burst on death
+        shake(5, 0.22);
+        spawnFeathers(b.x, b.y);
         sfx.tone(880, 'triangle', 0.08, 0.2);
+        // tiny secondary thump
+        sfx.tone(440, 'square', 0.05, 0.2);
       } else {
         return die();
       }
@@ -411,6 +460,20 @@ function tick(dt) {
     if (f.life >= f.max || f.x < -30 || f.x > W + 30) { fireballs.splice(i, 1); continue; }
     const fR = shrinkT > 0 ? 11 : 18;
     if (Math.abs(f.x - pug.x) < fR && Math.abs(f.y - pug.y) < fR) return die();
+    // Round 2C: trailing flame particles — small fast-fading sparks behind
+    // each fireball that read as a comet tail. Cap-checked to stay below 200.
+    if (Math.random() < 0.65 && embers.length < 180) {
+      const cols = ['#ffd23f', '#ff8e3c', '#ff5a3a'];
+      embers.push({
+        x: f.x + (Math.random() - 0.5) * 4,
+        y: f.y + (Math.random() - 0.5) * 4,
+        vx: -f.vx * 0.15 + (Math.random() - 0.5) * 30,
+        vy: -f.vy * 0.15 + (Math.random() - 0.5) * 30,
+        life: 0, max: 0.35, r: 1.5 + Math.random() * 2,
+        color: cols[Math.floor(Math.random() * cols.length)],
+        glow: true,
+      });
+    }
   }
 
   // Lava rises — accelerating (paused if freeze powerup active)
@@ -514,8 +577,11 @@ function tick(dt) {
   for (let i = embers.length - 1; i >= 0; i--) {
     const e = embers[i];
     e.life += dt; e.x += e.vx * dt; e.y += e.vy * dt;
-    e.vy += -20 * dt; // buoyancy
-    if (e.life >= e.max || e.y < -20) embers.splice(i, 1);
+    // Round 2C: dust falls + feathers gently flutter; default embers float up.
+    if (e.dust) { e.vy += 220 * dt; e.vx *= 0.92; }
+    else if (e.feather) { e.vy += 60 * dt; e.vx *= 0.95; }
+    else e.vy += -20 * dt; // buoyancy for default lava embers
+    if (e.life >= e.max || e.y < -20 || e.y > H + 80) embers.splice(i, 1);
   }
   // Spawn lava bubbles (cap at ~30)
   if (lavaBubbles.length < 30) {
@@ -535,6 +601,7 @@ function tick(dt) {
   for (let i = popups.length - 1; i >= 0; i--) {
     const p = popups[i];
     p.life += dt; p.y += p.vy * dt; p.vy += 30 * dt;
+    if (p.vx) { p.x += p.vx * dt; p.vx *= 0.88; }
     if (p.life >= p.max) popups.splice(i, 1);
   }
   // Banner
@@ -658,8 +725,24 @@ function render() {
   ctx.globalCompositeOperation = 'lighter';
   for (const e of embers) {
     const a = 1 - e.life / e.max;
-    ctx.fillStyle = `rgba(255,${140 + Math.floor(80 * a)},40,${a * 0.7})`;
-    ctx.beginPath(); ctx.arc(e.x, e.y, e.r, 0, Math.PI * 2); ctx.fill();
+    if (e.color && (e.dust || e.feather)) {
+      // Round 2C: dust + feathers use source-over so they don't bleach white
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.globalAlpha = a;
+      ctx.fillStyle = e.color;
+      ctx.beginPath(); ctx.arc(e.x, e.y, e.r, 0, Math.PI * 2); ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.globalCompositeOperation = 'lighter';
+    } else if (e.color && e.glow) {
+      // Fireball trail — use stored color with additive blend
+      ctx.fillStyle = e.color;
+      ctx.globalAlpha = a;
+      ctx.beginPath(); ctx.arc(e.x, e.y, e.r, 0, Math.PI * 2); ctx.fill();
+      ctx.globalAlpha = 1;
+    } else {
+      ctx.fillStyle = `rgba(255,${140 + Math.floor(80 * a)},40,${a * 0.7})`;
+      ctx.beginPath(); ctx.arc(e.x, e.y, e.r, 0, Math.PI * 2); ctx.fill();
+    }
   }
   ctx.globalCompositeOperation = 'source-over';
   // Platforms (color by kind) with grain/moss
@@ -673,9 +756,22 @@ function render() {
     const color = crumbleRed ? '#a83830' : (isBouncy ? '#b055ff' : (isCrumble ? '#8a6a4a' : '#5a3a1c'));
     const topColor = crumbleRed ? '#d05050' : (isBouncy ? '#d59aff' : (isCrumble ? '#a68a6a' : '#7a5a3a'));
     const grassColor = isBouncy ? '#ff8aa8' : (isCrumble ? '#ff8e3c' : '#5ef38c');
-    ctx.fillStyle = color; ctx.fillRect(p.x, p.y, p.w, p.h);
-    ctx.fillStyle = topColor; ctx.fillRect(p.x, p.y, p.w, 3);
-    ctx.fillStyle = grassColor; ctx.fillRect(p.x, p.y - 3, p.w, 3);
+    // Round 2C: bouncy platform squash — exaggerated vertical compress that
+    // eases back; draws at slightly reduced height + wider so spring reads.
+    let pX = p.x, pW = p.w, pY = p.y, pH = p.h;
+    if (isBouncy && p.squashT > 0) {
+      const k = p.squashT / 0.25; // 1 = full squash, 0 = settled
+      const sq = 1 - 0.35 * k;    // 1.0 -> 0.65 height
+      const stretch = 1 + 0.18 * k; // 1.0 -> 1.18 width
+      const nw = pW * stretch;
+      pX = p.x - (nw - pW) / 2;
+      pW = nw;
+      pH = p.h * sq;
+      pY = p.y + (p.h - pH); // anchored at bottom so squash compresses downward
+    }
+    ctx.fillStyle = color; ctx.fillRect(pX, pY, pW, pH);
+    ctx.fillStyle = topColor; ctx.fillRect(pX, pY, pW, 3);
+    ctx.fillStyle = grassColor; ctx.fillRect(pX, pY - 3, pW, 3);
     // SPIKE on top (kills on landing)
     if (p.hasSpike) {
       const sx = p.x + p.w / 2;

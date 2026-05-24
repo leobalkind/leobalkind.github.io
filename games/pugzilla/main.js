@@ -162,13 +162,26 @@ let rage = 0;                  // 0..100
 let rampageT = 0;              // active rampage countdown (3s)
 // --- Juice ---
 let shakeT = 0, shakeMag = 0;
+// Hit-pause + evolution white-flash overlay timers.
+let _zillaHitstopT = 0;
+let _evoFlashT = 0;
 let hitFlashT = 0;
 let popups = []; // {x, y, text, color, t}
 let smokeColumns = []; // ambient smoke pillars at smash sites: {x, y, t, life}
 let craters = []; // permanent floor scars from smashed buildings
 let distantChoppers = []; // far skyline helicopter silhouettes (decorative)
 function addShake(mag, dur) { const k = _shakeMul(); shakeMag = Math.max(shakeMag, mag * k); shakeT = Math.max(shakeT, dur); }
-function addPopup(x, y, text, color) { popups.push({ x, y, text, color: color || '#ffd23f', t: 0 }); if (popups.length > 40) popups.shift(); }
+function addPopup(x, y, text, color) {
+  // Random angle + small horizontal drift so spam-popups don't pile up.
+  const a = (Math.random() - 0.5) * 0.6;
+  popups.push({
+    x: x + Math.cos(a) * 6,
+    y: y + (Math.random() - 0.5) * 4,
+    vx: Math.sin(a) * 20,
+    text, color: color || '#ffd23f', t: 0,
+  });
+  if (popups.length > 40) popups.shift();
+}
 
 // Building types — each with different score/effect + render style
 const BUILDING_TYPES = {
@@ -191,7 +204,7 @@ function reset() {
   score = 0; smashed = 0; eaten = 0; hp = 100; borkCd = 0;
   combo = 0; comboT = 0; dmgBoostT = 0; _comboTier = 0; comboFlash = null;
   cam = { x: pug.x, y: pug.y };
-  shakeT = 0; shakeMag = 0; hitFlashT = 0;
+  shakeT = 0; shakeMag = 0; hitFlashT = 0; _zillaHitstopT = 0; _evoFlashT = 0;
   popups = []; smokeColumns = []; craters = [];
   // Distant skyline silhouette choppers (decorative — drift across horizon band)
   distantChoppers = [];
@@ -401,8 +414,27 @@ function smashAt(wx, wy) {
         formIdx++; eaten = 0;
         hp = Math.min(100 + formIdx * 50, hp + 80);
         sfx.arp([523, 659, 784, 1047], 'triangle', 0.1, 0.25, 0.3);
-        addShake(10, 0.4);
+        // Bigger shake + brief hit-pause + white-screen flash.
+        addShake(16, 0.55);
+        _zillaHitstopT = 0.12;
+        _evoFlashT = 0.35;
         addPopup(pug.x, pug.y - form().r - 12, 'EVOLVE! ' + form().name.toUpperCase(), '#b055ff');
+        // Triple expanding ring (rainbow) + chunky sparkle field.
+        particles.push({ ring: true, x: pug.x, y: pug.y, t: 0, maxR: 220 });
+        particles.push({ ring: true, x: pug.x, y: pug.y, t: -0.1, maxR: 160 });
+        particles.push({ ring: true, x: pug.x, y: pug.y, t: -0.2, maxR: 280 });
+        const rainbow = ['#ff3aa1', '#4cc9f0', '#ffd23f', '#5ef38c', '#b055ff', '#ffffff'];
+        for (let k = 0; k < 28; k++) {
+          const a = (k / 28) * Math.PI * 2;
+          const s = 150 + Math.random() * 180;
+          particles.push({
+            x: pug.x, y: pug.y,
+            vx: Math.cos(a) * s, vy: Math.sin(a) * s - 60,
+            color: rainbow[k % rainbow.length], life: 0.9, t: 0, size: 5, gravity: 180,
+          });
+        }
+        // Sub-bass boom layer.
+        sfx.tone(55, 'sine', 0.35, 0.55);
       }
       spawnVehicle();
       return;
@@ -443,7 +475,13 @@ function doBork() {
       h.x += (h.x - pug.x) / d * 100;
       if (h.hp <= 0) {
         score += 200;
+        // Bigger explosion: dual orange/red dust + expanding ring + shake spike.
+        spawnDust(h.x, h.y, '#ff8e3c');
         spawnDust(h.x, h.y, '#ff3a3a');
+        particles.push({ ring: true, x: h.x, y: h.y, t: 0, maxR: 110 });
+        addShake(7, 0.32);
+        sfx.tone(80, 'sawtooth', 0.25, 0.4);
+        addPopup(h.x, h.y - 8, '+$200', '#ff8e3c');
         helicopters.splice(i, 1);
       }
     }
@@ -558,7 +596,13 @@ function smashBuilding(b, idx) {
       const h = helicopters[j];
       if (Math.hypot(h.x - cx, h.y - cy) < 140) {
         h.hp -= 3;
-        if (h.hp <= 0) { score += 200; helicopters.splice(j, 1); }
+        if (h.hp <= 0) {
+          score += 200;
+          spawnDust(h.x, h.y, '#ff8e3c');
+          particles.push({ ring: true, x: h.x, y: h.y, t: 0, maxR: 90 });
+          addShake(5, 0.22);
+          helicopters.splice(j, 1);
+        }
       }
     }
     // 30% spawn powerup
@@ -587,10 +631,24 @@ function addRage(amount) {
 }
 
 function spawnDust(x, y, color) {
-  for (let i = 0; i < 12; i++) {
+  // Bumped from 12 → 18 sparks + 6 large chunky debris with gravity so smashed
+  // buildings throw real debris (not just colored dots).
+  for (let i = 0; i < 18; i++) {
     const a = Math.random() * Math.PI * 2;
-    const s = 60 + Math.random() * 140;
-    particles.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, color, life: 0.7, t: 0, size: 4 });
+    const s = 70 + Math.random() * 170;
+    particles.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s - 40, color, life: 0.75, t: 0, size: 4, gravity: 320 });
+  }
+  // Big debris chunks — alternate building color + dark gray for variety.
+  for (let i = 0; i < 6; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const s = 100 + Math.random() * 180;
+    const c = i % 2 === 0 ? color : '#3a3a48';
+    particles.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s - 70, color: c, life: 1.0, t: 0, size: 7, gravity: 380 });
+  }
+  // Soft gray smoke puffs floating up.
+  for (let i = 0; i < 4; i++) {
+    const a = Math.random() * Math.PI * 2;
+    particles.push({ x: x + Math.cos(a) * 14, y: y + Math.sin(a) * 8, vx: Math.cos(a) * 25, vy: -40 - Math.random() * 20, color: '#aaaab8', life: 0.9, t: 0, size: 6 });
   }
 }
 
@@ -820,6 +878,10 @@ function drawBroadcastTower() {
 function tick(dt) {
   if (!running) return;
   if (shopOpen) return; // pause world while shopping
+  // Tick the evolution white-flash overlay (independent of hit-pause).
+  if (_evoFlashT > 0) _evoFlashT = Math.max(0, _evoFlashT - dt);
+  // Hit-pause — freeze world for a few frames after evolve / big event.
+  if (_zillaHitstopT > 0) { _zillaHitstopT -= dt; return; }
   borkCd = Math.max(0, borkCd - dt);
   comboT = Math.max(0, comboT - dt);
   if (comboT <= 0) { combo = 0; _comboTier = 0; }
@@ -855,20 +917,26 @@ function tick(dt) {
       powerups.splice(i, 1);
     }
   }
-  // Move pug
+  // Move pug — smooth blend to target velocity (acceleration ramp from rest)
+  // so bigger pug forms feel heavier and starting/stopping has weight.
   let mx = 0, my = 0;
   if (keys.has('w')) my -= 1;
   if (keys.has('s')) my += 1;
   if (keys.has('a')) mx -= 1;
   if (keys.has('d')) mx += 1;
+  const rageBoost = (rage >= 80 || rampageT > 0) ? 1.3 : 1;
+  const speed = (220 - formIdx * 25) * rageBoost;
+  let tvx = 0, tvy = 0;
   if (mx || my) {
     const l = Math.hypot(mx, my);
-    const rageBoost = (rage >= 80 || rampageT > 0) ? 1.3 : 1;
-    const speed = (220 - formIdx * 25) * rageBoost;
-    pug.vx += (mx / l) * speed * dt * 3;
-    pug.vy += (my / l) * speed * dt * 3;
+    tvx = (mx / l) * speed;
+    tvy = (my / l) * speed;
   }
-  pug.vx *= Math.pow(0.5, dt * 3); pug.vy *= Math.pow(0.5, dt * 3);
+  // Smaller formIdx (lighter pug) = snappier accel; bigger forms ramp slower.
+  const accel = 9 - formIdx * 1.2;
+  const blend = Math.min(1, Math.max(3, accel) * dt);
+  pug.vx += (tvx - pug.vx) * blend;
+  pug.vy += (tvy - pug.vy) * blend;
   pug.x += pug.vx * dt; pug.y += pug.vy * dt;
   pug.x = Math.max(form().r, Math.min(WORLD_W - form().r, pug.x));
   pug.y = Math.max(form().r, Math.min(WORLD_H - form().r, pug.y));
@@ -961,14 +1029,23 @@ function tick(dt) {
     if (p.ring) {
       if (p.t > 0.5) particles.splice(i, 1);
     } else {
-      p.x += p.vx * dt; p.y += p.vy * dt; p.vx *= 0.94; p.vy *= 0.94;
+      // Gravity (debris chunks have it) gives them a satisfying arc-and-fall.
+      if (p.gravity) p.vy += p.gravity * dt;
+      p.x += p.vx * dt; p.y += p.vy * dt;
+      // Less friction when gravity dominates so the arc reads.
+      const fr = p.gravity ? 0.985 : 0.94;
+      p.vx *= fr;
+      if (!p.gravity) p.vy *= fr;
       if (p.t >= p.life) particles.splice(i, 1);
     }
   }
   // Juice tick
   if (shakeT > 0) { shakeT -= dt; if (shakeT <= 0) shakeMag = 0; }
   if (hitFlashT > 0) hitFlashT = Math.max(0, hitFlashT - dt);
-  for (const p of popups) { p.t += dt; p.y -= 32 * dt; }
+  for (const p of popups) {
+    p.t += dt; p.y -= 32 * dt;
+    if (p.vx) { p.x += p.vx * dt; p.vx *= 1 - dt * 2; }
+  }
   popups = popups.filter((p) => p.t < 1.2);
   for (const s of smokeColumns) s.t += dt;
   smokeColumns = smokeColumns.filter((s) => s.t < s.life);
@@ -1190,6 +1267,12 @@ function render() {
   // Hit flash overlay
   if (hitFlashT > 0) {
     ctx.fillStyle = `rgba(255,58,58,${Math.min(0.45, hitFlashT * 2.2)})`;
+    ctx.fillRect(0, 0, W, H);
+  }
+  // Evolution white-screen flash — peaks at start, fades to transparent.
+  if (_evoFlashT > 0) {
+    const k = _evoFlashT / 0.35;
+    ctx.fillStyle = `rgba(255,255,255,${Math.min(0.85, k * 0.85)})`;
     ctx.fillRect(0, 0, W, H);
   }
   // Vignette

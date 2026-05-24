@@ -140,17 +140,29 @@ export class Hud {
     el.classList.add('pf-wave-banner--show');
   }
 
-  // Critical-state border pulses
-  setPlayerCritical(on) {
+  // Critical-state border pulses. `ratio` (0..1) optional → if set, pulse speed
+  // scales with severity (lower HP = faster, brighter glow).
+  setPlayerCritical(on, ratio) {
     const card = this.hp ? this.hp.closest('.hud-card') : null;
     if (!card) return;
-    if (on) card.classList.add('hud-card--critical');
-    else card.classList.remove('hud-card--critical');
+    if (on) {
+      card.classList.add('hud-card--critical');
+      this._scaleCriticalPulse(card, ratio);
+    } else card.classList.remove('hud-card--critical');
   }
-  setGenCritical(on) {
+  setGenCritical(on, ratio) {
     const card = this.genHp ? this.genHp.closest('.hud-card') : null;
     if (!card) return;
-    if (on) card.classList.add('hud-card--critical');
-    else card.classList.remove('hud-card--critical');
+    if (on) {
+      card.classList.add('hud-card--critical');
+      this._scaleCriticalPulse(card, ratio);
+    } else card.classList.remove('hud-card--critical');
+  }
+  _scaleCriticalPulse(card, ratio) {
+    if (ratio == null) return;
+    // ratio 0..1 (HP% within the critical band) → speed 0.32s..0.6s, glow 0.55..0.95
+    const t = Math.max(0, Math.min(1, ratio));
+    card.style.setProperty('--crit-speed', (0.32 + t * 0.28).toFixed(2) + 's');
+    card.style.setProperty('--crit-glow', (0.55 + (1 - t) * 0.4).toFixed(2));
   }
 }

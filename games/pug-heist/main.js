@@ -86,12 +86,25 @@ let noiseRings = [];  // {x, y, t, life, r} (visible ping where vase landed)
 // --- Juice ---
 let shakeT = 0, shakeMag = 0;
 let hitFlashT = 0;
+// Hit-pause — short freeze on big events (knockout, alarm trigger).
+let _hitstopT = 0;
 let popups = []; // {x, y, text, color, t}
 let lights = []; // ceiling lights placed per-floor: {x, y, flickerT, on}
 let scatter = []; // floor decorations: cracks, stains, debris
 let dustMotes = []; // ambient dust motes drifting
 function addShake(mag, dur) { shakeMag = Math.max(shakeMag, mag); shakeT = Math.max(shakeT, dur); }
-function addPopup(x, y, text, color) { popups.push({ x, y, text, color: color || '#ffd23f', t: 0 }); if (popups.length > 30) popups.shift(); }
+function addPopup(x, y, text, color) {
+  // Spawn with small random horizontal drift + jitter so back-to-back popups
+  // don't overlap and the burst feels more "splattery".
+  const a = (Math.random() - 0.5) * 0.8;
+  popups.push({
+    x: x + Math.cos(a) * 6,
+    y: y + (Math.random() - 0.5) * 4,
+    vx: Math.sin(a) * 18,
+    text, color: color || '#ffd23f', t: 0,
+  });
+  if (popups.length > 30) popups.shift();
+}
 
 function genFloor(level) {
   pug = { x: 60, y: H - 100, vx: 0, vy: 0, alive: true, fartT: 0, sound: 0 };
@@ -587,8 +600,13 @@ function doFart() {
 }
 
 function tick(dt) {
+  // Tick the knock-out animation independently of running so the ragdoll
+  // keeps falling even after running=false.
+  if (pug && pug.knockedT != null) pug.knockedT += dt;
   if (!running) return;
   if (shopPending) return; // pause world while shop overlay is open
+  // Hit-pause — freeze the world for a few frames after a knockout (set in caught()).
+  if (_hitstopT && _hitstopT > 0) { _hitstopT -= dt; return; }
   barkCd = Math.max(0, barkCd - dt);
   fartCd = Math.max(0, fartCd - dt);
   pug.fartT = Math.max(0, pug.fartT - dt);
@@ -606,11 +624,24 @@ function tick(dt) {
     const l = Math.hypot(mx, my);
     if (l > 20) { mx /= l; my /= l; } else { mx = 0; my = 0; }
   }
+  // Subtle acceleration ramp from rest — feels weightier than instant zoom.
+  // Smooth blend toward target velocity, then apply that velocity via rectCollide.
+  const targetSpeed = (pug.fartT > 0 ? 220 : 110);
+  let tvx = 0, tvy = 0;
   if (mx || my) {
     const l = Math.hypot(mx, my);
-    const speed = (pug.fartT > 0 ? 220 : 110);
-    rectCollide(pug, (mx / l) * speed * dt, (my / l) * speed * dt);
+    tvx = (mx / l) * targetSpeed;
+    tvy = (my / l) * targetSpeed;
   }
+  if (pug._mvx == null) { pug._mvx = 0; pug._mvy = 0; }
+  // accel = 14 → reaches ~95% of target in 0.2s; gives just-enough heft.
+  const accel = 14;
+  const blend = Math.min(1, accel * dt);
+  pug._mvx += (tvx - pug._mvx) * blend;
+  pug._mvy += (tvy - pug._mvy) * blend;
+  if (Math.abs(pug._mvx) > 0.5 || Math.abs(pug._mvy) > 0.5) {
+    rectCollide(pug, pug._mvx * dt, pug._mvy * dt);
+  } else { pug._mvx = 0; pug._mvy = 0; }
 
   // Loot pickup
   for (const lt of loot) {
@@ -627,6 +658,20 @@ function tick(dt) {
       spawnParticles(lt.x, lt.y, lt.rare || mult > 1 ? '#ffd23f' : '#5ef38c');
       addPopup(lt.x, lt.y - 6, (mult > 1 ? 'LUCKY! +$' : '+$') + val, lt.rare || mult > 1 ? '#ffd23f' : '#5ef38c');
       if (lt.rare || mult > 1) addShake(3, 0.15);
+      // Sweetener "ping" sparkle when the entire floor is undetected — bigger
+      // burst + ascending tone so a stealth-perfect grab feels rewarding.
+      if (!alertedThisFloor) {
+        sfx.tone(lt.rare ? 1760 : 1320, 'triangle', 0.05, 0.18);
+        for (let i = 0; i < 8; i++) {
+          const a = Math.random() * Math.PI * 2;
+          const s = 80 + Math.random() * 60;
+          particles.push({
+            x: lt.x, y: lt.y,
+            vx: Math.cos(a) * s, vy: Math.sin(a) * s - 30,
+            color: '#b0e8ff', life: 0.55, t: 0, size: 2,
+          });
+        }
+      }
     }
   }
   // Gadget cooldown decay
@@ -709,7 +754,11 @@ function tick(dt) {
   // Juice tick
   if (shakeT > 0) { shakeT -= dt; if (shakeT <= 0) shakeMag = 0; }
   if (hitFlashT > 0) hitFlashT = Math.max(0, hitFlashT - dt);
-  for (const p of popups) { p.t += dt; p.y -= 28 * dt; }
+  for (const p of popups) {
+    p.t += dt;
+    p.y -= 28 * dt;
+    if (p.vx) { p.x += p.vx * dt; p.vx *= 1 - dt * 2; }
+  }
   popups = popups.filter((p) => p.t < 1.2);
   // Light flicker tick
   for (const l of lights) {
@@ -810,10 +859,18 @@ function tick(dt) {
 
 function caught() {
   if (!running) return;
-  addShake(8, 0.32);
-  hitFlashT = 0.25;
+  // Stronger event: bigger shake + screen-edge red flash + brief hit-pause.
+  addShake(14, 0.45);
+  hitFlashT = 0.45;
+  // Player ragdoll: tilt + drop animation while end overlay slides in.
+  if (pug) {
+    pug.knockedT = 0;
+    pug.knockedAng = (Math.random() - 0.5) * 1.2; // random fall angle
+  }
+  // Hit-pause: freeze the world for 0.12s so the knockout reads.
+  _hitstopT = 0.12;
   running = false;
-  sfx.sweep(220, 80, 'sawtooth', 0.6, 0.25);
+  sfx.sweep(220, 80, 'sawtooth', 0.6, 0.3);
   const g = calcGrade();
   document.getElementById('end-title').textContent = `CAUGHT! · GRADE ${g.grade}`;
   document.getElementById('end-sub').textContent = `${g.desc}. Final haul: $${totalLootValue}.`;
@@ -1038,16 +1095,27 @@ function render() {
       ctx.fillText('?', h.x, h.y - 22);
     }
   }
-  // Smoke bombs
+  // Smoke bombs — thicker cloud: bigger core, more puffs, second swirl ring.
   for (const sb of smokeBombs) {
     const a = sb.t < 0.4 ? sb.t / 0.4 : (sb.t > 2.5 ? (sb.life - sb.t) / 0.5 : 1);
-    ctx.fillStyle = `rgba(60,60,60,${a * 0.7})`;
-    ctx.beginPath(); ctx.arc(sb.x, sb.y, 90, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = `rgba(140,140,140,${a * 0.5})`;
-    for (let i = 0; i < 8; i++) {
-      const ang = (i / 8) * Math.PI * 2 + sb.t * 0.5;
-      const rr = 60 + Math.sin(sb.t * 3 + i) * 10;
-      ctx.beginPath(); ctx.arc(sb.x + Math.cos(ang) * rr, sb.y + Math.sin(ang) * rr, 18, 0, Math.PI * 2); ctx.fill();
+    // Dark base (slightly bigger).
+    ctx.fillStyle = `rgba(40,40,50,${a * 0.78})`;
+    ctx.beginPath(); ctx.arc(sb.x, sb.y, 96, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = `rgba(70,70,80,${a * 0.65})`;
+    ctx.beginPath(); ctx.arc(sb.x, sb.y, 70, 0, Math.PI * 2); ctx.fill();
+    // Inner swirl ring — 12 puffs (was 8) at varied radii for dense look.
+    ctx.fillStyle = `rgba(150,150,160,${a * 0.55})`;
+    for (let i = 0; i < 12; i++) {
+      const ang = (i / 12) * Math.PI * 2 + sb.t * 0.5;
+      const rr = 56 + Math.sin(sb.t * 3 + i) * 12;
+      ctx.beginPath(); ctx.arc(sb.x + Math.cos(ang) * rr, sb.y + Math.sin(ang) * rr, 22, 0, Math.PI * 2); ctx.fill();
+    }
+    // Outer faint puff layer — pushes the cloud edge outward.
+    ctx.fillStyle = `rgba(110,110,120,${a * 0.35})`;
+    for (let i = 0; i < 9; i++) {
+      const ang = (i / 9) * Math.PI * 2 - sb.t * 0.4;
+      const rr = 84 + Math.sin(sb.t * 2 + i * 0.7) * 8;
+      ctx.beginPath(); ctx.arc(sb.x + Math.cos(ang) * rr, sb.y + Math.sin(ang) * rr, 16, 0, Math.PI * 2); ctx.fill();
     }
   }
   // Particles
@@ -1085,7 +1153,17 @@ function render() {
     ctx.fillStyle = '#5ef38c'; ctx.font = "8px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
     ctx.fillText('ALLY', c.x, c.y - 22);
   }
-  // Pug — hero (with hit flash overlay)
+  // Pug — hero (with hit flash overlay + ragdoll tilt if knocked out)
+  const isKnocked = pug.knockedT != null;
+  if (isKnocked) {
+    // Tilt + drop animation: rotates to knockedAng over ~0.5s, fades to 0.6 alpha.
+    ctx.save();
+    const fall = Math.min(1, pug.knockedT / 0.5);
+    ctx.translate(pug.x, pug.y);
+    ctx.rotate(pug.knockedAng * fall);
+    ctx.translate(-pug.x, -pug.y + fall * 6);
+    ctx.globalAlpha = 0.6 + 0.4 * (1 - fall);
+  }
   if (hitFlashT > 0) {
     ctx.save(); ctx.filter = 'brightness(2.5) saturate(0)';
     drawPug(ctx, pug.x, pug.y, { size: 30 });
@@ -1093,6 +1171,7 @@ function render() {
   } else {
     drawPug(ctx, pug.x, pug.y, { size: 30 });
   }
+  if (isKnocked) { ctx.restore(); }
   // fart cloud
   if (pug.fartT > 0) {
     ctx.fillStyle = `rgba(94,243,140,${pug.fartT / 1.5 * 0.6})`;
@@ -1175,10 +1254,22 @@ function render() {
     }
   }
   ctx.restore(); // closes the shake-translate save (and camera transform)
-  // Hit flash overlay (screen space, after shake)
+  // Hit flash overlay (screen space, after shake). Edge-only radial gradient
+  // so the action stays visible while the rim "alarm"-pulses red.
   if (hitFlashT > 0) {
-    ctx.fillStyle = `rgba(255,58,58,${Math.min(0.5, hitFlashT * 2)})`;
+    const a = Math.min(0.65, hitFlashT * 2);
+    // dim red rim
+    const rim = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.25, W / 2, H / 2, Math.max(W, H) * 0.7);
+    rim.addColorStop(0, 'rgba(255,58,58,0)');
+    rim.addColorStop(0.55, `rgba(255,58,58,${a * 0.25})`);
+    rim.addColorStop(1, `rgba(255,58,58,${a})`);
+    ctx.fillStyle = rim;
     ctx.fillRect(0, 0, W, H);
+    // thin center flash for first 0.1s so the impact still punches
+    if (hitFlashT > 0.35) {
+      ctx.fillStyle = `rgba(255,58,58,${(hitFlashT - 0.35) * 1.6})`;
+      ctx.fillRect(0, 0, W, H);
+    }
   }
   // Vignette (screen space)
   const vg = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.35, W / 2, H / 2, Math.max(W, H) * 0.65);

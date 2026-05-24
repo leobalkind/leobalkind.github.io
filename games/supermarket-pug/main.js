@@ -125,6 +125,8 @@ let guardFreezeT = 0;    // seconds remaining
 let cameraBlinkT = 0;    // seconds remaining
 let highlightedItem = null; // tip-off target ref
 let shakeT = 0, shakeAmp = 0;
+// Brief red flash overlay when a guard freshly spots you.
+let spotFlashT = 0;
 // New map decor + alarm mechanic
 let saleSigns = [];     // {x, y, text, color, phase}
 let priceFlags = [];    // {x, y, color, phase}
@@ -138,7 +140,15 @@ function shake(amp, dur) { const k = _shakeMul(); shakeAmp = Math.max(shakeAmp, 
 function popup(x, y, text, color) {
   if (!popups) return;
   if (popups.length > 24) popups.shift();
-  popups.push({ x, y, vy: -36, text, color: color || '#5ef38c', life: 0.9, t: 0 });
+  // Random angle + small horizontal velocity so stacked popups don't overlap.
+  const a = (Math.random() - 0.5) * 0.7;
+  popups.push({
+    x: x + Math.cos(a) * 6,
+    y: y + (Math.random() - 0.5) * 4,
+    vx: Math.sin(a) * 22,
+    vy: -36,
+    text, color: color || '#5ef38c', life: 0.9, t: 0,
+  });
 }
 function reset() {
   pug = { x: W / 2, y: H - 80, vx: 0, vy: 0, ang: 0 };
@@ -149,7 +159,7 @@ function reset() {
   saleSigns = []; priceFlags = []; breathPuffs = [];
   cleanerBot = null; counter = null;
   alarm = { on: false, T: 0, escaped: false, bonus: 0, timeoutFired: false };
-  shakeT = 0; shakeAmp = 0;
+  shakeT = 0; shakeAmp = 0; spotFlashT = 0;
   haul = 0; bag = 0; maxBag = 8; heat = 0; shelvesKnocked = 0;
   // Generate shelf grid
   const rows = 4, cols = 5;
@@ -420,13 +430,21 @@ function tick(dt) {
   if (frozenAisleH && pug.y > frozenAisleY - frozenAisleH / 2 && pug.y < frozenAisleY + frozenAisleH / 2) frozen = true;
   let speed = inCart ? 280 : 160;
   if (frozen) speed *= 0.85;
+  // Acceleration ramp from rest — smooth lerp to target velocity gives the cart
+  // (and pug) a sense of weight instead of snapping to top speed instantly.
+  let tvx = 0, tvy = 0;
   if (mx || my) {
     const l = Math.hypot(mx, my);
-    pug.vx += (mx / l) * speed * dt * 4;
-    pug.vy += (my / l) * speed * dt * 4;
+    tvx = (mx / l) * speed;
+    tvy = (my / l) * speed;
     pug.ang = Math.atan2(my, mx);
     if (inCart) heat = Math.min(1, heat + dt * 0.04);
   }
+  // Cart is heavier (slower ramp); on-foot is snappier.
+  const accel = inCart ? 5 : 8;
+  const blend = Math.min(1, accel * dt);
+  pug.vx += (tvx - pug.vx) * blend;
+  pug.vy += (tvy - pug.vy) * blend;
   // Breath puffs while in frozen aisle
   if (frozen && Math.random() < dt * 4 && breathPuffs.length < 40) {
     breathPuffs.push({ x: pug.x + 6, y: pug.y - 4, vy: -20, life: 0, max: 0.8 + Math.random() * 0.3 });
@@ -439,7 +457,9 @@ function tick(dt) {
   // In cart mode @ high speed, hitting a shelf knocks it down (HP -> 0) and
   // imparts velocity to it, which can chain-knock adjacent shelves.
   pug.x += pug.vx * dt; pug.y += pug.vy * dt;
-  pug.vx *= Math.pow(0.5, dt * 4); pug.vy *= Math.pow(0.5, dt * 4);
+  // Mild friction when no input — lerp already targets 0 toward rest, but a
+  // small extra damping keeps the cart from sliding forever on diagonals.
+  if (!mx && !my) { pug.vx *= Math.pow(0.5, dt * 4); pug.vy *= Math.pow(0.5, dt * 4); }
   const pugSpeed = Math.hypot(pug.vx, pug.vy);
   for (const s of shelves) {
     if (s.toppled) continue; // toppled shelves are visually-only (flat on floor)
@@ -454,12 +474,22 @@ function tick(dt) {
         pug.vx *= 0.6; pug.vy *= 0.6;
         continue;
       }
-      // Normal push-out
+      // Normal push-out + jiggle. Pug "shakes" on impact (jiggleT drives
+      // sprite tilt in render), small audio click for tactile feedback.
       const cx = s.x + s.w / 2, cy = s.y + s.h / 2;
       const dx = pug.x - cx, dy = pug.y - cy;
       if (Math.abs(dx) > Math.abs(dy)) pug.x = dx > 0 ? s.x + s.w + 14 : s.x - 14;
       else pug.y = dy > 0 ? s.y + s.h + 14 : s.y - 14;
       pug.vx *= 0.5; pug.vy *= 0.5;
+      // Jiggle (cart bump feel) only on meaningful collisions.
+      if (pugSpeed > 80) {
+        pug.jiggleT = 0.22;
+        pug.jiggleDir = Math.atan2(dy, dx);
+        if (inCart && !pug._lastBumpT || (pug._lastBumpT && performance.now() - pug._lastBumpT > 200)) {
+          sfx.tone(180, 'square', 0.04, 0.12);
+          pug._lastBumpT = performance.now();
+        }
+      }
     }
   }
   // Tick toppling shelves' visual flight (slides briefly then settles).
@@ -473,12 +503,15 @@ function tick(dt) {
   }
   pug.x = Math.max(20, Math.min(W - 20, pug.x));
   pug.y = Math.max(20, Math.min(H - 20, pug.y));
-  // ALARM trigger — once heat goes above 0.95, alarm latches on
+  // ALARM trigger — once heat goes above 0.95, alarm latches on.
+  // Stronger event: sub-bass thud + bigger shake + brief hit-pause spike.
   if (!alarm.on && heat >= 0.95) {
     alarm.on = true;
     alarm.T = 8;
-    sfx.sweep(800, 200, 'square', 0.4, 0.25);
-    shake(8, 0.4);
+    sfx.sweep(800, 200, 'square', 0.5, 0.3);
+    sfx.tone(55, 'sine', 0.4, 0.55); // sub-bass alarm thud
+    shake(14, 0.55);
+    spotFlashT = 0.5;
   }
   // Heat decays slowly UNLESS alarm is on
   if (!alarm.on) heat = Math.max(0, heat - dt * 0.05);
@@ -513,11 +546,16 @@ function tick(dt) {
     const sees = d < 200 && Math.abs(diff) < 0.5;
     // CAMERA BLINK suppresses sight-based heat gain too
     if (sees) {
-      // Rising-edge: guard newly spots player → bark + speech bubble (1.2s).
+      // Rising-edge: guard newly spots player → bark + speech bubble (1.2s) +
+      // red flash + audio sting + screen shake. Makes the moment a real EVENT.
       if ((g.alertT || 0) <= 0 && cameraBlinkT <= 0) {
         const line = BARK_LINES[Math.floor(Math.random() * BARK_LINES.length)];
         g.bark = { text: line, t: 0, life: 1.2 };
-        sfx.tone(660, 'square', 0.06, 0.14);
+        // 2-note alarm sting (high stab + low bass).
+        sfx.tone(880, 'square', 0.06, 0.18);
+        sfx.tone(220, 'sawtooth', 0.18, 0.22);
+        spotFlashT = 0.32;
+        shake(4, 0.18);
         everSpotted = true;
       }
       g.alertT = 3;
@@ -545,6 +583,18 @@ function tick(dt) {
     if (haul > 0) {
       // 50% bonus if escaped during active alarm window
       if (alarm.on && alarm.T > 0) { alarm.escaped = true; alarm.bonus = Math.floor(haul * 0.5); }
+      // Celebratory confetti spawn — bright multicolor popups from exit point.
+      const cols = ['#ff3aa1', '#4cc9f0', '#ffd23f', '#5ef38c', '#b055ff', '#ff8e3c'];
+      for (let i = 0; i < 16; i++) {
+        popup(
+          exitZ.x + (Math.random() - 0.5) * 60,
+          exitZ.y + (Math.random() - 0.5) * 30,
+          ['★', '♥', '♦', '✦'][i % 4],
+          cols[i % cols.length]
+        );
+      }
+      popup(exitZ.x, exitZ.y - 30, alarm.escaped ? 'CLOSE CALL!' : 'CLEAN ESCAPE!', '#ffd23f');
+      sfx.arp([523, 659, 784, 1047, 1319], 'triangle', 0.06, 0.22, 0.18);
       end(true);
     }
   }
@@ -560,9 +610,12 @@ function tick(dt) {
   // popups + shake decay
   for (let i = popups.length - 1; i >= 0; i--) {
     const p = popups[i]; p.t += dt; p.y += p.vy * dt; p.vy *= 0.9;
+    if (p.vx) { p.x += p.vx * dt; p.vx *= 1 - dt * 2; }
     if (p.t >= p.life) popups.splice(i, 1);
   }
   shakeT = Math.max(0, shakeT - dt); if (shakeT === 0) shakeAmp = 0;
+  if (pug.jiggleT > 0) pug.jiggleT = Math.max(0, pug.jiggleT - dt);
+  if (spotFlashT > 0) spotFlashT = Math.max(0, spotFlashT - dt);
   updateHud();
 }
 
@@ -868,9 +921,23 @@ function render() {
       }
     }
   }
-  // Pug (and cart if active) — use the same cart art for consistency
+  // Pug (and cart if active) — use the same cart art for consistency.
+  // jiggleT (0..0.22s) drives a quick decaying tilt away from the bump direction.
+  let jiggleAng = 0;
+  if (pug.jiggleT > 0) {
+    const jk = pug.jiggleT / 0.22;
+    // damped sine wave
+    jiggleAng = Math.sin(jk * Math.PI * 4) * 0.18 * jk;
+  }
+  if (jiggleAng !== 0) {
+    ctx.save();
+    ctx.translate(pug.x, pug.y);
+    ctx.rotate(jiggleAng);
+    ctx.translate(-pug.x, -pug.y);
+  }
   if (inCart) drawCart(pug.x, pug.y + 4, 0);
   drawPug(ctx, pug.x, pug.y - (inCart ? 6 : 0), { size: 28 });
+  if (jiggleAng !== 0) ctx.restore();
   // Score popups
   for (const p of popups) {
     const a = 1 - p.t / p.life;
@@ -973,6 +1040,16 @@ function render() {
     grad.addColorStop(0, 'rgba(255,58,58,0)');
     grad.addColorStop(1, `rgba(255,58,58,${a})`);
     ctx.fillStyle = grad; ctx.fillRect(0, 0, W, H);
+  }
+  // SPOT flash — brief red rim when a guard first sees you (not full overlay).
+  if (spotFlashT > 0) {
+    const a = Math.min(0.7, spotFlashT * 2.2);
+    const rim = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.28, W / 2, H / 2, Math.max(W, H) * 0.65);
+    rim.addColorStop(0, 'rgba(255,58,58,0)');
+    rim.addColorStop(0.55, `rgba(255,58,58,${a * 0.3})`);
+    rim.addColorStop(1, `rgba(255,58,58,${a})`);
+    ctx.fillStyle = rim;
+    ctx.fillRect(0, 0, W, H);
   }
   // ALARM strobe overlay + countdown chip
   if (alarm.on) {

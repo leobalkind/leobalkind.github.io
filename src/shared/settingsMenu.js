@@ -126,17 +126,36 @@ function _ensureStyles() {
     .wg-settings-modal{position:fixed;inset:0;z-index:9000;background:rgba(10,7,22,.85);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:opacity .2s;font-family:'Press Start 2P',monospace}
     .wg-settings-modal.is-open{opacity:1;pointer-events:auto}
     .wg-settings-panel{background:linear-gradient(135deg,#1a0f2e,#2a1255);border:3px solid #4cc9f0;border-radius:8px;padding:22px 26px;width:88vw;max-width:420px;max-height:88vh;overflow:auto;color:#f8f5ff;box-shadow:0 0 0 3px #050310,0 0 40px rgba(76,201,240,.4);position:relative}
+    /* gameId tag at the very top of the panel so the player always knows
+       which game's settings they're editing. */
+    .wg-settings-gametag{display:inline-block;font-size:.4rem;letter-spacing:.18em;color:#4cc9f0;background:rgba(76,201,240,.12);border:1px solid #4cc9f0;padding:3px 8px;border-radius:3px;margin:0 0 8px;text-transform:uppercase}
     .wg-settings-panel h2{font-size:.85rem;letter-spacing:.08em;color:#ffd23f;margin:0 0 14px;text-align:center}
     .wg-settings-row{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:10px 0;font-size:.5rem;letter-spacing:.06em}
     .wg-settings-row label{flex:1;color:#c8c0e8}
-    .wg-settings-row input[type=range]{flex:1;accent-color:#4cc9f0;max-width:180px}
+    .wg-settings-row input[type=range]{flex:1;accent-color:#4cc9f0;max-width:180px;outline:none}
+    /* Inner-glow on focused slider thumbs (works on -webkit / -moz / standard) */
+    .wg-settings-row input[type=range]:focus{filter:drop-shadow(0 0 6px rgba(76,201,240,.85))}
+    .wg-settings-row input[type=range]:focus::-webkit-slider-thumb{box-shadow:0 0 0 3px rgba(76,201,240,.35),inset 0 0 6px rgba(255,255,255,.6)}
+    .wg-settings-row input[type=range]:focus::-moz-range-thumb{box-shadow:0 0 0 3px rgba(76,201,240,.35),inset 0 0 6px rgba(255,255,255,.6)}
     .wg-settings-row input[type=checkbox]{width:18px;height:18px;accent-color:#4cc9f0;cursor:pointer}
     .wg-settings-val{font-size:.5rem;color:#4cc9f0;min-width:34px;text-align:right}
+    /* Master mute "switch": a 36x18 capsule with a 14x14 puck that slides + tints
+       on toggle. Sits beside (and replaces) the plain checkbox visually but the
+       input remains for accessibility / keyboard nav. */
+    .wg-mute-switch{position:relative;display:inline-block;width:36px;height:18px;flex:0 0 auto}
+    .wg-mute-switch input{position:absolute;inset:0;opacity:0;width:100%;height:100%;margin:0;cursor:pointer;z-index:2}
+    .wg-mute-switch i{position:absolute;inset:0;background:rgba(0,0,0,.55);border:2px solid #2a2540;border-radius:999px;transition:background .18s,border-color .18s}
+    .wg-mute-switch i::after{content:'';position:absolute;top:1px;left:1px;width:12px;height:12px;border-radius:50%;background:#c8c0e8;box-shadow:0 1px 2px rgba(0,0,0,.45);transition:transform .22s cubic-bezier(.34,1.56,.64,1),background .18s}
+    .wg-mute-switch input:checked + i{background:rgba(255,58,58,.18);border-color:#ff3a3a}
+    .wg-mute-switch input:checked + i::after{transform:translateX(18px);background:#ff3a3a;box-shadow:0 0 8px rgba(255,58,58,.65)}
+    .wg-mute-switch input:focus + i{box-shadow:0 0 0 2px rgba(76,201,240,.45)}
+    body.reduced-motion .wg-mute-switch i::after{transition:none!important}
     .wg-settings-btnrow{display:flex;flex-direction:column;gap:8px;margin-top:14px}
     .wg-settings-action{font-size:.55rem;letter-spacing:.06em;padding:10px 12px;border-radius:6px;cursor:pointer;background:rgba(0,0,0,.4);color:#f8f5ff;border:2px solid #4cc9f0;font-family:inherit;transition:transform .1s}
     .wg-settings-action:hover{transform:translateY(-1px)}
-    .wg-settings-action--danger{border-color:#ff3a3a;color:#ff8080}
-    .wg-settings-action--danger:hover{background:rgba(255,58,58,.15);color:#fff}
+    /* More menacing reset button: pure-red border + warning glow (was #ff3a3a) */
+    .wg-settings-action--danger{border-color:#ff0044;color:#ff8080;background:rgba(255,0,68,.06);box-shadow:0 0 0 0 rgba(255,0,68,0);transition:transform .1s,background .15s,box-shadow .2s,color .15s}
+    .wg-settings-action--danger:hover{background:linear-gradient(180deg,rgba(255,48,80,.25),rgba(255,0,68,.15));color:#fff;box-shadow:0 0 16px rgba(255,0,68,.55);border-color:#ff3050}
     .wg-settings-close{position:absolute;top:8px;right:10px;background:transparent;color:#c8c0e8;border:0;font-size:1.1rem;cursor:pointer;font-family:inherit;padding:4px 8px}
     .wg-settings-close:hover{color:#fff}
     .wg-settings-hr{border:0;border-top:1px solid rgba(76,201,240,.25);margin:14px 0 6px}
@@ -180,9 +199,14 @@ export function createSettingsMenu({ gameId, getControlsHelp = () => '' } = {}) 
   // === Modal ===
   const modal = document.createElement('div');
   modal.className = 'wg-settings-modal';
+  // Escape the gameId so a hostile string can't slip into the modal markup.
+  const _gid = String(gameId).replace(/[&<>"']/g, (c) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  })[c]);
   modal.innerHTML = `
     <div class="wg-settings-panel" role="dialog" aria-label="Settings">
       <button class="wg-settings-close" aria-label="Close">✖</button>
+      <div style="text-align:center;"><span class="wg-settings-gametag" aria-label="Game">${_gid}</span></div>
       <h2>SETTINGS</h2>
       <div class="wg-settings-row">
         <label for="wg-set-music">MUSIC</label>
@@ -196,7 +220,7 @@ export function createSettingsMenu({ gameId, getControlsHelp = () => '' } = {}) 
       </div>
       <div class="wg-settings-row">
         <label for="wg-set-mute">MUTE ALL</label>
-        <input id="wg-set-mute" type="checkbox">
+        <span class="wg-mute-switch"><input id="wg-set-mute" type="checkbox" aria-label="Mute all audio"><i></i></span>
       </div>
       <hr class="wg-settings-hr">
       <div class="wg-settings-row">
