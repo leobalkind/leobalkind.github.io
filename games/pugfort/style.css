@@ -193,6 +193,10 @@ canvas { display: block; image-rendering: pixelated; image-rendering: crisp-edge
   z-index: 100;
 }
 .overlay[hidden], .is-hidden { display: none !important; }
+/* Any element with the hidden attribute stays hidden even with inline display
+   (fixes the Research Lab modal: it toggles .hidden but carries inline
+   display:flex, so without this it could never be closed). */
+[hidden] { display: none !important; }
 
 .overlay__panel {
   position: relative;

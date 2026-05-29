@@ -70,6 +70,12 @@ body { animation: wgBodyFadeIn 0.6s ease 0.05s forwards; }
   z-index: 100;
 }
 .overlay[hidden], .is-hidden { display: none !important; }
+/* Broad reset: any element with the `hidden` attribute must stay hidden even
+   if it carries an inline `display:flex/block`. Several dynamically-created
+   modals (research lab, mastery, shops, tutorials) set inline display AND
+   toggle via `.hidden` — without this rule the inline display wins and the
+   modal can never be dismissed (un-closable popup bug). */
+[hidden] { display: none !important; }
 .overlay__panel {
   position: relative;
   background: linear-gradient(135deg, #1a0f2e, #2a1255);

@@ -2040,26 +2040,18 @@ function render() {
     }
     ctx.restore();
   }
-  // ---- Lighting pass: darken whole stage, punch out light pools ----
+  // ---- Lighting pass (non-destructive mood dim) ----
+  // NOTE: this used to fillRect a 55% dark layer then `destination-out` punch
+  // light pools — but destination-out ERASES the world (and the dark layer) to
+  // transparent inside each pool, so the page background showed through as
+  // solid BLACK around the player and lights, making the stage unreadable
+  // ("just black"). We now dim softly with source-over so the world is ALWAYS
+  // visible; the additive warm glows below + the edge vignette supply the mood.
   ctx.save();
-  ctx.fillStyle = 'rgba(8,4,16,0.55)';
+  // Slightly lighter dim over the lit pools, a touch darker elsewhere — drawn
+  // as a single source-over fill so nothing is ever erased.
+  ctx.fillStyle = 'rgba(8,4,16,0.30)';
   ctx.fillRect(0, 0, W, H);
-  ctx.globalCompositeOperation = 'destination-out';
-  // Player carries soft visibility halo
-  const pgrd = ctx.createRadialGradient(pug.x, pug.y, 10, pug.x, pug.y, 140);
-  pgrd.addColorStop(0, 'rgba(0,0,0,1)');
-  pgrd.addColorStop(1, 'rgba(0,0,0,0)');
-  ctx.fillStyle = pgrd;
-  ctx.beginPath(); ctx.arc(pug.x, pug.y, 140, 0, Math.PI * 2); ctx.fill();
-  // Each ceiling light contributes a pool when on
-  for (const l of lights) {
-    if (!l.on) continue;
-    const grd = ctx.createRadialGradient(l.x, l.y, 10, l.x, l.y, 110);
-    grd.addColorStop(0, 'rgba(0,0,0,1)');
-    grd.addColorStop(1, 'rgba(0,0,0,0)');
-    ctx.fillStyle = grd;
-    ctx.beginPath(); ctx.arc(l.x, l.y, 110, 0, Math.PI * 2); ctx.fill();
-  }
   ctx.restore();
   // Warm light tint over pools (additive feel)
   ctx.save();

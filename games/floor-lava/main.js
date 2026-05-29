@@ -343,9 +343,26 @@ function squashPlat(p) {
   p.squashT = 0.25;
 }
 function addPlatformAbove() {
-  lastPlatY -= 80 + dailyRand() * 50;
+  // Vertical gap kept under the single-jump height (JUMP_V^2/2/GRAV ~= 165px)
+  // with margin so every step is climbable even on the harder platform types.
+  lastPlatY -= 78 + dailyRand() * 44; // 78-122px
   const w = 70 + dailyRand() * 70;
-  const x = dailyRand() * (W - w);
+  // Horizontal placement is constrained to within jump reach of the PREVIOUS
+  // platform. Previously x was fully random across the whole width, so a
+  // platform could spawn ~half a screen away AND ~130px up — impossible to
+  // reach in a single arc. REACH_X (center-to-center) is comfortably inside
+  // the airborne window for the max vertical gap; platform widths make the
+  // real edge-to-edge gap smaller still.
+  const prevPlat = plats.length ? plats[plats.length - 1] : null;
+  let x;
+  if (prevPlat) {
+    const REACH_X = 120;
+    const prevCenter = prevPlat.baseX + prevPlat.w / 2;
+    const targetCenter = prevCenter + (dailyRand() * 2 - 1) * REACH_X;
+    x = Math.max(0, Math.min(W - w, targetCenter - w / 2));
+  } else {
+    x = dailyRand() * (W - w);
+  }
   // Platform variety based on depth — higher = more variety
   const r = dailyRand();
   const depth = (H - lastPlatY) / 100;

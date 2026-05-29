@@ -148,6 +148,9 @@ canvas {
 .is-hidden {
   display: none !important;
 }
+/* Any element with the hidden attribute stays hidden even if it has an inline
+   display value — fixes dynamically-created modals that toggle .hidden. */
+[hidden] { display: none !important; }
 
 @keyframes overlayFadeIn {
   from { opacity: 0; backdrop-filter: blur(0); }
