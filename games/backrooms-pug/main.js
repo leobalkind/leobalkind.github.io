@@ -664,8 +664,10 @@ let gameTime = 0;             // total seconds elapsed in current run
 let psychicFlashT = 0;          // seconds remaining of active reveal (0..1)
 let nextPsychicFlashAt = 0;     // gameTime at which next flash fires
 function _schedulePsychicFlash() {
-  // 5-7.5 min into the run (or relative to the last flash). Random-ish.
-  nextPsychicFlashAt = gameTime + 300 + Math.random() * 150;
+  // 75-135s from now (first flash or relative to the last). Was 300-450s, which
+  // almost never fired since most 7-floor runs finish under 5 min — the marquee
+  // reveal was effectively dead content. Re-scaled so it appears every run. (2026-06-02)
+  nextPsychicFlashAt = gameTime + 75 + Math.random() * 60;
 }
 let nextAmbientAt = 999999;   // scheduled time for next ambient fake scare
 let ambientEvent = null;      // { x, y, t, life } silhouette doorway
@@ -1529,7 +1531,15 @@ function genLevel(lvl) {
       }
     }
   }
-  exitTile = { x: (cols - 2) * TILE + TILE / 2, y: (rows - 2) * TILE + TILE / 2 };
+  // EXIT must sit on a STANDABLE open tile. The old fixed bottom-right corner
+  // was frequently a wall (grid starts all-walls; nothing carved that cell), so
+  // the exit could be sealed inside a wall → unwinnable run. Place it on a random
+  // open tile far from the (1,1) spawn instead, with a deterministic far-open
+  // fallback. (2026-06-02)
+  exitTile = findRandomFarOpenTile(TILE * 1.5, TILE * 1.5, Math.max(cols, rows) * TILE * 0.45);
+  if (!exitTile || grid[Math.floor(exitTile.y / TILE)][Math.floor(exitTile.x / TILE)] !== 0) {
+    exitTile = findFarOpenTile(1, 1);
+  }
   soundLevel = 0; monsterChaseT = 0;
   // Items: 1 flashlight + 2 smoke + 1 battery + closet items
   items = []; smokeBombs = []; monsterDazedT = 0;

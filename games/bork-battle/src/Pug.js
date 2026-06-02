@@ -169,8 +169,12 @@ export class Pug {
     if (!this.alive) return;
     if (this.invuln > 0) return;
     this.hp -= amount;
-    this.flashT = 0.15;
-    this.invuln = 0.05;
+    this.flashT = 0.15; // brief hit-flash (visual only)
+    // NOTE: previously set `this.invuln = 0.05` here as a hit debounce. That
+    // crippled the SHOTGUN (8 pellets land the same frame → 7 rejected) and
+    // wrongly throttled the rate-based `* dt` hazards (contact/tornado/zone).
+    // Real i-frames (spawn 3.5s, dash 0.5s) are set by their own sources and
+    // still block via the guard above; the per-hit debounce was pure harm. (2026-06-02)
     // Track recent damager — used by Game for kill credit + assists.
     // Set lastDamagedAt = current time (Game stamps it; we hold the ref).
     this.lastDamagedBy = source && source.id ? source : null;

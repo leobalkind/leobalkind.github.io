@@ -1,7 +1,7 @@
 {
-  "name": "Web Games — 15 Pug Games",
-  "short_name": "Web Games",
-  "description": "Quick-hit browser games. 15 pixel-art pug games plus realistic 3D horror. No installs, no accounts. Just play.",
+  "name": "BORKADE — Pug Arcade",
+  "short_name": "BORKADE",
+  "description": "BORKADE — a pug arcade of 15 pixel-art browser games plus realistic 3D horror. No installs, no accounts. Just play.",
   "categories": ["games", "entertainment"],
   "lang": "en",
   "dir": "ltr",

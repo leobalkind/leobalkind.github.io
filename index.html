@@ -24,7 +24,24 @@
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="application-name" content="Web Games" />
     <meta name="msapplication-TileColor" content="#0a0716" />
-    <title>Web Games</title>
+    <title>BORKADE — Pug Arcade · 15 free browser games</title>
+    <!-- SEO + social share (PRO-UPGRADE D1, 2026-06-02): the hub had no
+         description or Open Graph tags, so shared links never unfurled. These
+         make the link show a title/description/icon on Discord, social, iMessage,
+         etc. (A proper 1200x630 PNG share card is the follow-up; the SVG icon is
+         a placeholder — text unfurl works regardless.) -->
+    <meta name="description" content="BORKADE is a pug arcade: 15 free pixel-art browser games — battle royale, tower defense, stealth heists, 3D horror and more. No installs, no accounts. Just press play." />
+    <meta name="keywords" content="browser games, free online games, pixel art games, pug games, battle royale, tower defense, horror games, BORKADE" />
+    <meta name="author" content="BORKADE" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="BORKADE" />
+    <meta property="og:title" content="BORKADE — Pug Arcade" />
+    <meta property="og:description" content="15 free pixel-art browser games — battle royale, tower defense, stealth heists, 3D horror and more. No installs, no accounts. Just press play." />
+    <meta property="og:image" content="/icon-512.svg" />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="BORKADE — Pug Arcade" />
+    <meta name="twitter:description" content="15 free pixel-art browser games. No installs, no accounts. Just press play." />
+    <meta name="twitter:image" content="/icon-512.svg" />
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap" rel="stylesheet">
@@ -39,8 +56,29 @@
     <div class="hub__pug-bg" aria-hidden="true"><i></i></div>
     <main class="hub">
       <header class="hub__header">
-        <h1>Web Games</h1>
-        <p class="hub__tagline">Quick-hit browser games. No installs. Press play.</p>
+        <h1 class="hub__logo" aria-label="Borkade">
+          <svg class="hub__logo-pug" viewBox="0 0 96 88" xmlns="http://www.w3.org/2000/svg" shape-rendering="crispEdges" aria-hidden="true" focusable="false">
+            <g transform="translate(48,44)">
+              <!-- ears -->
+              <rect x="-44" y="-44" width="20" height="20" fill="#6b3a1c"/>
+              <rect x="24" y="-44" width="20" height="20" fill="#6b3a1c"/>
+              <!-- head -->
+              <rect x="-44" y="-30" width="88" height="60" fill="#c8854a"/>
+              <rect x="-44" y="-30" width="88" height="10" fill="#e0a566"/>
+              <!-- mask -->
+              <rect x="-32" y="-10" width="64" height="36" fill="#1a0d05"/>
+              <!-- eyes -->
+              <rect x="-22" y="-4" width="10" height="10" fill="#fff"/>
+              <rect x="12" y="-4" width="10" height="10" fill="#fff"/>
+              <rect x="-18" y="0" width="6" height="6" fill="#000"/>
+              <rect x="14" y="0" width="6" height="6" fill="#000"/>
+              <!-- tongue -->
+              <rect x="-6" y="18" width="12" height="10" fill="#ff5a82"/>
+            </g>
+          </svg>
+          <span class="hub__logo-word">BORKADE</span>
+        </h1>
+        <p class="hub__tagline">Pug arcade · 15 games · no installs · press play.</p>
         <div class="hub__chips">
           <span id="hub-live-chip" class="hub__chip hub__chip--live">LIVE · — GAMES</span>
           <span class="hub__chip hub__chip--free">FREE · NO ACCOUNT</span>
@@ -4956,31 +4994,98 @@
       })();
 
       // ======================================================================
+      // PRO-UPGRADE A4 (2026-06-02): inject a hover "▶ PLAY" overlay into every
+      // game card's artwork (Poki/CrazyGames signature interaction). Real DOM
+      // elements styled by .card__play / .card__play-btn in hub.css.
+      // ======================================================================
+      (function cardPlayOverlays() {
+        const arts = document.querySelectorAll('#hub-grid .card .card__art');
+        arts.forEach((art) => {
+          if (art.querySelector('.card__play')) return;
+          const ov = document.createElement('div');
+          ov.className = 'card__play';
+          ov.setAttribute('aria-hidden', 'true');
+          ov.innerHTML = '<span class="card__play-btn">▶ PLAY</span>';
+          art.appendChild(ov);
+        });
+      })();
+
+      // ======================================================================
+      // PRO-UPGRADE (2026-06-02): "Jump back in" recently-played row — the
+      // signature personalization pattern of Poki/CrazyGames. Records each game
+      // launch to localStorage and clones those cards into a horizontal strip
+      // above the grid so returning players resume in one tap.
+      // ======================================================================
+      (function recentlyPlayed() {
+        const KEY = 'wg:recent';
+        const grid = document.getElementById('hub-grid');
+        if (!grid) return;
+        // Record a play whenever any game card is clicked (capture phase, so it
+        // runs before navigation). Works for grid cards AND the cloned strip cards.
+        document.addEventListener('click', (e) => {
+          const card = e.target.closest && e.target.closest('a.card');
+          if (!card) return;
+          const href = card.getAttribute('href');
+          if (!href || href === '#' || href.charAt(0) === '?') return;
+          let list = [];
+          try { list = JSON.parse(localStorage.getItem(KEY) || '[]'); } catch (err) { list = []; }
+          list = list.filter((h) => h !== href);
+          list.unshift(href);
+          list = list.slice(0, 6);
+          try { localStorage.setItem(KEY, JSON.stringify(list)); } catch (err) { /* */ }
+        }, true);
+        // Render the strip from history (if any matching cards exist).
+        let list = [];
+        try { list = JSON.parse(localStorage.getItem(KEY) || '[]'); } catch (err) { list = []; }
+        if (!list.length) return;
+        const matched = list
+          .map((h) => grid.querySelector('a.card[href="' + h + '"]'))
+          .filter(Boolean);
+        if (!matched.length) return;
+        const section = document.createElement('section');
+        section.className = 'hub__recent';
+        section.setAttribute('aria-label', 'Recently played');
+        section.innerHTML = '<h2 class="hub__recent__head">▶ JUMP BACK IN</h2><div class="hub__recent__row"></div>';
+        const row = section.querySelector('.hub__recent__row');
+        matched.forEach((c) => {
+          const clone = c.cloneNode(true);
+          clone.removeAttribute('id');
+          row.appendChild(clone);
+        });
+        grid.parentNode.insertBefore(section, grid);
+      })();
+
+      // ======================================================================
       // v2.6 SITE-018: Updates banner — small "WHAT'S NEW" pill sitting just
       // below the chips that surfaces the latest 3 items shipped this version.
       // Dismissible; persists `wg:updatesSeen:v26` so it never reappears.
       // ======================================================================
       (function updatesBanner() {
-        const KEY = 'wg:updatesSeen:v26';
+        const KEY = 'wg:updatesSeen:v29';
         if (localStorage.getItem(KEY) === '1') return;
         const host = document.querySelector('.hub__chips');
         if (!host) return;
         const banner = document.createElement('div');
         banner.className = 'hub__updates';
-        banner.style.cssText = 'margin:12px auto 0;max-width:560px;background:linear-gradient(90deg,rgba(94,243,140,0.12),rgba(76,201,240,0.12));border:1px solid #5ef38c;color:#fff;padding:8px 14px;font-family:VT323,monospace;font-size:15px;border-radius:6px;text-align:left;position:relative;line-height:1.4;';
-        banner.innerHTML = '<span style="color:#5ef38c;font-family:\'Press Start 2P\',monospace;font-size:9px;letter-spacing:1px;">★ WHAT\'S NEW v2.6</span>'
-          + '<ul style="margin:6px 0 0;padding-left:18px;color:#bcd;">'
-          + '<li>Bork-Battle: audience cheers on 5-kill chains + treat-magnet hint</li>'
-          + '<li>Diggers + Lava + Cafe + TD + Mart: new achievements unlocked</li>'
-          + '<li>Lab: 📥 export your codex as JSON; live completion % chip</li>'
-          + '</ul>'
-          + '<button type="button" aria-label="Dismiss" style="position:absolute;top:6px;right:8px;background:none;border:none;color:#888;cursor:pointer;font-size:14px;line-height:1;padding:2px 4px;">✕</button>';
+        // Slim single-line announcement (PRO-UPGRADE A2): a stacked bullet list
+        // pushed the game grid below the fold. One compact line that opens the
+        // full changelog modal keeps the front page tall-and-tight like a real
+        // games portal, while still surfacing "what's new" for returning players.
+        banner.style.cssText = 'display:flex;align-items:center;gap:10px;margin:12px auto 0;max-width:560px;background:linear-gradient(90deg,rgba(94,243,140,0.12),rgba(76,201,240,0.12));border:1px solid #5ef38c;color:#fff;padding:7px 12px;font-family:VT323,monospace;font-size:15px;border-radius:999px;text-align:left;line-height:1.3;';
+        banner.innerHTML = '<span style="color:#5ef38c;font-family:\'Press Start 2P\',monospace;font-size:8px;letter-spacing:1px;white-space:nowrap;">★ NEW v2.9</span>'
+          + '<button type="button" class="hub__updates-open" style="flex:1;min-width:0;background:none;border:none;color:#cfe;cursor:pointer;font:inherit;text-align:left;padding:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">Faster front page, load-bug fixes &amp; new scares — see all ›</button>'
+          + '<button type="button" aria-label="Dismiss" class="hub__updates-x" style="background:none;border:none;color:#9aa;cursor:pointer;font-size:14px;line-height:1;padding:2px 4px;flex:none;">✕</button>';
         host.parentNode.insertBefore(banner, host.nextSibling);
-        banner.querySelector('button').addEventListener('click', () => {
+        const dismiss = () => {
           localStorage.setItem(KEY, '1');
           banner.style.opacity = '0';
           banner.style.transition = 'opacity 0.3s,height 0.3s,padding 0.3s,margin 0.3s';
           setTimeout(() => banner.remove(), 320);
+        };
+        banner.querySelector('.hub__updates-x').addEventListener('click', (e) => { e.stopPropagation(); dismiss(); });
+        banner.querySelector('.hub__updates-open').addEventListener('click', () => {
+          const btn = document.getElementById('changelog-btn');
+          if (btn) btn.click();
         });
       })();
 

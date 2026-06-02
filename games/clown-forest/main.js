@@ -203,21 +203,27 @@ const CLOWN_HEIGHT        = 2.2;
 const CLOWN_HUNT_SPEED    = 1.6;
 const CLOWN_CHASE_SPEED   = 4.0;
 const CLOWN_KILL_DIST     = 1.5;
-const CLOWN_CHASE_TRIGGER = 10;    // metres + line-of-sight => CHASE
-const CLOWN_HUNT_AFTER    = 300;   // 5 minutes => HUNT phase activates
-const CLOWN_STALK_INTERVAL_MIN = 25;
-const CLOWN_STALK_INTERVAL_MAX = 55;
-const CLOWN_TELEPORT_DELAY = 10;   // seconds out-of-sight before relocation
-// Difficulty curve windows — soften the first 90s, gradual stalk in 90-300s,
-// HUNT enabled at 300s+, CHASE at 600s+ OR all-items-collected (handled below).
-const CURVE_QUIET_UNTIL   = 90;    // before this, only very rare ambient peeks
-const CURVE_STALK_RAMP    = 300;   // gradual stalk events until HUNT
-const CURVE_CHASE_ALLOW_AT= 600;   // after this CHASE may trigger naturally
+const CLOWN_CHASE_TRIGGER = 12;    // metres + line-of-sight => CHASE (was 10; engages a touch sooner)
+const CLOWN_HUNT_AFTER    = 75;    // HUNT phase activates fast — the old 300s (5 min) made it a slow slog
+const CLOWN_STALK_INTERVAL_MIN = 14;  // stalk scares much more frequent (was 25)
+const CLOWN_STALK_INTERVAL_MAX = 34;  // (was 55)
+const CLOWN_TELEPORT_DELAY = 7;    // relocates sooner so it keeps reappearing (was 10)
+// INTENSITY RETUNE (2026-06-02): the curve was far too slow (quiet 90s, stalk to
+// 300s, hunt 300s, chase 600s) so the first 5-10 min were dull. Research on
+// Slender/Outlast pacing: don't make players wait — escalate fast and erupt the
+// chase music ("percussion + sub-riser slam") often. Now: brief 20s calm, stalk
+// ramps by ~75s, HUNT music by ~75s, CHASE possible by ~140s.
+const CURVE_QUIET_UNTIL   = 20;    // brief calm intro, then the dread starts
+const CURVE_STALK_RAMP    = 75;    // stalk events ramp quickly toward HUNT
+const CURVE_CHASE_ALLOW_AT= 140;   // CHASE can trigger by ~2.3 min (or all-items)
 
 // Time-of-night clock: 0 = dusk (just-started), 100 = dawn (auto-win).
 // 1% per 30s => 50 min real-time full survival run. Item-collection is the
 // primary path; survival to dawn is the alt path.
-const NIGHT_PERCENT_PER_SEC = 1 / 30;
+// Dawn after ~6 min (100% / 360s). Must outlast the (now much faster) pacing arc
+// — HUNT ~75-90s, CHASE ~140s — while keeping real urgency. Was 720s (too long
+// and dull) after an earlier fix from a broken 30s night. (2026-06-02 intensity pass)
+const NIGHT_PERCENT_PER_SEC = 100 / 360;
 const NIGHT_FOG_LIFT_PCT    = 80;
 const NIGHT_BRIGHTEN_PCT    = 95;
 const NIGHT_DAWN_PCT        = 100;
@@ -428,8 +434,8 @@ const HINT_COOLDOWN_S      = 25;
 // Difficulty presets — snapshot at startGame() into `diffCfg` so the run-tick
 // reads a stable struct.
 const DIFFICULTY_PRESETS = {
-  easy:      { label:'EASY',      itemsRequired:4, flashlightDrainMul:0.75, flashlightInfinite:false, clownSpeedMul:0.88, chaseTriggerMul:0.85, huntAfter:420, stalkGapMul:1.35, needsTapesForTrueEscape:false, flickerMul:0.7, description:'Forgiving: longer battery, milder clown, 4 items.' },
-  normal:    { label:'NORMAL',    itemsRequired:5, flashlightDrainMul:1.0,  flashlightInfinite:false, clownSpeedMul:1.0,  chaseTriggerMul:1.0,  huntAfter:300, stalkGapMul:1.0,  needsTapesForTrueEscape:false, flickerMul:1.0, description:'Standard run: 5 items, beacon escape, normal clown.' },
+  easy:      { label:'EASY',      itemsRequired:4, flashlightDrainMul:0.75, flashlightInfinite:false, clownSpeedMul:0.88, chaseTriggerMul:0.85, huntAfter:150, stalkGapMul:1.35, needsTapesForTrueEscape:false, flickerMul:0.7, description:'Forgiving: longer battery, milder clown, 4 items.' },
+  normal:    { label:'NORMAL',    itemsRequired:5, flashlightDrainMul:1.0,  flashlightInfinite:false, clownSpeedMul:1.0,  chaseTriggerMul:1.0,  huntAfter:90,  stalkGapMul:1.0,  needsTapesForTrueEscape:false, flickerMul:1.0, description:'Standard run: 5 items, beacon escape, normal clown.' },
   nightmare: { label:'NIGHTMARE', itemsRequired:5, flashlightDrainMul:0,    flashlightInfinite:true,  clownSpeedMul:1.20, chaseTriggerMul:1.20, huntAfter:60,  stalkGapMul:0.7,  needsTapesForTrueEscape:true,  flickerMul:2.2, description:'No mercy: 60s to hunt, torch flickers heavily, all items + 3 tapes for TRUE ESCAPE.' },
 };
 const DIFF_KEY = (() => {
@@ -6886,7 +6892,25 @@ function playerCanSeeClown() {
   const len = Math.max(0.001, dist);
   const dot = (dx / len) * fwdX + (dz / len) * fwdZ;
   // Camera FOV ~72°, so cos(36°) ≈ 0.81. Widen slightly for peripheral feel.
-  return dot > 0.65;
+  if (dot <= 0.65) return false;
+  // OCCLUSION (2026-06-02): a tree trunk between the player and the clown blocks
+  // sight, so HIDING BEHIND A TRUNK actually works — this `sees` flag drives the
+  // Weeping-Angel freeze + chase trigger, and previously fired even when the
+  // clown was fully behind a tree. Cheap 2D point-to-segment test against trunks
+  // that lie between the two points.
+  const trees = world && world.trees;
+  if (trees) {
+    const ux = dx / len, uz = dz / len; // unit dir player→clown
+    for (let i = 0; i < trees.length; i++) {
+      const t = trees[i];
+      const tx = t.x - player.pos.x, tz = t.z - player.pos.z;
+      const proj = tx * ux + tz * uz;                 // along-segment distance
+      if (proj <= 0.4 || proj >= dist - 0.4) continue; // not between us & clown
+      const perp = Math.abs(tx * uz - tz * ux);        // perpendicular distance
+      if (perp < 0.45 * (t.scale || 1)) return false;  // trunk blocks the view
+    }
+  }
+  return true;
 }
 
 // =============================================================================
@@ -7146,6 +7170,8 @@ function tickClown(dt) {
   if (clownState.phase === 'stalk' && playerHuntStart && !inQuietWindow) {
     clownState.phase = 'hunt';
     playHuntMusic();
+    // Dread sting as the hunt music swells in (loud-after-quiet — Slender/Outlast).
+    try { playClownLaugh(panX, 22); } catch (e) { /* */ }
     showSubtitle('Something is following you.', 5);
   }
   const chaseTrigger = CLOWN_CHASE_TRIGGER * ((diffCfg && diffCfg.chaseTriggerMul) || 1);
@@ -7153,6 +7179,8 @@ function tickClown(dt) {
       dist < chaseTrigger && sees && clownState.isVisible) {
     clownState.phase = 'chase';
     playChaseMusic();
+    // Point-blank laugh jolt the instant the chase erupts — adrenaline spike.
+    try { playClownLaugh(panX, 3); } catch (e) { /* */ }
     showSubtitle('RUN.', 3);
   }
   if (clownState.phase === 'chase' && dist > chaseTrigger * 2.5 && !sees) {
@@ -7640,7 +7668,7 @@ function tickAtmosphere(dt) {
 let _nightDawnTriggered = false;
 function tickNightClock(dt) {
   player.nightPercent = Math.min(NIGHT_DAWN_PCT,
-    player.nightPercent + NIGHT_PERCENT_PER_SEC * 100 * dt);
+    player.nightPercent + NIGHT_PERCENT_PER_SEC * dt);
   try {
     if (typeof window !== 'undefined') window.clownForestNightPct = player.nightPercent;
   } catch {}

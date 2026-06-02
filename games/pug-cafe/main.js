@@ -1537,6 +1537,19 @@ function renderOrders() {
       if (!ingId) return;
       throwIngredient(ingId, i, e.clientX, e.clientY);
     });
+    // Touch path: if a bench chip is armed, tapping the order throws it here.
+    // (Mouse uses drag instead.) The SERVE button keeps its own handler.
+    if (CAFE_TOUCH) {
+      div.addEventListener('click', (e) => {
+        if (!armedBenchId) return;
+        if (e.target.closest && e.target.closest('.serve-btn')) return;
+        const r = div.getBoundingClientRect();
+        const id = armedBenchId;
+        armedBenchId = null;
+        throwIngredient(id, i, r.left + r.width / 2, r.top + r.height / 2);
+        renderBench();
+      });
+    }
     let cls = 'order';
     const k = o.time / o.maxTime;
     if (k < 0.3) cls += ' crit';
@@ -1621,11 +1634,20 @@ function updateChalkboard() {
   }).join('') + (orders.length > 6 ? `<div class="cafe-chalk__line">+${orders.length - 6} more…</div>` : '');
 }
 
+// Mobile tap-to-throw (2026-06-02): the desktop throw uses HTML5 drag, which
+// never fires on touch — so touch users couldn't use the headline throw at all
+// (only the SERVE button). On touch we add tap-a-chip-to-arm → tap-an-order-to-
+// throw; mouse keeps drag-to-throw + click-to-discard unchanged.
+const CAFE_TOUCH = (typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches) || ('ontouchstart' in window);
+let armedBenchId = null;
+
 function renderBench() {
   const b = document.getElementById('bench');
   b.innerHTML = '';
   if (bench.length === 0) {
-    b.innerHTML = '<span style="color:var(--muted);font-size:0.5rem;">empty bench (drag chips onto an order to throw 🎯)</span>';
+    armedBenchId = null;
+    const hint = CAFE_TOUCH ? 'empty bench (tap a chip, then tap an order to throw 🎯)' : 'empty bench (drag chips onto an order to throw 🎯)';
+    b.innerHTML = `<span style="color:var(--muted);font-size:0.5rem;">${hint}</span>`;
     refreshBenchTools();
     return;
   }
@@ -1634,10 +1656,22 @@ function renderBench() {
     const el = document.createElement('div');
     el.className = 'bench__held';
     el.draggable = true;
-    el.title = 'Drag onto an order to THROW · click to discard';
+    el.title = CAFE_TOUCH ? 'Tap to arm, then tap an order to THROW' : 'Drag onto an order to THROW · click to discard';
     const iconHtml = ing.iconName && iconSvg[ing.iconName] ? iconSvg[ing.iconName](24) : ing.icon;
     el.innerHTML = `<div class="station__icon">${iconHtml}</div><div class="station__name">${ing.name}</div>`;
-    el.addEventListener('click', () => { bench.splice(i, 1); renderBench(); });
+    if (CAFE_TOUCH && armedBenchId === ing.id) {
+      el.style.outline = '2px solid var(--neon-yellow)';
+      el.style.outlineOffset = '1px';
+    }
+    el.addEventListener('click', () => {
+      if (CAFE_TOUCH) {
+        // tap-to-arm: toggle this ingredient as the "held" chip to throw next
+        armedBenchId = (armedBenchId === ing.id) ? null : ing.id;
+        renderBench();
+      } else {
+        bench.splice(i, 1); renderBench(); // desktop: click discards
+      }
+    });
     // Native drag-and-drop = chunky-but-works throw mechanic; touch users can
     // still use the SERVE button on each order card.
     el.addEventListener('dragstart', (e) => {
@@ -1671,12 +1705,12 @@ function throwIngredient(ingId, orderIdx, clientX, clientY) {
   for (const it of o.items) { if (it.id === ingId && !it.done) { it.done = true; break; } }
   popup(clientX, clientY, '🍳 THROW!', '#ffd23f');
   sfx.tone(820, 'triangle', 0.05, 0.16);
-  // Auto-serve if every slot is filled
+  // Auto-serve if every slot is filled. Throws already consumed each ingredient
+  // from the bench (above), so finalize with alreadyConsumed=true — do NOT push
+  // recipe ids back (the old code did, which let serve() re-consume and thus
+  // fabricate ingredients for duplicate-item recipes like Triple Bacon). 2026-06-02
   if (o.items.every((it) => it.done)) {
-    // We need to make sure bench has ALL items, because serve() re-checks.
-    // Add the marked-done items back to bench so serve() can consume them.
-    for (const it of o.items) bench.push(it.id);
-    serve(orderIdx);
+    serve(orderIdx, true);
   } else {
     renderBench(); renderOrders();
   }
@@ -1692,24 +1726,29 @@ function grab(ing, srcEl) {
   renderBench();
 }
 
-function serve(idx) {
+function serve(idx, alreadyConsumed) {
   const o = orders[idx];
   if (!o) return;
-  // Check that bench contains all needed items
-  const need = o.recipe.items.slice();
-  const benchCopy = bench.slice();
-  for (const n of need) {
-    const i = benchCopy.indexOf(n);
-    if (i === -1) {
-      showEvent('Missing ingredient!');
-      sfx.tone(165, 'sawtooth', 0.1, 0.18);
-      popup(window.innerWidth / 2, window.innerHeight / 2, 'MISS', '#ff3a3a');
-      return;
+  // Normal SERVE-button path: verify the bench holds every needed item and
+  // consume them. The throw path (throwIngredient) passes alreadyConsumed=true
+  // because it already removed each item from the bench as it filled slots —
+  // re-consuming there fabricated ingredients on duplicate-item recipes. (2026-06-02)
+  if (!alreadyConsumed) {
+    const need = o.recipe.items.slice();
+    const benchCopy = bench.slice();
+    for (const n of need) {
+      const i = benchCopy.indexOf(n);
+      if (i === -1) {
+        showEvent('Missing ingredient!');
+        sfx.tone(165, 'sawtooth', 0.1, 0.18);
+        popup(window.innerWidth / 2, window.innerHeight / 2, 'MISS', '#ff3a3a');
+        return;
+      }
+      benchCopy.splice(i, 1);
     }
-    benchCopy.splice(i, 1);
+    // Success
+    bench = benchCopy;
   }
-  // Success
-  bench = benchCopy;
   // Combo: serves within 5s of each other stack
   if (comboT > 0) comboCount++; else comboCount = 1;
   comboT = 5;

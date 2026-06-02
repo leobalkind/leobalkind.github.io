@@ -234,6 +234,27 @@ function genFloor(level) {
     for (let r = 1; r < rows; r++) hGaps[r].add(0);            // open column 0 vertically
     for (let c = 1; c < cols; c++) vGaps[c].add(0);            // open row 0 horizontally
   }
+  // Compute the set of cells actually reachable from spawn (BFS, filling the
+  // grid). Loot is then restricted to these cells — previously loot could land
+  // in a sealed interior cell, making the floor impossible to 100% (win requires
+  // every loot taken). cellReachable(x,y) maps world coords → cell. (2026-06-02)
+  const _reachSeen = (function () {
+    const seen = Array.from({ length: rows }, () => new Array(cols).fill(false));
+    const q = [[spawnR, spawnC]]; seen[spawnR][spawnC] = true;
+    while (q.length) {
+      const [r, c] = q.shift();
+      if (r > 0 && hGaps[r] && hGaps[r].has(c) && !seen[r - 1][c]) { seen[r - 1][c] = true; q.push([r - 1, c]); }
+      if (r < rows - 1 && hGaps[r + 1] && hGaps[r + 1].has(c) && !seen[r + 1][c]) { seen[r + 1][c] = true; q.push([r + 1, c]); }
+      if (c > 0 && vGaps[c] && vGaps[c].has(r) && !seen[r][c - 1]) { seen[r][c - 1] = true; q.push([r, c - 1]); }
+      if (c < cols - 1 && vGaps[c + 1] && vGaps[c + 1].has(r) && !seen[r][c + 1]) { seen[r][c + 1] = true; q.push([r, c + 1]); }
+    }
+    return seen;
+  })();
+  const cellReachable = (x, y) => {
+    const c = Math.min(cols - 1, Math.max(0, Math.floor(x / cw)));
+    const r = Math.min(rows - 1, Math.max(0, Math.floor(y / ch)));
+    return _reachSeen[r][c];
+  };
   // Emit wall rectangles from finalized gap sets.
   for (let c = 1; c < cols; c++) {
     for (let r = 0; r < rows; r++) {
@@ -265,7 +286,7 @@ function genFloor(level) {
     for (let tries = 0; tries < 40; tries++) {
       const x = 30 + Math.random() * (W - 60);
       const y = 30 + Math.random() * (H - 60);
-      if (!isWallNear(x, y, 16)) {
+      if (!isWallNear(x, y, 16) && cellReachable(x, y)) {
         let lootObj;
         if (themedPool.length && Math.random() < 0.35) {
           const t = themedPool[Math.floor(Math.random() * themedPool.length)];
@@ -1190,7 +1211,23 @@ function tick(dt) {
       sfx.tone(180, 'sine', 0.18, 0.14);
       addPopup(pug.x, pug.y - 14, 'CLOSE!', '#4cc9f0');
     }
-    if (inCone && !blocked) { alertedThisFloor = true; perfectFloor = false; alarmTier = Math.max(alarmTier, 2); caught(); }
+    // REACTION WINDOW (Hitman GO / Monaco): a cone no longer kills instantly.
+    // The guard "locks on" over ~0.55s — break line-of-sight (duck behind a
+    // wall, smoke bomb, vent) to escape. Only crossing the threshold = caught,
+    // and only then is the perfect/undetected bonus blown. Cools down ~2x faster
+    // than it builds, so brief cone-sweeps are forgiving. (2026-06-02)
+    if (inCone && !blocked) {
+      h._spotT = (h._spotT || 0) + dt;
+      if (!h._spotWarned) {
+        h._spotWarned = true;
+        addPopup(pug.x, pug.y - 16, '! SPOTTED', '#ff8a3a');
+        try { sfx.tone(320, 'square', 0.12, 0.14); } catch (e) { /* */ }
+      }
+      if (h._spotT >= 0.55) { alertedThisFloor = true; perfectFloor = false; alarmTier = Math.max(alarmTier, 2); caught(); }
+    } else {
+      h._spotT = Math.max(0, (h._spotT || 0) - dt * 2);
+      if (h._spotT <= 0) h._spotWarned = false;
+    }
     // Sound detection (QUIETER PAWS: halve effective sound radius)
     const soundReach = runUpgrades.quietPaws ? 120 : 240;
     if (pug.sound > 0.6 && d < soundReach) {
@@ -1223,9 +1260,19 @@ function tick(dt) {
         if (Math.hypot(sx - sb.x, sy - sb.y) < 90) { blocked = true; break; }
       }
     }
+    // Same ~0.55s lock-on reaction window as guards (was instant-death, which
+    // felt unfair from a sweeping cam that rotates onto a still pug). (2026-06-02)
     if (!blocked) {
-      alertedThisFloor = true; perfectFloor = false; alarmTier = Math.max(alarmTier, 2);
-      caught();
+      cam._spotT = (cam._spotT || 0) + dt;
+      if (!cam._spotWarned) {
+        cam._spotWarned = true;
+        addPopup(pug.x, pug.y - 16, '! CAMERA', '#ff8a3a');
+        try { sfx.tone(320, 'square', 0.12, 0.14); } catch (e) { /* */ }
+      }
+      if (cam._spotT >= 0.55) { alertedThisFloor = true; perfectFloor = false; alarmTier = Math.max(alarmTier, 2); caught(); }
+    } else {
+      cam._spotT = Math.max(0, (cam._spotT || 0) - dt * 2);
+      if (cam._spotT <= 0) cam._spotWarned = false;
     }
   }
   // LASERS — beam active when sin(phase * 2π/period) > 0. Touching while not

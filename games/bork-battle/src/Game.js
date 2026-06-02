@@ -484,7 +484,7 @@ const UPGRADES = [
   { id: 'regen',    name: '+0.6 HP/s REGEN', desc: 'Slow heal between fights.',            apply: (b) => { b.regen += 0.6; } },
   { id: 'leech',    name: '+8% LIFESTEAL', desc: 'Heal a fraction of damage dealt.',       apply: (b) => { b.lifestealPct += 0.08; } },
   { id: 'bork',     name: '-1s BORK CD',   desc: 'Bork more often. Bonk more pugs.',       apply: (b) => { b.borkCdReduce += 1; } },
-  { id: 'maxhp_pct', name: '+10% MAX HP', desc: 'Get THICCer.',                              apply: (b) => { b.hp += Math.round(50 * 0.10); } }, // approx
+  { id: 'maxhp_pct', name: '+10% MAX HP', desc: 'Get THICCer.',                              apply: (b) => { b.hpPctMult = (b.hpPctMult || 1) * 1.10; } }, // true +10% (was a flat +5 that didn't scale)
 ];
 
 export class Game {
@@ -3172,8 +3172,11 @@ export class Game {
 
   _chooseUpgrade(upg) {
     upg.apply(this.player.bonus);
-    // sync hp/maxHp if hp bonus changed (preserve difficulty + perk hp multipliers)
-    const hpMult = this.player._hpMult || 1;
+    // Recompute _hpMult from the current hpPctMult (mirrors start()) so the
+    // "+10% MAX HP" upgrade — which multiplies bonus.hpPctMult — actually takes
+    // effect, while preserving the difficulty's playerHpMult. (2026-06-02)
+    const hpMult = (this.difficulty?.playerHpMult || 1) * (this.player.bonus.hpPctMult || 1);
+    this.player._hpMult = hpMult;
     this.player.maxHp = Math.round(this.player.form.hp * hpMult) + this.player.bonus.hp;
     this.player.hp = Math.min(this.player.hp + 10, this.player.maxHp); // small heal on level
     const overlay = document.getElementById('evolve-overlay');

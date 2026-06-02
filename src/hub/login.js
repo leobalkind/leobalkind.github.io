@@ -94,7 +94,7 @@ function buildLoginOverlayDom() {
     <div class="login-ov__panel">
       <div class="login-ov__crt" aria-hidden="true">
         <span class="login-ov__crt-dot" style="background:#5ef38c"></span>
-        <span class="login-ov__crt-label">WEBGAMES OS · v1.4</span>
+        <span class="login-ov__crt-label">BORKADE OS · v2.9</span>
       </div>
       <h1 class="login-ov__title">WELCOME</h1>
       <p class="login-ov__sub">PICK A PROFILE — saved locally on this device</p>

@@ -205,6 +205,24 @@ body.reduced-motion .hub__pug-bg > i {
   margin-bottom: 56px;
 }
 
+/* ---------------------------------------------------------------------------
+   PRO-UPGRADE A1 (2026-06-02): "games above the fold" — desktop hero compaction.
+   Audit found 74% of a 1440x900 fold was consumed before the first game card.
+   Pro portals (Poki / CrazyGames) show 2-3 game rows on first paint. This
+   block tightens the hero vertical rhythm on desktop ONLY (>=760px); the
+   carefully-tuned mobile layout below the breakpoint is untouched. Reversible:
+   delete this block to restore the original spacing.
+   ------------------------------------------------------------------------- */
+@media (min-width: 760px) {
+  .hub__header { margin-bottom: 22px; }
+  .hub__tagline { margin-top: 8px; }
+  .hub__chips { margin-top: 12px; }
+  .hub__search { margin-top: 14px; }
+  .hub__cats { margin-top: 12px; }
+  .hub__toolbar { margin-top: 12px; }
+  .hub__updates { margin-top: 10px !important; }
+}
+
 .hub__header h1 {
   font-family: var(--font-display);
   font-size: clamp(1.8rem, 5vw, 3.2rem);
@@ -217,6 +235,52 @@ body.reduced-motion .hub__pug-bg > i {
   color: transparent;
   text-shadow: 0 0 30px rgba(255, 58, 161, 0.4);
   animation: titleShimmer 5s linear infinite;
+}
+
+/* ---------------------------------------------------------------------------
+   PRO-UPGRADE A3 (2026-06-02): BORKADE brand lockup — pug mascot + wordmark.
+   The gradient/shimmer stays on the WORD (.hub__logo-word); the h1 itself drops
+   the text-clip so the inline SVG mascot renders with its own pixel fills. A
+   gentle bob gives the mascot life (disabled under reduced-motion).
+   ------------------------------------------------------------------------- */
+.hub__header h1.hub__logo {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(10px, 1.6vw, 18px);
+  background: none;
+  -webkit-text-fill-color: currentColor;
+  color: inherit;
+  text-shadow: none;
+  animation: none;
+}
+.hub__logo-pug {
+  width: clamp(38px, 6vw, 62px);
+  height: auto;
+  flex: none;
+  image-rendering: pixelated;
+  filter: drop-shadow(0 3px 0 rgba(0,0,0,0.4)) drop-shadow(0 0 12px rgba(255,58,161,0.45));
+  animation: borkadeBob 3.2s ease-in-out infinite;
+  transform-origin: 50% 80%;
+}
+.hub__logo-word {
+  font-family: var(--font-display);
+  background: linear-gradient(90deg, var(--neon-pink), var(--neon-cyan), var(--neon-yellow), var(--neon-pink));
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  text-shadow: 0 0 30px rgba(255, 58, 161, 0.4);
+  animation: titleShimmer 5s linear infinite;
+}
+@keyframes borkadeBob {
+  0%, 100% { transform: translateY(0) rotate(-1deg); }
+  50%      { transform: translateY(-4px) rotate(1.5deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hub__logo-pug { animation: none; }
+  .hub__logo-word { animation: none; }
 }
 
 @keyframes titleShimmer {
@@ -503,6 +567,85 @@ body.reduced-motion .card:focus-visible {
 .card:hover .card__svg {
   transform: scale(1.06);
   filter: saturate(1.15) brightness(1.05);
+}
+
+/* PRO-UPGRADE A4 (2026-06-02): Poki/CrazyGames-style hover "PLAY" overlay. A real
+   injected .card__play element (not pseudo-elements) so the cascade is clean.
+   Dims the art + scales in a neon PLAY pill on hover; pointer-events:none keeps
+   the card <a> clickable; hidden on touch (cards already have a "Play →" CTA). */
+/* PRO-UPGRADE (2026-06-02): "Jump back in" recently-played row — the signature
+   personalization pattern of Poki/CrazyGames. Populated by JS from localStorage
+   play history; cloned game cards in a horizontal scroller above the grid. */
+.hub__recent {
+  max-width: 1180px;
+  margin: 0 auto 22px;
+  padding: 0 16px;
+  animation: hubFadeUp 0.5s ease 0.1s both;
+}
+.hub__recent__head {
+  font-family: var(--font-display);
+  font-size: 0.7rem;
+  letter-spacing: 0.12em;
+  color: var(--neon-yellow);
+  margin: 0 0 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-shadow: 0 0 14px rgba(255, 210, 63, 0.4);
+}
+.hub__recent__row {
+  display: flex;
+  gap: 16px;
+  overflow-x: auto;
+  padding: 4px 4px 12px;
+  scroll-snap-type: x proximity;
+  -webkit-overflow-scrolling: touch;
+}
+.hub__recent__row::-webkit-scrollbar { height: 8px; }
+.hub__recent__row::-webkit-scrollbar-thumb { background: rgba(255,210,63,0.4); border-radius: 4px; }
+.hub__recent__row .card {
+  flex: 0 0 240px;
+  max-width: 240px;
+  scroll-snap-align: start;
+}
+@media (max-width: 760px) {
+  .hub__recent__row .card { flex-basis: 180px; max-width: 180px; }
+}
+@keyframes hubFadeUp { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+@media (prefers-reduced-motion: reduce) { .hub__recent { animation: none; } }
+
+.card__play {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(ellipse at center, rgba(10,7,22,0.12), rgba(10,7,22,0.55));
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  pointer-events: none;
+}
+.card__play-btn {
+  font-family: var(--font-display);
+  font-size: 0.62rem;
+  letter-spacing: 0.14em;
+  color: #0a0716;
+  background: linear-gradient(90deg, var(--neon-cyan), var(--neon-pink));
+  padding: 9px 16px;
+  border-radius: 999px;
+  box-shadow: 0 4px 18px rgba(0,0,0,0.45), 0 0 18px rgba(76,201,240,0.5);
+  transform: scale(0.82);
+  transition: transform 0.2s cubic-bezier(0.34,1.56,0.64,1);
+  white-space: nowrap;
+}
+.card:hover .card__play,
+.card:focus-visible .card__play { opacity: 1; }
+.card:hover .card__play-btn,
+.card:focus-visible .card__play-btn { transform: scale(1); }
+@media (hover: none) { .card__play { display: none; } }
+@media (prefers-reduced-motion: reduce) {
+  .card__play-btn { transition: none; transform: scale(1); }
 }
 
 /* Per-game accent borders below the artwork */
@@ -1507,7 +1650,11 @@ body.login-locked #signed-in-pill { pointer-events: none; filter: blur(2px) satu
   position: fixed;
   inset: 0;
   z-index: 500;
-  background:
+  /* Opaque solid FIRST as a bulletproof fallback — if the gradient layers ever
+     fail to paint (older GPU, forced-colors, a parse hiccup), the overlay must
+     still fully cover the hub behind it instead of showing through. (2026-06-02) */
+  background-color: #07040f;
+  background-image:
     radial-gradient(ellipse at 50% 30%, rgba(255, 58, 161, 0.18), transparent 60%),
     radial-gradient(ellipse at 50% 110%, rgba(76, 201, 240, 0.18), transparent 60%),
     linear-gradient(180deg, #050310 0%, #0a0716 100%);
@@ -1556,7 +1703,9 @@ body.login-locked #signed-in-pill { pointer-events: none; filter: blur(2px) satu
   z-index: 2;
   max-width: 540px;
   width: 100%;
-  background: linear-gradient(160deg, rgba(26,15,46,0.92), rgba(42,18,85,0.92));
+  /* Opaque solid fallback under the gradient so the panel is never see-through. */
+  background-color: #1a0f2e;
+  background-image: linear-gradient(160deg, rgba(26,15,46,0.92), rgba(42,18,85,0.92));
   border: 3px solid var(--neon-pink);
   border-radius: 14px;
   padding: 28px 26px 22px;

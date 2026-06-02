@@ -1089,8 +1089,8 @@ function ghostTrailToBeaker(fromX, fromY) {
   setTimeout(() => el.remove(), 480);
 }
 
-// 20 ingredients. Every id has a matching pixel-art drawer in
-// src/shared/ingredientIcons.js — emoji is kept only as an accessibility
+// 23 ingredients (20 base + 3 Round-2). Every id has a matching pixel-art
+// drawer in src/shared/ingredientIcons.js — emoji is kept only as an accessibility
 // fallback/title hint and is never rendered in the UI directly anymore.
 //
 // `element` groups ingredients by elemental family so the shelf can be sorted
@@ -1880,7 +1880,8 @@ function renderCollection() {
 
 function updateHud() {
   // "DISCOVERED" now means unique creatures in the codex; "COMBOS TRIED" is
-  // the size of discoveredCombos (real progression metric out of 1140).
+  // the size of discoveredCombos (real progression metric out of TOTAL_COMBOS,
+  // = C(23,3) = 1771; the HUD interpolates TOTAL_COMBOS, not a hardcoded number).
   const total = Object.keys(discoveries).length;
   const combos = discoveredCombos.size;
   const legCount = Object.values(discoveries).filter((d) => d.legendary).length;

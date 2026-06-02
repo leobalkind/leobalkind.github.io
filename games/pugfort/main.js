@@ -873,9 +873,10 @@ setInterval(() => {
 })();
 
 // ============================================================================
-// v2.5 FORT-005: Refund hint badge — small static reminder next to BUILD
-// button that the player CAN sell back structures (existing R hotkey logic
-// elsewhere). Adds a 1-time tutorial pill when build menu first opens.
+// v2.5 FORT-005: Repair hint badge — small 1-time tutorial pill teaching the
+// real R-hotkey repair mechanic (_repairAllWalls). NOTE: the original copy
+// here advertised a "sell structures for partial refund" feature that does NOT
+// exist in code — corrected 2026-06-02 to describe the actual mechanic.
 // ============================================================================
 (function _r5RefundHint() {
   if (localStorage.getItem('pugfort:refundHintSeen') === '1') return;
@@ -883,7 +884,7 @@ setInterval(() => {
     if (localStorage.getItem('pugfort:refundHintSeen') === '1') return;
     localStorage.setItem('pugfort:refundHintSeen', '1');
     const pill = document.createElement('div');
-    pill.textContent = 'TIP: Sell structures back via the BUILD menu for partial refund.';
+    pill.textContent = 'TIP: Press R to repair all your walls between waves.';
     pill.style.cssText = 'position:fixed;bottom:120px;left:50%;transform:translateX(-50%);background:rgba(20,8,32,0.94);color:#ffd23f;border:2px solid #ffd23f;padding:8px 14px;font-family:"Press Start 2P",monospace;font-size:9px;border-radius:4px;z-index:9998;pointer-events:none;animation:refundHintPulse 5s ease-out forwards;max-width:340px;text-align:center;';
     document.body.appendChild(pill);
     setTimeout(() => pill.remove(), 5200);

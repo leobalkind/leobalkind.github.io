@@ -629,11 +629,14 @@ document.getElementById('bork-btn').addEventListener('click', doBork);
 document.getElementById('bork-btn').style.display = 'none';
 
 function smashAt(wx, wy) {
+  // Chonk's 'extraReach' passive (FORMS[1], "+30% smash reach") was declared but
+  // never read — wire it in here so every smash/eat reach honors it. (2026-06-02)
+  const reachMul = form().passive === 'extraReach' ? 1.3 : 1;
   // SMASH BROADCAST TOWER (giant landmark) — within reach, gives big bonus
   if (broadcastTower && !broadcastTower.smashed) {
     const dxT = wx - broadcastTower.x, dyT = wy - (broadcastTower.y - 40);
     if (Math.abs(dxT) < 40 && Math.abs(dyT) < 80 &&
-        Math.hypot(broadcastTower.x - pug.x, broadcastTower.y - pug.y) < form().r + 140) {
+        Math.hypot(broadcastTower.x - pug.x, broadcastTower.y - pug.y) < (form().r + 140) * reachMul) {
       broadcastTower.smashed = true;
       towerHit = 0.6;
       score += 500;
@@ -655,7 +658,7 @@ function smashAt(wx, wy) {
   // Civilians — eat a tiny humanoid: +20
   for (let i = civilians.length - 1; i >= 0; i--) {
     const c = civilians[i];
-    if (Math.hypot(c.x - pug.x, c.y - pug.y) < form().r + 8 && Math.hypot(c.x - wx, c.y - wy) < 24) {
+    if (Math.hypot(c.x - pug.x, c.y - pug.y) < (form().r + 8) * reachMul && Math.hypot(c.x - wx, c.y - wy) < 24) {
       civilians.splice(i, 1);
       // GOLD skin: civilian eats give +30 score (was +20)
       const _sk = activeSkin();
@@ -681,7 +684,7 @@ function smashAt(wx, wy) {
   for (let i = buildings.length - 1; i >= 0; i--) {
     const b = buildings[i];
     if (wx > b.x && wx < b.x + b.w && wy > b.y && wy < b.y + b.h) {
-      if (Math.hypot(b.x + b.w / 2 - pug.x, b.y + b.h / 2 - pug.y) > form().r + 100) continue;
+      if (Math.hypot(b.x + b.w / 2 - pug.x, b.y + b.h / 2 - pug.y) > (form().r + 100) * reachMul) continue;
       b.hp -= form().smash * (dmgBoostT > 0 ? 2.5 : 1);
       sfx.tone(120 + Math.random() * 60, 'sawtooth', 0.1, 0.22);
       if (b.hp <= 0) {
@@ -693,7 +696,7 @@ function smashAt(wx, wy) {
   // Eat vehicle under reach
   for (let i = vehicles.length - 1; i >= 0; i--) {
     const v = vehicles[i];
-    if (Math.hypot(v.x - pug.x, v.y - pug.y) < form().r + 16 && Math.hypot(v.x - wx, v.y - wy) < 30) {
+    if (Math.hypot(v.x - pug.x, v.y - pug.y) < (form().r + 16) * reachMul && Math.hypot(v.x - wx, v.y - wy) < 30) {
       vehicles.splice(i, 1);
       eaten++; score += 30;
       sfx.tone(660, 'triangle', 0.1, 0.22);

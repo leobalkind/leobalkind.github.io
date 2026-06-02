@@ -797,7 +797,7 @@ function tick(dt) {
       }
     }
     pug.ang = Math.atan2(my, mx);
-    if (inCart) heat = Math.min(1, heat + dt * 0.04 * (activeGetaway && alarm && alarm.on ? activeGetaway.heatMul : 1));
+    if (inCart) heat = Math.min(1, heat + dt * 0.04 * (activeGetaway ? activeGetaway.heatMul : 1)); // heatMul applies the whole run so HANDBAG's "half heat gain" actually helps avoid the alarm (was escape-only = useless). 2026-06-02
   }
   if (pug.cartWobbleT > 0) pug.cartWobbleT = Math.max(0, pug.cartWobbleT - dt);
   if (_cartEntryT > 0) _cartEntryT = Math.max(0, _cartEntryT - dt);
@@ -2282,16 +2282,10 @@ setInterval(() => {
   if (!running) return;
   const alarmOn = !!(alarm && alarm.on);
   if (alarmOn && !_lastAlarmOn && activeGetaway) {
-    // Entering escape: announce + apply bag cap bonus
-    if (_origMaxBag == null) _origMaxBag = maxBag;
-    if (activeGetaway.bagMul !== 1.0 && typeof maxBag === 'number') {
-      maxBag = Math.round(_origMaxBag * activeGetaway.bagMul);
-    }
+    // Entering escape: just announce the vehicle. bagMul/heatMul now apply for
+    // the WHOLE run from start() (so the pick matters even on a clean no-alarm
+    // run); only speedMul stays escape-only by design. (2026-06-02)
     try { popup(pug.x, pug.y - 30, `★ ${activeGetaway.icon} ${activeGetaway.name} ★`, '#ffd23f'); } catch (e) { /* */ }
-  }
-  if (!alarmOn && _lastAlarmOn) {
-    // Reset on alarm-off
-    if (_origMaxBag != null) { maxBag = _origMaxBag; _origMaxBag = null; }
   }
   _lastAlarmOn = alarmOn;
 }, 200);
@@ -2305,6 +2299,11 @@ function start() {
   // next run and inadvertently mutate maxBag.
   _lastAlarmOn = false;
   reset(); running = true;
+  // Apply the vehicle's passive bag-cap modifier for the whole run (was only
+  // applied on the escape-phase edge, so a clean stealth run never got it). (2026-06-02)
+  if (activeGetaway && activeGetaway.bagMul !== 1.0 && typeof maxBag === 'number') {
+    maxBag = Math.round(maxBag * activeGetaway.bagMul);
+  }
   keys.clear(); touchAt = null; // wipe stuck inputs from prior match
   document.getElementById('overlay').hidden = true; document.getElementById('overlay').classList.add('is-hidden');
   document.getElementById('end-overlay').hidden = true; document.getElementById('end-overlay').classList.add('is-hidden');

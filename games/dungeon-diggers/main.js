@@ -1013,8 +1013,7 @@ function tryMove(dc, dr) {
     showMasteryNotice('🐕 WAR DOG', 'Your pet wears armor. Bigger bite. More HP.', '#ffd23f');
     sfx.arp([523, 659, 784, 1047, 1319], 'triangle', 0.06, 0.18, 0.1);
   }
-  // POLISH ROUND 2 — Confusion ticks down on movement
-  if (_confusionT > 0) _confusionT -= 0.1;
+  // Confusion now decays in real time inside tick(dt) (not per-move) — see there.
   // surface refill — cache prev display state to avoid touching DOM each move.
   const atSurface = pug.row <= 1;
   if (atSurface) {
@@ -1068,6 +1067,9 @@ function tick(dt) {
   if (masteryModalOpen) return; // POLISH ROUND 2 — pause for mastery choice
   drillCd = Math.max(0, drillCd - dt);
   moveT += dt;
+  // Fungal spore confusion decays in REAL time (was previously decremented once
+  // per move, so standing still made it last forever). 3.5 set value ≈ 3.5s now.
+  if (_confusionT > 0) _confusionT = Math.max(0, _confusionT - dt);
   // Shopkeeper proximity → open shop if not already open.
   if (shopTouchCd > 0) shopTouchCd = Math.max(0, shopTouchCd - dt);
   for (const sk of shopkeepers) {
@@ -1278,6 +1280,25 @@ function tick(dt) {
       shake(10, 0.4); sfx.tone(180, 'sawtooth', 0.2, 0.25);
       resetCombo();
       if (stam <= 0 && running) { running = false; setTimeout(end, 50); return; }
+    }
+    // The boss was UNKILLABLE — it had an HP bar but nothing ever damaged it,
+    // and being faster than the player it was a guaranteed run-ender past depth
+    // 100. The war-dog companion (evolved by depth 50) now fights it. (2026-06-02)
+    if (pet && pet.attackCd <= 0 && Math.hypot(pet.x - boss.x, pet.y - boss.y) < TILE * 1.4) {
+      const petDmg = 1.4 * (_masteryPetDmg || 1) * (_petEvolved ? 1.8 : 1);
+      boss.hp -= petDmg;
+      pet.attackCd = 1.0;
+      popup(pet.x, pet.y - 16, _petEvolved ? 'WAR CHOMP!' : 'CHOMP!', '#5ef38c');
+      sfx.tone(520, 'square', 0.06, 0.18);
+    }
+    if (boss.hp <= 0) {
+      money += 300; lastPickup += 300;
+      popup(boss.x, boss.y - 30, '★ GIANT GROUND PUG DOWN +$300', '#ffd23f');
+      spawnDust(boss.x, boss.y, '#5a1a1a', 30); spawnShards(boss.x, boss.y, '#3a0d0d', 16);
+      shake(14, 0.6);
+      try { sfx.arp([523, 659, 784, 1047, 1319], 'triangle', 0.08, 0.25, 0.15); } catch (e) { /* */ }
+      try { _achieve('BOSS DOWN'); } catch (e) { /* */ }
+      boss = null;
     }
   }
   // particles
@@ -2479,7 +2500,7 @@ function render() {
   }
   if (boss && boss.hp > 0) {
     ctx.fillStyle = 'rgba(0,0,0,0.7)'; ctx.fillRect(W / 2 - 100, H - 64, 200, 18);
-    ctx.fillStyle = '#ff3a3a'; ctx.fillRect(W / 2 - 98, H - 62, 196 * (boss.hp / 30), 14);
+    ctx.fillStyle = '#ff3a3a'; ctx.fillRect(W / 2 - 98, H - 62, 196 * Math.max(0, boss.hp / (boss.maxHp || 40)), 14);
     ctx.fillStyle = '#fff'; ctx.font = "8px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
     ctx.fillText('GIANT GROUND PUG', W / 2, H - 72);
   }
@@ -2682,7 +2703,7 @@ if (_startOv) {
 (function _r3bPolish(){
   const FACTS = [
     'TIP: BEAMS prevent cave-ins on weak tile lines.',
-    'TIP: Cheese Caverns unlock at depth 50.',
+    'TIP: Cheese Caverns open at depth 12 — then ice, volcanic, fungal, crystal.',
     'TIP: STEAL from a shopkeeper — he will hunt you.',
     'TIP: Better drills dig harder tiles faster.',
     'LORE: The Diggers Guild has secrets buried for ages.',

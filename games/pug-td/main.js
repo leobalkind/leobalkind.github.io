@@ -1408,6 +1408,67 @@ function _waveModOnEnemyKilled(e) {
   }
 }
 
+// Resolve every enemy whose HP has dropped to 0 (from any source: projectile,
+// DOT, napalm, tar). Idempotent via the `e.alive` guard. Extracted so it can run
+// once per frame rather than only on projectile impact. (2026-06-02)
+function sweepDeadEnemies() {
+  for (const e of enemies) {
+    if (e.hp <= 0 && e.alive) {
+      e.alive = false;
+      // Mini-boss: big bonus + banner
+      let goldDrop = e.def.gold;
+      if (e.miniboss) {
+        goldDrop = 100;
+        miniBossBannerText = '★ MINI-BOSS DOWN ★';
+        miniBossBannerT = 2;
+        screenShake(12, 0.45);
+        _tdHitstopT = 0.12;
+        sfx.arp([523, 659, 880, 1175], 'triangle', 0.08, 0.25, 0.25);
+        sfx.tone(70, 'sine', 0.3, 0.4);
+        if (e.bossMod === 'SPLITTER') {
+          for (let k = 0; k < 3; k++) {
+            enemies.push({
+              type: 'cat', def: ENEMIES.cat,
+              hp: ENEMIES.cat.hp * 1.5, maxHp: ENEMIES.cat.hp * 1.5,
+              speed: ENEMIES.cat.speed * 1.2, slowT: 0, slowMul: 1,
+              pathIdx: e.pathIdx, x: e.x + (k - 1) * 0.2, y: e.y, alive: true,
+            });
+          }
+          spawnPopup(e.x * TILE + gridOffsetX(), e.y * TILE + gridOffsetY() - 20, 'SPLIT!', '#ff3aa1');
+        }
+      }
+      money += goldDrop;
+      _totalKills++;
+      sfx.tone(660, 'triangle', 0.05, 0.16);
+      try { _waveModOnEnemyKilled(e); } catch (er) { /* */ }
+      const ex = e.x * TILE + gridOffsetX();
+      const ey = e.y * TILE + gridOffsetY();
+      spawnPopup(ex, ey - 6, `+$${goldDrop}`, e.miniboss ? '#ff8ac8' : '#ffd23f');
+      if (e.type === 'elite') {
+        const n = (e.def.summonOnDeath || 3);
+        for (let k = 0; k < n; k++) {
+          enemies.push({
+            type: 'squirrel', def: ENEMIES.squirrel,
+            hp: ENEMIES.squirrel.hp * 1.2, maxHp: ENEMIES.squirrel.hp * 1.2,
+            speed: ENEMIES.squirrel.speed * 1.1, slowT: 0, slowMul: 1,
+            pathIdx: e.pathIdx, x: e.x + (k - 1) * 0.18, y: e.y + (Math.random() - 0.5) * 0.2, alive: true,
+          });
+        }
+        spawnPopup(ex, ey - 22, 'SPAWN!', '#ff5a8a');
+        screenShake(4, 0.18);
+        sfx.tone(140, 'sine', 0.15, 0.32);
+      }
+      const burst = e.type === 'boss' ? 18 : (e.miniboss ? 16 : (e.type === 'elite' ? 12 : 6));
+      if (e.type === 'boss') screenShake(8, 0.32);
+      for (let k = 0; k < burst; k++) {
+        const a = Math.random() * Math.PI * 2;
+        const sp = 60 + Math.random() * ((e.type === 'boss' || e.miniboss) ? 160 : 80);
+        particles.push({ x: ex, y: ey, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, color: e.def.color, life: 0.4, t: 0, size: 4 });
+      }
+    }
+  }
+}
+
 function tick(dt) {
   if (!running) return;
   // Hit-pause — freeze gameplay (still tick ambient + popups + shake decay
@@ -1816,6 +1877,11 @@ function tick(dt) {
         if (p.boomerang) {
           const runToken = runId;
           const bounces = p.boomerangBounces || 1;
+          // Scale the real-time delay by the current speed multiplier so the
+          // boomerang's return lands at the correct GAME-time offset under 2x/3x
+          // fast-forward (gameplay dt is *__speedMult). Was a fixed 400ms*bi in
+          // wall-clock, so at 3x the return hit landed ~3x too late. (2026-06-02)
+          const spd = __speedMult || 1;
           for (let bi = 1; bi <= bounces; bi++) {
             setTimeout(() => {
               if (!running || runToken !== runId) return;
@@ -1829,79 +1895,23 @@ function tick(dt) {
                 best.hp -= p.dmg * (0.7 / bi); // diminishing returns per bounce
                 particles.push({ x: best.x * TILE + gridOffsetX(), y: best.y * TILE + gridOffsetY(), t: 0, life: 0.3, ring: true, maxR: 14, color: p.color });
               }
-            }, 400 * bi);
+            }, (400 * bi) / spd);
           }
         }
       }
       p.dead = true;
-      for (const e of enemies) {
-        if (e.hp <= 0 && e.alive) {
-          e.alive = false;
-          // Mini-boss: big bonus + banner
-          let goldDrop = e.def.gold;
-          if (e.miniboss) {
-            goldDrop = 100;
-            miniBossBannerText = '★ MINI-BOSS DOWN ★';
-            miniBossBannerT = 2;
-            screenShake(12, 0.45);
-            // Hit-pause so the kill feels weighty.
-            _tdHitstopT = 0.12;
-            sfx.arp([523, 659, 880, 1175], 'triangle', 0.08, 0.25, 0.25);
-            // Sub-bass thud sweetener.
-            sfx.tone(70, 'sine', 0.3, 0.4);
-            // SPLITTER boss: spawn 3 cats on death
-            if (e.bossMod === 'SPLITTER') {
-              for (let k = 0; k < 3; k++) {
-                enemies.push({
-                  type: 'cat', def: ENEMIES.cat,
-                  hp: ENEMIES.cat.hp * 1.5, maxHp: ENEMIES.cat.hp * 1.5,
-                  speed: ENEMIES.cat.speed * 1.2, slowT: 0, slowMul: 1,
-                  pathIdx: e.pathIdx, x: e.x + (k - 1) * 0.2, y: e.y, alive: true,
-                });
-              }
-              spawnPopup(e.x * TILE + gridOffsetX(), e.y * TILE + gridOffsetY() - 20, 'SPLIT!', '#ff3aa1');
-            }
-          }
-          money += goldDrop;
-          _totalKills++;
-          sfx.tone(660, 'triangle', 0.05, 0.16);
-          // WAVE MODIFIER: SPLITTER — spawn 2 squirrels on each kill.
-          try { _waveModOnEnemyKilled(e); } catch (er) { /* */ }
-          const ex = e.x * TILE + gridOffsetX();
-          const ey = e.y * TILE + gridOffsetY();
-          // Floating "+$N" popup
-          spawnPopup(ex, ey - 6, `+$${goldDrop}`, e.miniboss ? '#ff8ac8' : '#ffd23f');
-          // ROUND-2: PUG ELITE death-summon — spawns 3 squirrels at the elite's
-          // current path position so the player has to clean them up.
-          if (e.type === 'elite') {
-            const n = (e.def.summonOnDeath || 3);
-            for (let k = 0; k < n; k++) {
-              enemies.push({
-                type: 'squirrel', def: ENEMIES.squirrel,
-                hp: ENEMIES.squirrel.hp * 1.2, maxHp: ENEMIES.squirrel.hp * 1.2,
-                speed: ENEMIES.squirrel.speed * 1.1, slowT: 0, slowMul: 1,
-                pathIdx: e.pathIdx, x: e.x + (k - 1) * 0.18, y: e.y + (Math.random() - 0.5) * 0.2, alive: true,
-              });
-            }
-            spawnPopup(ex, ey - 22, 'SPAWN!', '#ff5a8a');
-            screenShake(4, 0.18);
-            sfx.tone(140, 'sine', 0.15, 0.32);
-          }
-          // Bigger kill burst for bosses/miniboss/elite
-          const burst = e.type === 'boss' ? 18 : (e.miniboss ? 16 : (e.type === 'elite' ? 12 : 6));
-          if (e.type === 'boss') screenShake(8, 0.32);
-          for (let k = 0; k < burst; k++) {
-            const a = Math.random() * Math.PI * 2;
-            const sp = 60 + Math.random() * ((e.type === 'boss' || e.miniboss) ? 160 : 80);
-            particles.push({ x: ex, y: ey, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, color: e.def.color, life: 0.4, t: 0, size: 4 });
-          }
-        }
-      }
+      // Dead-enemy handling moved to a once-per-frame sweepDeadEnemies() call
+      // (after the projectile loop) so DOT/napalm/tar kills register too — they
+      // previously only triggered when a projectile happened to hit that frame,
+      // letting poisoned enemies walk to the vault with negative HP. (2026-06-02)
       continue;
     }
     p.x += (dx / d) * p.speed * dt;
     p.y += (dy / d) * p.speed * dt;
   }
+  // Resolve ALL dead enemies once per frame — catches both projectile hits and
+  // DOT/napalm/tar damage (which has no projectile on the kill frame). (2026-06-02)
+  sweepDeadEnemies();
   // Perf: prune in-place via reverse-iter splice — avoids per-frame realloc.
   for (let i = projectiles.length - 1; i >= 0; i--) if (projectiles[i].dead) projectiles.splice(i, 1);
   // Particles

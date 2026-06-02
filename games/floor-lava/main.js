@@ -440,7 +440,11 @@ function addPlatformAbove() {
 const keys = new Set();
 window.addEventListener('keydown', (e) => {
   keys.add(e.key.toLowerCase());
-  if (e.key === ' ' || e.key === 'w' || e.code === 'Space' || e.key === 'ArrowUp') jump();
+  // Gate on !e.repeat so a held key fires ONE jump, not a per-frame stream of
+  // jump() calls. The auto-repeat stream was hard-setting vy=JUMP_V every frame,
+  // fighting the jetpack hover clamp (see tick: `jetpackT>0` branch) → jitter,
+  // and let holding the key auto-multi-jump. (2026-06-02)
+  if ((e.key === ' ' || e.key === 'w' || e.code === 'Space' || e.key === 'ArrowUp') && !e.repeat) jump();
   if (e.key === 'p' || e.key === 'P' || e.key === 'Escape') togglePause();
 });
 function togglePause() {

@@ -1038,6 +1038,12 @@ function tick(dt) {
             hitPauseT = Math.max(hitPauseT, 0.10);
           } else {
             shake(5, 0.18);
+            // Credit bot-owned kills so the time-limit tiebreaker (bots-combined
+            // kills, see tick L~1289) is meaningful. Previously b.kills was never
+            // written, so timed matches were an automatic player win. (2026-06-02)
+            if (pr.owner && pr.owner !== pug && pr.owner !== target) {
+              pr.owner.kills = (pr.owner.kills || 0) + 1;
+            }
           }
           try { pushKillFeed(pr.owner, target); } catch (e) { /* */ }
           crowdCheer();
@@ -2361,7 +2367,8 @@ function showHighlightReel() {
     ctx2.fillRect(sx(lastBestKill.killerX) - 3, sy(lastBestKill.killerY) - 3, 6, 6);
     // victim pug (red square)
     ctx2.fillStyle = lastBestKill.victimColor;
-    ctx2.fillRect(sx(lastBestKill.victimX) - 3, sy(lastBestKill.victimX) - 3, 6, 6);
+    // (removed a stray duplicate that drew a ghost square at sy(victimX) — wrong
+    //  axis; the correct draw on the next line uses victimY. 2026-06-02)
     ctx2.fillRect(sx(lastBestKill.victimX) - 3, sy(lastBestKill.victimY) - 3, 6, 6);
     // projectile traveling killer → victim
     const px = sx(lastBestKill.killerX) + (sx(lastBestKill.victimX) - sx(lastBestKill.killerX)) * k;
