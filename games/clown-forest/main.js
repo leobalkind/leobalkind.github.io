@@ -200,8 +200,8 @@ const ITEM_PICKUP_DIST    = 1.5;
 
 // Clown tuning
 const CLOWN_HEIGHT        = 3.3;   // bigger, looming ~11ft figure (was 2.2) — scarier silhouette
-const CLOWN_HUNT_SPEED    = 1.6;
-const CLOWN_CHASE_SPEED   = 4.0;
+const CLOWN_HUNT_SPEED    = 2.4;   // was 1.6
+const CLOWN_CHASE_SPEED   = 5.4;   // was 4.0 — now FASTER than the player's sprint (5.0): you can't simply outrun him, you must lose line-of-sight / reach the beacon
 const CLOWN_KILL_DIST     = 1.5;
 // JUMPSCARE / DEATH tuning (2026-06-03). The catch jumpscare now triggers from
 // MUCH farther — roughly when the clown is within the flashlight's reach lighting
@@ -4153,12 +4153,14 @@ function tickCreepySfx(dt) {
   if (t < _nextCreepyAt) return;
   // Gap shrinks as the clown escalates — chase is relentless, stalk is sparse.
   const phase = clownState.phase;
-  const base = phase === 'chase' ? 2.5 : phase === 'hunt' ? 5 : 9;
+  const base = phase === 'chase' ? 1.5 : phase === 'hunt' ? 3 : 5;
   _nextCreepyAt = t + base + Math.random() * base;
   const pan = (Math.random() - 0.5) * 2;            // anywhere around the player
-  const dist = phase === 'chase' ? 3 + Math.random() * 6
-             : phase === 'hunt'  ? 8 + Math.random() * 16
-             : 16 + Math.random() * 26;
+  // Closer = louder (att(d)=1/(1+0.06d)). Pulled way in so the laughs/steps are
+  // unmistakably present rather than a faint distant whisper.
+  const dist = phase === 'chase' ? 2 + Math.random() * 5
+             : phase === 'hunt'  ? 4 + Math.random() * 9
+             : 7 + Math.random() * 12;
   const roll = Math.random();
   try {
     if (phase === 'chase') {
@@ -5878,6 +5880,11 @@ function startGame() {
   stopAllMusic();
   playAmbience(0.55);
   playStalkMusic();
+  // Reset the dread schedulers for a fresh run, and give an early clown laugh so
+  // the player HEARS him from the first moments (also confirms audio is live).
+  _nextWatchAt = 0; _watchUntil = 0; _nextCreepyAt = 0; _scareClearAt = 0; _nextScareAt = 0;
+  setTimeout(() => { try { playClownLaugh(0, 8); } catch (e) { /* */ } }, 1600);
+  setTimeout(() => { try { playClownLaugh((Math.random() - 0.5), 12); } catch (e) { /* */ } }, 5500);
 
   // ---- HUD reset (Agent C) ----
   // Wipe all popup/objective/warning state from the previous run.

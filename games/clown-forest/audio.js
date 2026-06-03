@@ -311,8 +311,8 @@ export function createAudio() {
     if (!started || !ctx) return;
     const t0 = now();
     const a = att(dist), p = cPan(panX);
-    const out = gn(0.6 * a);
-    const dry = gn(0.25 * a);
+    const out = gn(1.0 * a);   // louder reverb-send (was 0.6)
+    const dry = gn(0.55 * a);  // louder dry signal (was 0.25) — the laugh now clearly cuts through
     panTo(out, p, reverbIn);
     panTo(dry, p, busSfx);
     const vib = osc('sine', 3);
