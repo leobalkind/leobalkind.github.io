@@ -199,7 +199,7 @@ const ITEM_GLOW_DIST      = 8;
 const ITEM_PICKUP_DIST    = 1.5;
 
 // Clown tuning
-const CLOWN_HEIGHT        = 2.2;
+const CLOWN_HEIGHT        = 3.3;   // bigger, looming ~11ft figure (was 2.2) — scarier silhouette
 const CLOWN_HUNT_SPEED    = 1.6;
 const CLOWN_CHASE_SPEED   = 4.0;
 const CLOWN_KILL_DIST     = 1.5;
@@ -1117,7 +1117,17 @@ function makeClownTexture(pose) {
   g.fillStyle = '#080406';
   g.beginPath(); g.ellipse(-20, -10, 11, 9, 0, 0, Math.PI * 2); g.fill();
   g.beginPath(); g.ellipse(20, -10, 11, 9, 0, 0, Math.PI * 2); g.fill();
-  g.fillStyle = '#fff6dc'; g.fillRect(-24, -13, 3, 3); g.fillRect(16, -13, 3, 3);
+  // GLOWING RED PUPILS — far scarier than cold white glints. Radial red glow
+  // bleeding out of each black socket + a hot core.
+  for (const ex of [-20, 20]) {
+    const gl = g.createRadialGradient(ex, -10, 0, ex, -10, 14);
+    gl.addColorStop(0, 'rgba(255,60,30,0.98)');
+    gl.addColorStop(0.45, 'rgba(190,12,0,0.6)');
+    gl.addColorStop(1, 'rgba(120,0,0,0)');
+    g.fillStyle = gl; g.beginPath(); g.arc(ex, -10, 14, 0, Math.PI * 2); g.fill();
+    g.fillStyle = '#ff2a12'; g.beginPath(); g.arc(ex, -10, 4, 0, Math.PI * 2); g.fill();
+    g.fillStyle = '#ffe080'; g.fillRect(ex - 1, -11, 2, 2);
+  }
 
   // red nose ball
   g.fillStyle = '#c41212'; g.beginPath(); g.arc(0, 18, 11, 0, Math.PI * 2); g.fill();
@@ -1148,6 +1158,13 @@ function makeClownTexture(pose) {
       const by = 34 + mh + 6;
       g.beginPath(); g.moveTo(tx, by); g.lineTo(tx + 5, by - 8 - rnd() * 3); g.lineTo(tx + 10, by); g.closePath(); g.fill();
     }
+  }
+  // blood dripping from the maw (more, longer, when laughing)
+  g.fillStyle = 'rgba(140,8,8,0.92)';
+  for (const dx of [-mw * 0.55, -mw * 0.15, mw * 0.2, mw * 0.5]) {
+    const dl = (laughing ? 16 : 9) + rnd() * 22;
+    g.fillRect(dx, 34 + mh - 2, 3, dl);
+    g.beginPath(); g.arc(dx + 1.5, 34 + mh - 2 + dl, 3, 0, Math.PI * 2); g.fill();
   }
   g.restore(); // head transform
 
