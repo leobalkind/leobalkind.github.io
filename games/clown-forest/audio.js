@@ -554,27 +554,47 @@ export function createAudio() {
     sh2.start(t0 + 0.05); sh2.stop(t0 + 0.6);
   }
 
-  // ---- SCREAM (synthesized human-ish shriek) ------------------------------
-  // Pitched formant core that rises into a shriek then cracks down, with a
-  // breathy noise rasp and a gritty second formant. Original synthesis (no clips).
-  function playScream(panX, dist) {
+  // ---- SCREAM (synthesized human voice — longer + far more realistic) -----
+  // Proper vocal model: a vibrato'd glottal sawtooth source (arcs up, strains,
+  // surges, then collapses) -> waveshaper rasp -> three VOCAL FORMANTS (a real
+  // "AAAH" vowel) + a breathy noise layer, all wavering on a tremolo. ~2.6s.
+  // Original synthesis — no audio clips. `dur` overridable.
+  function playScream(panX, dist, dur) {
     if (!started || !ctx) return;
     const t0 = now(); const a = att(dist == null ? 2 : dist);
-    const out = gn(1.05 * a); out.connect(busSfx); pipe(out, gn(0.45), reverbIn);
-    const sw = osc('sawtooth', 520);
-    sw.frequency.setValueAtTime(520, t0);
-    sw.frequency.exponentialRampToValueAtTime(1550, t0 + 0.22);
-    sw.frequency.exponentialRampToValueAtTime(980, t0 + 0.7);
-    sw.frequency.exponentialRampToValueAtTime(210, t0 + 1.45);
-    const vib = osc('sine', 7.5); const vAmt = gn(150); pipe(vib, vAmt); vAmt.connect(sw.frequency);
-    vib.start(t0); vib.stop(t0 + 1.5);
-    pipe(sw, flt('bandpass', 1150, 6), env(t0, 0.02, 0.62, 1.45), out);
-    sw.start(t0); sw.stop(t0 + 1.5);
-    const ns = nz(1.1); pipe(ns, flt('bandpass', 2300, 2), env(t0, 0.03, 0.34, 1.2), out);
-    ns.start(t0, rnd() * 2, 1.3);
-    const sw2 = osc('square', 770); sw2.frequency.exponentialRampToValueAtTime(300, t0 + 1.3);
-    pipe(sw2, flt('bandpass', 1650, 5), env(t0, 0.02, 0.24, 1.1), out);
-    sw2.start(t0); sw2.stop(t0 + 1.3);
+    const D = dur || 2.6;
+    const out = gn(1.0 * a); out.connect(busSfx); pipe(out, gn(0.5), reverbIn);
+
+    // tremble bus — everything wavers like a real strained voice
+    const trem = gn(0.85); trem.connect(out);
+    const tlfo = osc('sine', 10 + rnd() * 3); const tAmt = gn(0.2);
+    pipe(tlfo, tAmt); tAmt.connect(trem.gain); tlfo.start(t0); tlfo.stop(t0 + D);
+
+    // glottal source: rich saw, rises into the scream, strains, second surge, collapse
+    const src = osc('sawtooth', 300);
+    src.frequency.setValueAtTime(280, t0);
+    src.frequency.exponentialRampToValueAtTime(560, t0 + 0.30);
+    src.frequency.exponentialRampToValueAtTime(470, t0 + 1.25);
+    src.frequency.exponentialRampToValueAtTime(640, t0 + 1.85);
+    src.frequency.exponentialRampToValueAtTime(175, t0 + D);
+    const vib = osc('sine', 6.5); const vAmt = gn(26); pipe(vib, vAmt); vAmt.connect(src.frequency);
+    vib.start(t0); vib.stop(t0 + D);
+    src.start(t0); src.stop(t0 + D);
+
+    // grit / rasp via tanh waveshaper distortion
+    const shaper = ctx.createWaveShaper();
+    const curve = new Float32Array(1024);
+    for (let i = 0; i < 1024; i++) { const x = i / 512 - 1; curve[i] = Math.tanh(x * 4.2); }
+    shaper.curve = curve; shaper.oversample = '2x';
+    pipe(src, gn(2.2), shaper);
+
+    // three vocal formants summed = an "AAAH" vowel
+    for (const [f, Q, amp] of [[720, 9, 1.0], [1180, 10, 0.72], [2650, 12, 0.46]]) {
+      pipe(shaper, flt('bandpass', f, Q), env(t0, 0.05, 0.6 * amp, D - 0.1), trem);
+    }
+    // breathy noise (the raw "hhh" of a real scream)
+    const ns = nz(1.0); pipe(ns, flt('bandpass', 2400, 1.4), env(t0, 0.06, 0.3, D - 0.2), trem);
+    ns.start(t0, rnd() * 2, D);
   }
 
   // ---- STINGER (the loud jumpscare "BRAAM" hit) ---------------------------
