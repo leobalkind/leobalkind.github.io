@@ -51,7 +51,7 @@ try {
 // fall back to the actual exported names so audio fires correctly.
 const playFootstep    = (s)    => { try { audio?.playFootstep?.(s); } catch {} };
 const playTwigSnap    = ()     => { try { audio?.playTwigSnap?.(); } catch {} };
-const playClownLaugh  = (p, d) => { try { audio?.playClownLaugh?.(p, d); } catch {} };
+const playClownLaugh  = (p, d) => { try { audio?.playClownLaugh?.(p, d); } catch {} try { clownAnim.laughT = 0.7; } catch {} };
 const playClownStep   = (p, d) => { try { audio?.playClownStep?.(p, d); } catch {} };
 const playHuntMusic   = ()     => { try { audio?.playHuntMusic?.(); } catch {} };
 const playChaseMusic  = ()     => { try { audio?.playChaseMusic?.(); } catch {} };
@@ -203,6 +203,12 @@ const CLOWN_HEIGHT        = 2.2;
 const CLOWN_HUNT_SPEED    = 1.6;
 const CLOWN_CHASE_SPEED   = 4.0;
 const CLOWN_KILL_DIST     = 1.5;
+// JUMPSCARE / DEATH tuning (2026-06-03). The catch jumpscare now triggers from
+// MUCH farther — roughly when the clown is within the flashlight's reach lighting
+// him up — instead of the old point-blank 1.5m. DIE_DIST is the close range that
+// guarantees the catch even if he slips in behind you.
+const JUMPSCARE_DIST      = 9.0;   // clown this close (+ visible) => jumpscare + stab cutscene
+const DIE_DIST            = 2.2;   // point-blank guaranteed catch
 const CLOWN_CHASE_TRIGGER = 12;    // metres + line-of-sight => CHASE (was 10; engages a touch sooner)
 const CLOWN_HUNT_AFTER    = 75;    // HUNT phase activates fast — the old 300s (5 min) made it a slow slog
 const CLOWN_STALK_INTERVAL_MIN = 14;  // stalk scares much more frequent (was 25)
@@ -962,206 +968,192 @@ function makeItemTexture(label) {
   return tex;
 }
 
-// THE CLOWN — billboard sprite. Tall figure, pale face, red triangle eyes,
-// asymmetric red smile, ratty striped clown costume, machete in one hand.
-// Drawn vertically (256x512) so the proportions read tall when scaled.
-function makeClownTexture() {
+// THE CLOWN — billboard sprite. ORIGINAL art (2026-06-02 redraw) inspired by the
+// classic killer-carnival-clown look: wild RED hair, white face with black-ringed
+// eyes + red diamond accents, jagged grin, red nose, YELLOW ruffle collar, tattered
+// RED+YELLOW costume, big bloody knife. Parameterized by `pose` so we can render
+// animation frames: 'idle' | 'walk1' | 'walk2' | 'laugh'. Walk frames swing the
+// legs/arms in opposite phase; 'laugh' tilts the head back and opens the maw wide.
+function makeClownTexture(pose) {
+  pose = pose || 'idle';
+  const laughing = pose === 'laugh';
+  const swing = pose === 'walk1' ? -1 : pose === 'walk2' ? 1 : 0; // limb swing dir
+  const rnd = (function () { let s = 1337; return () => (s = (s * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff; })();
   const c = document.createElement('canvas'); c.width = 256; c.height = 512;
   const g = c.getContext('2d');
   g.clearRect(0, 0, 256, 512);
 
-  // ----- BODY / COSTUME -----
-  // Torso — faded clown suit with vertical stripes. Slightly hunched silhouette.
-  g.fillStyle = '#1a1408';
-  // Body outline (slight hunch — leans forward).
-  g.beginPath();
-  g.moveTo(80, 200);  // left shoulder
-  g.lineTo(176, 200); // right shoulder
-  g.lineTo(184, 380); // right hip
-  g.lineTo(72, 380);  // left hip
-  g.closePath();
-  g.fill();
-  // Stripe painting — faded red/yellow/blue alternating.
-  const stripes = ['#5a1414', '#1a3858', '#5a4a1a', '#5a1414', '#1a3858'];
-  for (let i = 0; i < stripes.length; i++) {
-    g.fillStyle = stripes[i];
-    g.globalAlpha = 0.5;
-    const x = 84 + (i / stripes.length) * 96;
-    const w = 96 / stripes.length;
-    g.fillRect(x, 202, w, 178);
-  }
-  g.globalAlpha = 1;
-  // Dirt / blood smears on costume.
-  for (let i = 0; i < 12; i++) {
-    g.fillStyle = `rgba(${40 + Math.random() * 20}, 8, 8, ${0.35 + Math.random() * 0.3})`;
-    const x = 86 + Math.random() * 92;
-    const y = 220 + Math.random() * 140;
+  // ----- LEGS — baggy red/yellow striped pants + big floppy shoes ----------
+  const legShift = swing * 14;
+  function drawLeg(hipX, footX, shoeDir) {
+    g.fillStyle = '#8e1717';                 // red pant
     g.beginPath();
-    g.arc(x, y, 3 + Math.random() * 6, 0, Math.PI * 2);
-    g.fill();
+    g.moveTo(hipX - 14, 372); g.lineTo(hipX + 14, 372);
+    g.lineTo(footX + 12, 452); g.lineTo(footX - 12, 452); g.closePath(); g.fill();
+    g.fillStyle = '#d8b21e';                 // yellow stripe down the pant
+    g.fillRect(hipX - 3, 374, 6, 78);
+    // big floppy shoe
+    g.fillStyle = '#15110a';
+    g.beginPath();
+    g.ellipse(footX + shoeDir * 14, 458, 30, 12, 0, 0, Math.PI * 2); g.fill();
+    g.fillStyle = '#3a2a14';
+    g.beginPath();
+    g.ellipse(footX + shoeDir * 14, 454, 30, 8, 0, 0, Math.PI * 2); g.fill();
   }
-  // Ruffle collar.
-  g.fillStyle = '#48342a';
-  g.beginPath();
-  g.moveTo(80, 200);
-  g.lineTo(86, 188); g.lineTo(94, 198); g.lineTo(102, 188);
-  g.lineTo(110, 198); g.lineTo(120, 188); g.lineTo(128, 200);
-  g.lineTo(136, 188); g.lineTo(146, 198); g.lineTo(156, 188);
-  g.lineTo(164, 198); g.lineTo(172, 188); g.lineTo(176, 200);
-  g.closePath();
-  g.fill();
+  drawLeg(110 - legShift, 104 - legShift * 1.6, -1);
+  drawLeg(146 + legShift, 152 + legShift * 1.6, 1);
 
-  // ----- ARMS -----
-  // Left arm hanging by side.
-  g.fillStyle = '#1a1408';
-  g.fillRect(58, 208, 22, 110);
-  g.fillStyle = '#48342a';
-  g.fillRect(56, 312, 24, 14); // glove cuff
-  g.fillStyle = '#d8c0a0';
+  // ----- BODY / COSTUME — vivid red base, yellow diamond patches, tattered ---
+  g.fillStyle = '#9c1a1a';
   g.beginPath();
-  g.arc(68, 332, 12, 0, Math.PI * 2);
-  g.fill();
-  // Right arm — holding a long machete.
-  g.fillStyle = '#1a1408';
-  g.fillRect(178, 208, 22, 110);
-  g.fillStyle = '#48342a';
-  g.fillRect(176, 312, 24, 14);
-  g.fillStyle = '#d8c0a0';
-  g.beginPath();
-  g.arc(190, 332, 12, 0, Math.PI * 2);
-  g.fill();
-  // The machete — long thin blade extending down-right, with worn handle.
+  g.moveTo(78, 198); g.lineTo(178, 198);   // shoulders
+  g.lineTo(190, 384); g.lineTo(66, 384);   // hips (flared, baggy)
+  g.closePath(); g.fill();
+  // yellow diamond patches
+  g.fillStyle = '#d8b21e';
+  for (const [px, py] of [[110, 250], [150, 300], [100, 330], [156, 240], [128, 360]]) {
+    g.beginPath();
+    g.moveTo(px, py - 16); g.lineTo(px + 14, py); g.lineTo(px, py + 16); g.lineTo(px - 14, py);
+    g.closePath(); g.fill();
+  }
+  // pom-pom buttons down the front
+  g.fillStyle = '#e8e2d0';
+  for (const by of [228, 270, 312]) { g.beginPath(); g.arc(128, by, 7, 0, Math.PI * 2); g.fill(); }
+  // tattered hem (jagged bottom edge in shadow)
+  g.fillStyle = '#0d0606';
+  for (let i = 0; i < 11; i++) {
+    const tx = 66 + i * 11.3;
+    g.beginPath(); g.moveTo(tx, 384); g.lineTo(tx + 5, 384 + 10 + rnd() * 12); g.lineTo(tx + 11, 384); g.closePath(); g.fill();
+  }
+  // grime + blood smears
+  for (let i = 0; i < 16; i++) {
+    g.fillStyle = `rgba(${70 + rnd() * 30 | 0}, 6, 6, ${0.3 + rnd() * 0.4})`;
+    g.beginPath(); g.arc(78 + rnd() * 100, 214 + rnd() * 150, 3 + rnd() * 7, 0, Math.PI * 2); g.fill();
+  }
+  // left-side shadow (moonlit from the right)
+  g.fillStyle = 'rgba(10,8,16,0.4)';
+  g.beginPath(); g.moveTo(78, 198); g.lineTo(112, 198); g.lineTo(100, 384); g.lineTo(66, 384); g.closePath(); g.fill();
+
+  // ----- ARMS — left hangs, right grips a bloody knife; swing for walk -------
+  const armSwing = -swing * 16;
+  // left arm (back-swing)
+  g.fillStyle = '#8e1717';
+  g.save(); g.translate(70, 210); g.rotate(armSwing * 0.012);
+  g.fillRect(-12, 0, 24, 108);
+  g.fillStyle = '#d8b21e'; g.fillRect(-3, 0, 6, 108);
+  g.restore();
+  g.fillStyle = '#cfc6b0'; g.beginPath(); g.arc(70 + armSwing * 0.3, 322, 13, 0, Math.PI * 2); g.fill(); // grimy glove
+
+  // right arm raised, knife forward
+  g.fillStyle = '#8e1717';
+  g.save(); g.translate(186, 210); g.rotate(-armSwing * 0.012 + (laughing ? -0.25 : -0.1));
+  g.fillRect(-12, 0, 24, 100);
+  g.fillStyle = '#d8b21e'; g.fillRect(-3, 0, 6, 100);
+  g.restore();
+  const knifeHandX = 188 - armSwing * 0.3, knifeHandY = 312;
+  g.fillStyle = '#cfc6b0'; g.beginPath(); g.arc(knifeHandX, knifeHandY, 13, 0, Math.PI * 2); g.fill();
+  // big chef's knife — wide steel blade, very bloody
   g.save();
-  g.translate(190, 332);
-  g.rotate(0.15);
-  // Handle (dark wood).
-  g.fillStyle = '#2a1a0a';
-  g.fillRect(-6, -10, 12, 22);
-  // Blade — silver with darker bevel + bloody edge.
-  g.fillStyle = '#9a9aa0';
-  g.fillRect(-4, 10, 8, 110);
-  g.fillStyle = '#5a5a64';
-  g.fillRect(-4, 10, 2, 110);
-  // Blood streaks on blade.
-  g.fillStyle = 'rgba(110, 12, 12, 0.85)';
-  g.fillRect(-3, 20, 2, 40);
-  g.fillRect(0, 50, 2, 50);
+  g.translate(knifeHandX, knifeHandY);
+  g.rotate(0.35);
+  g.fillStyle = '#241608'; g.fillRect(-7, -2, 14, 30);          // handle
+  g.fillStyle = '#c2c6cc';                                       // blade
+  g.beginPath(); g.moveTo(-9, 28); g.lineTo(9, 28); g.lineTo(13, 120); g.lineTo(-9, 132); g.closePath(); g.fill();
+  g.fillStyle = '#80858c'; g.beginPath(); g.moveTo(-9, 28); g.lineTo(-4, 28); g.lineTo(-6, 120); g.lineTo(-9, 124); g.closePath(); g.fill();
+  g.fillStyle = 'rgba(140,10,10,0.9)';                          // blood on blade
+  g.beginPath(); g.moveTo(-2, 40); g.bezierCurveTo(6, 70, -4, 90, 8, 132); g.lineTo(11, 120); g.bezierCurveTo(2, 96, 9, 72, 4, 44); g.closePath(); g.fill();
+  g.fillStyle = 'rgba(150,8,8,0.95)'; g.fillRect(2, 120, 3, 22); // drip off the tip
   g.restore();
 
-  // ----- HEAD -----
-  // Pale flesh oval, slightly elongated.
-  g.fillStyle = '#dcc8b0';
+  // ----- YELLOW RUFFLE COLLAR ------------------------------------------------
+  g.fillStyle = '#e6c41a';
   g.beginPath();
-  g.ellipse(128, 130, 56, 70, 0, 0, Math.PI * 2);
-  g.fill();
-  // Shadow under jaw (gives some depth).
-  g.fillStyle = 'rgba(40, 30, 30, 0.45)';
-  g.beginPath();
-  g.ellipse(128, 178, 48, 18, 0, 0, Math.PI * 2);
-  g.fill();
-  // Shadow on left side (rim lighting from a moonlit right).
-  g.fillStyle = 'rgba(20, 18, 30, 0.5)';
-  g.beginPath();
-  g.ellipse(98, 130, 22, 56, 0, 0, Math.PI * 2);
-  g.fill();
+  g.moveTo(76, 200);
+  for (let i = 0; i <= 12; i++) {
+    const x = 76 + i * 8.7;
+    g.lineTo(x, i % 2 === 0 ? 184 : 202);
+  }
+  g.lineTo(180, 200); g.closePath(); g.fill();
+  g.fillStyle = 'rgba(120,90,8,0.5)';
+  for (let i = 0; i < 12; i++) { g.fillRect(80 + i * 8.7, 188, 2, 12); }
 
-  // Hair — wispy dark tufts on top + sides (greenish-black).
-  g.fillStyle = '#0a1a08';
-  for (let i = 0; i < 14; i++) {
-    const ang = -Math.PI * 0.85 + (i / 13) * Math.PI * 0.7;
-    const x = 128 + Math.cos(ang) * 56;
-    const y = 130 + Math.sin(ang) * 70;
+  // ----- HEAD (tilts back slightly when laughing) ----------------------------
+  const headTilt = laughing ? -0.12 : 0;
+  g.save();
+  g.translate(128, 128);
+  g.rotate(headTilt);
+
+  // wild RED / ORANGE hair — big messy tufts framing the head
+  for (let i = 0; i < 22; i++) {
+    const ang = -Math.PI + (i / 21) * Math.PI;     // top half-ring
+    const r = 56 + rnd() * 20;
+    const hx = Math.cos(ang) * r, hy = Math.sin(ang) * (r * 0.9) - 8;
+    g.fillStyle = i % 3 === 0 ? '#e8500f' : '#c41818';
     g.beginPath();
-    g.ellipse(x, y - 6, 8 + Math.random() * 6, 14 + Math.random() * 8, ang, 0, Math.PI * 2);
+    g.ellipse(hx, hy, 9 + rnd() * 8, 18 + rnd() * 12, ang + 1.57, 0, Math.PI * 2);
     g.fill();
   }
 
-  // EYES — deep dark sockets first.
-  g.fillStyle = '#0a0608';
-  g.beginPath();
-  g.ellipse(110, 116, 14, 10, 0, 0, Math.PI * 2); g.fill();
-  g.beginPath();
-  g.ellipse(146, 116, 14, 10, 0, 0, Math.PI * 2); g.fill();
-  // Pupil — tiny glowing dot in each.
-  g.fillStyle = '#fff8e0';
-  g.fillRect(108, 114, 3, 3);
-  g.fillRect(144, 114, 3, 3);
-  // RED triangle markings around eyes (the classic killer-clown signature).
-  g.fillStyle = '#9a0a0a';
-  g.beginPath();
-  g.moveTo(94, 96); g.lineTo(110, 124); g.lineTo(126, 96);
-  g.closePath(); g.fill();
-  g.beginPath();
-  g.moveTo(130, 96); g.lineTo(146, 124); g.lineTo(162, 96);
-  g.closePath(); g.fill();
-  // Triangle inverted under each eye — completes the diamond markings.
-  g.beginPath();
-  g.moveTo(98, 136); g.lineTo(110, 124); g.lineTo(122, 136);
-  g.closePath(); g.fill();
-  g.beginPath();
-  g.moveTo(134, 136); g.lineTo(146, 124); g.lineTo(158, 136);
-  g.closePath(); g.fill();
+  // white face
+  g.fillStyle = '#f1ece1';
+  g.beginPath(); g.ellipse(0, 4, 54, 66, 0, 0, Math.PI * 2); g.fill();
+  // jaw + side shadow for depth
+  g.fillStyle = 'rgba(40,30,34,0.4)'; g.beginPath(); g.ellipse(0, 50, 44, 16, 0, 0, Math.PI * 2); g.fill();
+  g.fillStyle = 'rgba(12,10,20,0.42)'; g.beginPath(); g.ellipse(-30, 4, 20, 52, 0, 0, Math.PI * 2); g.fill();
 
-  // RED LIPSTICK SMILE — asymmetric, way too wide. Drawn as a thick curved
-  // stroke + jagged white teeth + drips.
-  g.strokeStyle = '#8a0a0a';
-  g.lineWidth = 8;
-  g.lineCap = 'round';
-  g.beginPath();
-  // Asymmetric: left side curls higher than right.
-  g.moveTo(80, 160);
-  g.bezierCurveTo(90, 192, 160, 198, 184, 172);
-  g.stroke();
-  // Slightly thinner darker stroke under to add depth.
-  g.strokeStyle = '#5a0808';
-  g.lineWidth = 3;
-  g.stroke();
-  // Mouth interior (black void).
-  g.fillStyle = '#0a0408';
-  g.beginPath();
-  g.moveTo(86, 164);
-  g.bezierCurveTo(96, 186, 158, 190, 180, 170);
-  g.bezierCurveTo(160, 178, 100, 178, 86, 164);
-  g.closePath();
-  g.fill();
-  // Teeth — irregular jagged shards.
-  g.fillStyle = '#e8dcc0';
-  for (let i = 0; i < 9; i++) {
-    const tx = 92 + i * 11;
-    const ty = 168 + (i % 2 === 0 ? 0 : 2);
-    g.beginPath();
-    g.moveTo(tx, ty);
-    g.lineTo(tx + 5, ty + 8 + Math.random() * 3);
-    g.lineTo(tx + 10, ty);
-    g.closePath();
-    g.fill();
+  // black-ringed eye sockets
+  g.fillStyle = '#080406';
+  g.beginPath(); g.ellipse(-20, -10, 16, 13, 0, 0, Math.PI * 2); g.fill();
+  g.beginPath(); g.ellipse(20, -10, 16, 13, 0, 0, Math.PI * 2); g.fill();
+  // tiny cold glints
+  g.fillStyle = '#fff6dc';
+  g.fillRect(-24, -14, 3, 3); g.fillRect(16, -14, 3, 3);
+  // red DIAMOND accents over/under each eye (killer-clown signature)
+  g.fillStyle = '#b01010';
+  for (const ex of [-20, 20]) {
+    g.beginPath(); g.moveTo(ex, -34); g.lineTo(ex + 12, -10); g.lineTo(ex, 14); g.lineTo(ex - 12, -10); g.closePath(); g.fill();
   }
-  // Lipstick smudge on chin (a dripping streak).
-  g.fillStyle = 'rgba(140, 10, 10, 0.85)';
-  g.fillRect(124, 188, 2, 10);
-  g.fillRect(140, 192, 2, 8);
+  // re-punch the eye holes so the diamonds frame (not cover) them
+  g.fillStyle = '#080406';
+  g.beginPath(); g.ellipse(-20, -10, 11, 9, 0, 0, Math.PI * 2); g.fill();
+  g.beginPath(); g.ellipse(20, -10, 11, 9, 0, 0, Math.PI * 2); g.fill();
+  g.fillStyle = '#fff6dc'; g.fillRect(-24, -13, 3, 3); g.fillRect(16, -13, 3, 3);
 
-  // Subtle nose — just a faint shadow line.
-  g.fillStyle = 'rgba(80, 50, 50, 0.55)';
-  g.beginPath();
-  g.ellipse(128, 144, 6, 4, 0, 0, Math.PI * 2);
-  g.fill();
+  // red nose ball
+  g.fillStyle = '#c41212'; g.beginPath(); g.arc(0, 18, 11, 0, Math.PI * 2); g.fill();
+  g.fillStyle = '#ee3a3a'; g.beginPath(); g.arc(-3, 15, 4, 0, Math.PI * 2); g.fill();
 
-  // Tiny RED CLOWN NOSE highlight (small — keeps the realism, isn't goofy).
-  g.fillStyle = '#7a0a0a';
+  // jagged grin — wider + more open when laughing
+  const mw = laughing ? 60 : 50;          // mouth half-width
+  const mh = laughing ? 30 : 18;          // mouth open height
+  g.fillStyle = '#0a0406';                // black maw
   g.beginPath();
-  g.arc(128, 148, 5, 0, Math.PI * 2);
-  g.fill();
-  g.fillStyle = '#aa1414';
-  g.beginPath();
-  g.arc(126, 146, 2, 0, Math.PI * 2);
-  g.fill();
+  g.moveTo(-mw, 34);
+  g.bezierCurveTo(-mw * 0.4, 34 + mh + 8, mw * 0.4, 34 + mh + 8, mw, 30);
+  g.bezierCurveTo(mw * 0.4, 34 + mh, -mw * 0.4, 34 + mh, -mw, 34);
+  g.closePath(); g.fill();
+  // dark-red lip stroke around it
+  g.strokeStyle = '#7a0808'; g.lineWidth = 7; g.lineCap = 'round';
+  g.beginPath(); g.moveTo(-mw - 2, 34); g.bezierCurveTo(-mw * 0.4, 34 + mh + 10, mw * 0.4, 34 + mh + 10, mw + 2, 30); g.stroke();
+  // jagged teeth (top row, + bottom row when laughing)
+  g.fillStyle = '#e7dcc2';
+  const n = 10;
+  for (let i = 0; i < n; i++) {
+    const tx = -mw + 4 + i * ((mw * 2 - 8) / (n - 1));
+    g.beginPath(); g.moveTo(tx, 34); g.lineTo(tx + 5, 34 + 9 + rnd() * 4); g.lineTo(tx + 10, 34); g.closePath(); g.fill();
+  }
+  if (laughing) {
+    for (let i = 0; i < n - 1; i++) {
+      const tx = -mw + 8 + i * ((mw * 2 - 16) / (n - 2));
+      const by = 34 + mh + 6;
+      g.beginPath(); g.moveTo(tx, by); g.lineTo(tx + 5, by - 8 - rnd() * 3); g.lineTo(tx + 10, by); g.closePath(); g.fill();
+    }
+  }
+  g.restore(); // head transform
 
-  // Ground shadow underneath the body so the sprite reads as standing on something.
-  g.fillStyle = 'rgba(0, 0, 0, 0.65)';
-  g.beginPath();
-  g.ellipse(128, 386, 70, 12, 0, 0, Math.PI * 2);
-  g.fill();
+  // ground shadow
+  g.fillStyle = 'rgba(0,0,0,0.6)';
+  g.beginPath(); g.ellipse(128, 462, 78, 13, 0, 0, Math.PI * 2); g.fill();
 
   const tex = new THREE.CanvasTexture(c);
   tex.magFilter = THREE.LinearFilter;
@@ -1169,6 +1161,15 @@ function makeClownTexture() {
   tex.premultiplyAlpha = false;
   return tex;
 }
+
+// Pre-rendered clown animation frames (built once). Swapped on the sprite by the
+// render loop: walk1/walk2 alternate while the clown advances, laugh on a laugh.
+const CLOWN_FRAMES = {
+  idle:  makeClownTexture('idle'),
+  walk1: makeClownTexture('walk1'),
+  walk2: makeClownTexture('walk2'),
+  laugh: makeClownTexture('laugh'),
+};
 
 // =============================================================================
 // THREE.JS SCENE — single scene, single camera.
@@ -1973,6 +1974,111 @@ function buildLandmarks() {
   }
 }
 buildLandmarks();
+
+// =============================================================================
+// 8 SCARY FOREST SCENES (2026-06-03). Distinct dread set-pieces scattered across
+// the map so it feels like a real haunted forest with variety — NOT just trees.
+// Original primitive-built props (no clown here — environment only). Placed in a
+// ring away from spawn. Each `world.scenes` entry also feeds a soft ambient name.
+// =============================================================================
+function buildScaryScenes() {
+  const M = {
+    deadWood: new THREE.MeshStandardMaterial({ color: 0x241c12, roughness: 1 }),
+    bone:     new THREE.MeshStandardMaterial({ color: 0xcfc6b4, roughness: 1, flatShading: true }),
+    stone:    new THREE.MeshStandardMaterial({ color: 0x46423b, roughness: 1, flatShading: true }),
+    rope:     new THREE.MeshStandardMaterial({ color: 0x4a3a26, roughness: 1 }),
+    sack:     new THREE.MeshStandardMaterial({ color: 0x6b5a3a, roughness: 1 }),
+    bloodMat: new THREE.MeshStandardMaterial({ color: 0x5a0a0a, roughness: 0.9, side: THREE.DoubleSide }),
+    redFab:   new THREE.MeshStandardMaterial({ color: 0x7a1414, roughness: 1, side: THREE.DoubleSide }),
+    yelFab:   new THREE.MeshStandardMaterial({ color: 0x8a7016, roughness: 1, side: THREE.DoubleSide }),
+    rust:     new THREE.MeshStandardMaterial({ color: 0x4a2414, roughness: 0.95, metalness: 0.2 }),
+    mud:      new THREE.MeshStandardMaterial({ color: 0x18130c, roughness: 1 }),
+    candle:   new THREE.MeshStandardMaterial({ color: 0xffcaa0, emissive: 0xff7020, emissiveIntensity: 1.4, roughness: 1 }),
+    flesh:    new THREE.MeshStandardMaterial({ color: 0xb8a890, roughness: 1 }),
+  };
+  const SCENES = ['dead-grove', 'bone-pile', 'hanging-effigies', 'ritual-circle',
+                  'blood-trees', 'scarecrow', 'carousel-wreck', 'reaching-bog'];
+  world.scenes = [];
+  const R = WORLD_SIZE * 0.34;
+  for (let i = 0; i < SCENES.length; i++) {
+    const type = SCENES[i];
+    const ang = (i / SCENES.length) * Math.PI * 2 + 0.4;
+    const rad = R + (i % 2) * 26;
+    const x = Math.cos(ang) * rad, z = Math.sin(ang) * rad;
+    const gy = groundY(x, z);
+    const G = new THREE.Group();
+    G.position.set(x, gy, z);
+    G.rotation.y = ang + Math.PI;
+    const add = (mesh, px, py, pz, rx, ry, rz) => {
+      mesh.position.set(px || 0, py || 0, pz || 0);
+      if (rx || ry || rz) mesh.rotation.set(rx || 0, ry || 0, rz || 0);
+      mesh.castShadow = true; G.add(mesh); return mesh;
+    };
+    if (type === 'dead-grove') {
+      for (let k = 0; k < 7; k++) {
+        const h = 6 + Math.random() * 6;
+        const t = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.3, h, 6), M.deadWood);
+        add(t, (Math.random() - 0.5) * 9, h / 2, (Math.random() - 0.5) * 9, (Math.random() - 0.5) * 0.5, 0, (Math.random() - 0.5) * 0.5);
+        for (let b = 0; b < 3; b++) {
+          const br = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.08, 2 + Math.random(), 5), M.deadWood);
+          add(br, t.position.x, h * 0.6 + Math.random() * 2, t.position.z, 0, Math.random() * 6, 1.1 + Math.random());
+        }
+      }
+    } else if (type === 'bone-pile') {
+      for (let k = 0; k < 4; k++) { const s = new THREE.Mesh(new THREE.SphereGeometry(0.32, 8, 6), M.bone); add(s, (Math.random() - 0.5) * 4, 0.3, (Math.random() - 0.5) * 4); }
+      for (let k = 0; k < 16; k++) { const bn = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.6 + Math.random() * 0.7, 5), M.bone); add(bn, (Math.random() - 0.5) * 5, 0.15, (Math.random() - 0.5) * 5, Math.random() * 3, Math.random() * 3, Math.random() * 3); }
+      const stake = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.1, 3, 6), M.deadWood); add(stake, 0, 1.5, 0);
+      add(new THREE.Mesh(new THREE.SphereGeometry(0.34, 8, 6), M.bone), 0, 3.1, 0); // skull on a pike
+    } else if (type === 'hanging-effigies') {
+      const postGeo = new THREE.CylinderGeometry(0.12, 0.14, 4, 6);
+      add(new THREE.Mesh(postGeo, M.deadWood), -3, 2, 0);
+      add(new THREE.Mesh(postGeo, M.deadWood), 3, 2, 0);
+      add(new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 6.2, 6), M.deadWood), 0, 3.9, 0, 0, 0, Math.PI / 2);
+      for (let k = -2; k <= 2; k++) {
+        add(new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 1.2, 4), M.rope), k * 1.1, 3.2, 0);
+        add(new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.9, 0.25), M.sack), k * 1.1, 2.2, 0, (Math.random() - 0.5) * 0.3, 0, (Math.random() - 0.5) * 0.3); // dangling effigy
+        add(new THREE.Mesh(new THREE.SphereGeometry(0.22, 6, 5), M.sack), k * 1.1, 2.78, 0); // sack head
+      }
+    } else if (type === 'ritual-circle') {
+      for (let k = 0; k < 8; k++) { const a = k / 8 * Math.PI * 2; const st = new THREE.Mesh(new THREE.BoxGeometry(0.5, 1.6 + Math.random(), 0.4), M.stone); add(st, Math.cos(a) * 4, 0.9, Math.sin(a) * 4, (Math.random() - 0.5) * 0.3, a, 0); }
+      for (let k = 0; k < 6; k++) { const a = k / 6 * Math.PI * 2; add(new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.5, 6), M.candle), Math.cos(a) * 2, 0.25, Math.sin(a) * 2); }
+      add(new THREE.Mesh(new THREE.CircleGeometry(3.6, 24), M.bloodMat), 0, 0.04, 0, -Math.PI / 2, 0, 0); // blood sigil floor
+    } else if (type === 'blood-trees') {
+      for (let k = 0; k < 5; k++) {
+        const h = 8 + Math.random() * 3;
+        const t = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.34, h, 7), M.deadWood);
+        add(t, (Math.random() - 0.5) * 7, h / 2, (Math.random() - 0.5) * 7);
+        add(new THREE.Mesh(new THREE.PlaneGeometry(0.5, 2.4), M.bloodMat), t.position.x, 2.5 + Math.random() * 2, t.position.z + 0.36, 0, 0, 0); // red streak
+      }
+      add(new THREE.Mesh(new THREE.CircleGeometry(2.2, 18), M.bloodMat), 0, 0.04, 0, -Math.PI / 2, 0, 0); // pool
+    } else if (type === 'scarecrow') {
+      add(new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.12, 4, 6), M.deadWood), 0, 2, 0);            // spine
+      add(new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 3, 6), M.deadWood), 0, 2.8, 0, 0, 0, Math.PI / 2); // arms
+      add(new THREE.Mesh(new THREE.BoxGeometry(1.1, 1.6, 0.4), M.redFab), 0, 2.1, 0);                    // ragged body
+      add(new THREE.Mesh(new THREE.SphereGeometry(0.38, 7, 6), M.sack), 0, 3.6, 0);                       // sack head
+      add(new THREE.Mesh(new THREE.PlaneGeometry(0.6, 0.6), M.bloodMat), 0, 3.6, 0.36);                   // bloody face cloth
+    } else if (type === 'carousel-wreck') {
+      add(new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.18, 3.4, 8), M.rust), 0, 1.7, 0);             // pole
+      const horse = new THREE.Group();
+      horse.add(new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.7, 0.5), M.redFab));                          // body
+      const head = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.8, 0.4), M.redFab); head.position.set(0.9, 0.5, 0); horse.add(head);
+      horse.position.set(0, 2.0, 0); horse.rotation.z = -0.25; G.add(horse);
+      for (let k = 0; k < 4; k++) add(new THREE.Mesh(new THREE.BoxGeometry(0.16, 1.0, 0.16), M.yelFab), -1 + k * 0.6, 1.1, 0, 0.3 + Math.random(), 0, 0); // toppled striped poles
+      add(new THREE.Mesh(new THREE.TorusGeometry(2.2, 0.12, 6, 16, Math.PI), M.rust), 0, 0.2, 0, -Math.PI / 2, 0, 0); // broken ring base
+    } else if (type === 'reaching-bog') {
+      add(new THREE.Mesh(new THREE.CircleGeometry(5, 24), M.mud), 0, 0.03, 0, -Math.PI / 2, 0, 0);        // mud pool
+      for (let k = 0; k < 7; k++) {
+        const a = Math.random() * Math.PI * 2, r = Math.random() * 4;
+        const wrist = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.09, 0.8 + Math.random() * 0.7, 6), M.flesh);
+        add(wrist, Math.cos(a) * r, 0.4, Math.sin(a) * r);
+        for (let f = 0; f < 4; f++) add(new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.03, 0.4, 4), M.flesh), Math.cos(a) * r + (f - 1.5) * 0.06, 0.9, Math.sin(a) * r, (Math.random() - 0.5) * 0.4, 0, (Math.random() - 0.5) * 0.4); // fingers
+      }
+    }
+    scene.add(G);
+    world.scenes.push({ name: type, x, z, group: G });
+  }
+}
+buildScaryScenes();
 
 // =============================================================================
 // HIDDEN DETAILS — bloodstains on ground + half-buried abandoned items.
@@ -3916,6 +4022,176 @@ clownSprite.scale.set(CLOWN_HEIGHT * 0.5, CLOWN_HEIGHT, 1);
 clownSprite.position.set(100, CLOWN_HEIGHT / 2, 100);
 clownSprite.visible = false;
 scene.add(clownSprite);
+
+// Clown sprite animation state (walk-frame cycling + laugh frame + walk bob).
+const clownAnim = { laughT: 0, walkT: 0, frame: 'idle', lastX: null, lastZ: null, bob: 0 };
+function tickClownAnim(dt) {
+  if (!clownSprite.visible) { clownAnim.lastX = null; return; }
+  clownAnim.laughT = Math.max(0, clownAnim.laughT - dt);
+  // Detect movement since last frame (the clown advances during hunt/chase).
+  const cx = clownState.pos.x, cz = clownState.pos.z;
+  let moved = 0;
+  if (clownAnim.lastX != null) moved = Math.hypot(cx - clownAnim.lastX, cz - clownAnim.lastZ);
+  clownAnim.lastX = cx; clownAnim.lastZ = cz;
+  const walking = moved > 0.01;
+  let want;
+  if (clownAnim.laughT > 0) {
+    want = 'laugh';
+  } else if (walking) {
+    clownAnim.walkT += dt;
+    want = (clownAnim.walkT % 0.44) < 0.22 ? 'walk1' : 'walk2';
+    // Bouncy walk bob, faster in chase.
+    const rate = clownState.phase === 'chase' ? 11 : 7;
+    clownAnim.bob = Math.abs(Math.sin(clownAnim.walkT * rate)) * (clownState.phase === 'chase' ? 0.07 : 0.04);
+  } else {
+    want = 'idle';
+    clownAnim.bob = Math.sin(totalElapsed * 1.3) * 0.02; // gentle idle sway
+  }
+  if (want !== clownAnim.frame && CLOWN_FRAMES[want]) {
+    clownAnim.frame = want;
+    clownSprite.material.map = CLOWN_FRAMES[want];
+    clownSprite.material.needsUpdate = true;
+  }
+  // Apply the walk/idle bob + a quick scale-pop while laughing.
+  clownSprite.position.y += clownAnim.bob;
+  const laughPop = clownAnim.laughT > 0 ? 1 + Math.sin((0.7 - clownAnim.laughT) * 18) * 0.05 : 1;
+  clownSprite.scale.set(CLOWN_HEIGHT * 0.5 * laughPop, CLOWN_HEIGHT * laughPop, 1);
+}
+
+// ---------------------------------------------------------------------------
+// VISIBLE STALKING (2026-06-02). Research on Slender/Outlast/clown-stalkers: the
+// dread is in GLIMPSING the figure — standing dead still, facing you, at the edge
+// of vision — then it's gone when you look away/again. We periodically place the
+// clown ~26-46m away, biased into the player's view so they SEE it watching, hold
+// it still for a few seconds, then it vanishes. Unpredictable gaps keep the player
+// on edge. Never during CHASE (that system owns visibility) and never close enough
+// to trip the chase trigger.
+// ---------------------------------------------------------------------------
+let _nextWatchAt = 0, _watchUntil = 0;
+function tickStalkWatch(dt) {
+  if (typeof gameState !== 'undefined' && gameState !== 'play') return;
+  if (clownState.phase === 'chase') return;
+  const t = now();
+  // Don't fight the other "appear" beats (circle / ambush / mirror reveal).
+  if ((clownState.circleEndAt && t < clownState.circleEndAt) ||
+      (clownState.ambushUntil && t < clownState.ambushUntil) ||
+      (mirrorState && mirrorState.revealUntil && t < mirrorState.revealUntil)) return;
+
+  if (_watchUntil > t) {
+    // Hold the watch: stand still, stay visible, keep facing the player.
+    clownState.isVisible = true;
+    clownSprite.visible = true;
+    clownSprite.material.opacity = 0.96;
+    const gy = groundY(clownState.pos.x, clownState.pos.z);
+    clownSprite.position.set(clownState.pos.x, CLOWN_HEIGHT / 2 + gy, clownState.pos.z);
+    return;
+  }
+  if (_watchUntil !== 0) {
+    // Watch just ended — vanish (the unnerving "it's gone now").
+    _watchUntil = 0;
+    if (clownState.phase !== 'chase') {
+      clownState.isVisible = false;
+      clownSprite.visible = false;
+      clownState.fleeUntil = t + 3;
+    }
+    _nextWatchAt = t + 9 + Math.random() * 16;   // unpredictable gap
+    return;
+  }
+  if (_nextWatchAt === 0) _nextWatchAt = t + 7 + Math.random() * 11; // first appearance
+  // Time to appear — only if it isn't already on screen from another beat.
+  if (t >= _nextWatchAt && !clownState.isVisible) {
+    const spread = clownState.phase === 'hunt' ? 0.7 : 1.1;   // hunt = more dead-ahead
+    const dir = player.yaw + (Math.random() - 0.5) * spread;  // biased into view
+    const dist = 26 + Math.random() * 20;
+    let wx = player.pos.x - Math.sin(dir) * dist;             // forward = (-sin,-cos)
+    let wz = player.pos.z - Math.cos(dir) * dist;
+    const lim = WORLD_SIZE * 0.46;
+    wx = Math.max(-lim, Math.min(lim, wx));
+    wz = Math.max(-lim, Math.min(lim, wz));
+    clownState.pos.x = wx; clownState.pos.z = wz;
+    clownState.isVisible = true;
+    clownSprite.visible = true;
+    clownSprite.material.opacity = 0.96;
+    _watchUntil = t + 2.4 + Math.random() * 2.6;
+    // A soft cue so the player's eye is drawn to it: distant step + (hunt) a laugh.
+    const a = Math.atan2(wz - player.pos.z, wx - player.pos.x) - player.yaw;
+    try { playClownStep(Math.sin(a), dist); } catch (e) { /* */ }
+    if (clownState.phase === 'hunt' && Math.random() < 0.5) {
+      try { playClownLaugh(Math.sin(a), dist * 0.8); } catch (e) { /* */ }
+    }
+    try { wgCaption && wgCaption('You feel watched...', 1600); } catch (e) { /* */ }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// RANDOM CREEPY SFX (2026-06-02). Unpredictable laughter / breath / footsteps /
+// twig-snaps at random intervals — louder and more frequent as the threat ramps
+// (stalk -> hunt -> chase). Random timing + pan keeps the player on edge.
+// ---------------------------------------------------------------------------
+let _nextCreepyAt = 0;
+function tickCreepySfx(dt) {
+  if (typeof gameState !== 'undefined' && gameState !== 'play') return;
+  const t = now();
+  if (_nextCreepyAt === 0) { _nextCreepyAt = t + 4 + Math.random() * 6; return; }
+  if (t < _nextCreepyAt) return;
+  // Gap shrinks as the clown escalates — chase is relentless, stalk is sparse.
+  const phase = clownState.phase;
+  const base = phase === 'chase' ? 2.5 : phase === 'hunt' ? 5 : 9;
+  _nextCreepyAt = t + base + Math.random() * base;
+  const pan = (Math.random() - 0.5) * 2;            // anywhere around the player
+  const dist = phase === 'chase' ? 3 + Math.random() * 6
+             : phase === 'hunt'  ? 8 + Math.random() * 16
+             : 16 + Math.random() * 26;
+  const roll = Math.random();
+  try {
+    if (phase === 'chase') {
+      // Relentless: laughter + footsteps right on top of you.
+      if (roll < 0.55) playClownLaugh(pan, dist);
+      else { playClownStep(pan, dist); if (Math.random() < 0.5) setTimeout(() => { try { playClownStep(-pan, dist); } catch (e) {} }, 180); }
+    } else if (phase === 'hunt') {
+      if (roll < 0.4) playClownLaugh(pan, dist);
+      else if (roll < 0.7) playClownStep(pan, dist);
+      else { try { audio?.playClownBreath?.(dist * 0.4); } catch (e) {} }
+    } else {
+      // Stalk: sparse, distant, ambiguous — is that him, or the forest?
+      if (roll < 0.35) playTwigSnap();
+      else if (roll < 0.6) playClownStep(pan, dist);
+      else if (roll < 0.82) playFootstep(0.4);
+      else playClownLaugh(pan, dist);
+    }
+  } catch (e) { /* audio optional */ }
+}
+
+// ---------------------------------------------------------------------------
+// RANDOM JUMPSCARES (2026-06-03). Every 10-46s a brief, NON-LETHAL jumpscare —
+// the clown face slams onto the screen with a scream for ~0.6s, then it's gone.
+// Unpredictable timing keeps the player permanently on edge. Skipped while the
+// lethal catch cutscene is playing.
+// ---------------------------------------------------------------------------
+let _nextScareAt = 0, _scareClearAt = 0;
+function tickRandomJumpscare(dt) {
+  if (typeof gameState !== 'undefined' && gameState !== 'play') return;
+  if (killCineActive) return;
+  const t = now();
+  // Clear a finished flash (unless the lethal cutscene grabbed the canvas).
+  if (_scareClearAt && t >= _scareClearAt) {
+    _scareClearAt = 0;
+    if (!killCineActive) killCamEl.classList.remove('is-on');
+  }
+  if (_scareClearAt) return;                         // a flash is on screen
+  if (_nextScareAt === 0) { _nextScareAt = t + 10 + Math.random() * 36; return; }
+  if (t < _nextScareAt) return;
+  _nextScareAt = t + 10 + Math.random() * 36;        // 10-46s, random
+  // Fire the flash.
+  const ctx = killCanvas.getContext('2d');
+  ctx.fillStyle = '#000'; ctx.fillRect(0, 0, killCanvas.width, killCanvas.height);
+  drawKillFace(ctx);
+  killCamEl.classList.add('is-on');
+  triggerHitFlash();
+  try { audio?.playKill?.(); } catch (e) { /* */ }
+  try { audio?.playClownLaugh?.(0, 2); } catch (e) { /* */ }
+  _scareClearAt = t + 0.62;
+}
 
 const clownState = {
   phase: 'stalk',           // 'stalk' | 'hunt' | 'chase'
@@ -6021,33 +6297,104 @@ function playWinCinematic() {
 // the "YOU WERE FOUND" panel + landmark subtitle. Agent D extends the
 // existing zoom (CLOWN-A) by capturing the death landmark up-front so the
 // panel can flavor the sub-line.
+let killCineActive = false;
 function triggerKillCinematic() {
-  if (gameState !== 'play') return;
+  if (gameState !== 'play' || killCineActive) return;
+  killCineActive = true;
   // Capture the landmark NOW (before player.pos can shift in any tick race).
   player.deathLandmark = pickDeathLandmark();
-  // Snap the kill canvas to the clown face.
+  // Snap the kill canvas to the clown face (the jumpscare).
   const ctx = killCanvas.getContext('2d');
   ctx.fillStyle = '#000';
   ctx.fillRect(0, 0, killCanvas.width, killCanvas.height);
   drawKillFace(ctx);
   killCamEl.classList.add('is-on');
   playKill();
-  // Round-7 — TAKEN: when the player was crouched/listening at capture, layer
-  // a close whispered laugh on top of the kill scream so the ending lands as
-  // intimate ("right by your ear") rather than violent.
   if (player.takenWhileCrouching) {
     try { audio?.playClownBreath?.(1); } catch {}
     setTimeout(() => { try { audio?.playClownLaugh?.(0, 3); } catch {} }, 220);
   }
-  // Agent C VFX: red hit-flash and caption — caption fires regardless of
-  // sound state so deaf players still get a kill cue.
   triggerHitFlash();
-  try { wgCaption?.('MONSTER GROWL', 1400); } catch {}
-  // 1.2s zoom + scream, then HARD CUT to black before endGame paints the panel.
+  try { wgCaption?.('HE HAS YOU', 1400); } catch {}
+  // Jumpscare face holds briefly, THEN a full stabbing animation, then black cut.
   setTimeout(() => {
-    flashEl.className = 'is-black';
-    endGame('caught');
-  }, 1200);
+    runStabCutscene(() => {
+      killCineActive = false;
+      flashEl.className = 'is-black';
+      endGame('caught');
+    });
+  }, 700);
+}
+
+// Full stabbing death animation drawn on the kill canvas: the looming clown face
+// zooms in while a big knife thrusts in repeatedly, blood splatters build, the
+// frame shakes, and the screen drowns in red. Calls `done` when finished.
+function runStabCutscene(done) {
+  const g = killCanvas.getContext('2d');
+  const W = killCanvas.width, H = killCanvas.height;
+  const STABS = 6;
+  const DUR = 2.1;           // seconds
+  const splats = [];
+  let start = null, lastStab = -1;
+  function frame(ts) {
+    if (start == null) start = ts;
+    const t = Math.min(1, (ts - start) / (DUR * 1000));
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    // frame shake (eases off)
+    const shake = (1 - t) * 14 + 3;
+    g.save();
+    g.translate((Math.random() - 0.5) * shake, (Math.random() - 0.5) * shake);
+    // looming face, slowly zooming in
+    const zoom = 1 + t * 0.3;
+    g.save();
+    g.translate(W / 2, H * 0.55); g.scale(zoom, zoom); g.translate(-W / 2, -H * 0.55);
+    drawKillFace(g);
+    g.restore();
+    // discrete stab events
+    const stabIdx = Math.floor(t * STABS);
+    if (stabIdx !== lastStab && stabIdx < STABS) {
+      lastStab = stabIdx;
+      try { audio?.playClownLaugh?.(0, 2); } catch (e) { /* */ }
+      try { audio?.playKill?.(); } catch (e) { /* */ }
+      for (let i = 0; i < 16; i++) {
+        splats.push({ x: W * (0.15 + Math.random() * 0.7), y: H * (0.15 + Math.random() * 0.7), r: 5 + Math.random() * 26, a: 0.85 + Math.random() * 0.15 });
+      }
+    }
+    // current knife thrust
+    if (stabIdx < STABS) drawKnifeStab(g, W, H, stabIdx, (t * STABS) % 1);
+    // accumulated blood
+    for (const s of splats) {
+      g.fillStyle = `rgba(${120 + (Math.random() * 40 | 0)},6,6,${s.a})`;
+      g.beginPath(); g.arc(s.x, s.y, s.r, 0, Math.PI * 2); g.fill();
+    }
+    // rising red wash
+    g.fillStyle = `rgba(85,0,0,${0.12 + t * 0.55})`;
+    g.fillRect(0, 0, W, H);
+    g.restore();
+    if (t < 1) requestAnimationFrame(frame); else done();
+  }
+  requestAnimationFrame(frame);
+}
+
+// One knife thrust streaking in from an alternating side toward the centre.
+function drawKnifeStab(g, W, H, idx, local) {
+  const fromLeft = idx % 2 === 0;
+  const sx = fromLeft ? -W * 0.35 : W * 1.35;
+  const x = sx + (W * 0.5 - sx) * Math.min(1, local * 1.7);
+  const y = H * 0.46 + (idx - 2.5) * H * 0.05;
+  // motion slash streak
+  g.strokeStyle = `rgba(255,255,255,${0.55 * (1 - local)})`;
+  g.lineWidth = 7; g.lineCap = 'round';
+  g.beginPath(); g.moveTo(fromLeft ? 0 : W, H * 0.28); g.lineTo(x, y); g.stroke();
+  // the knife
+  g.save();
+  g.translate(x, y);
+  g.rotate(fromLeft ? 2.5 : -2.5);
+  g.fillStyle = '#cfd3d8'; g.fillRect(-9, -140, 18, 140);          // blade
+  g.fillStyle = '#80858c'; g.fillRect(-9, -140, 5, 140);
+  g.fillStyle = 'rgba(150,8,8,0.92)'; g.fillRect(-4, -118, 4, 96); // blood
+  g.fillStyle = '#241608'; g.fillRect(-11, 0, 22, 38);             // handle
+  g.restore();
 }
 
 // Bigger clown face for the kill cam — close-up, eyes filling the frame.
@@ -6648,6 +6995,10 @@ function tickPlay(dt) {
   // the fog-density override. All particle systems are no-ops while paused
   // because tickPlay isn't called outside gameState === 'play'.
   tickClown(dt);
+  tickClownAnim(dt);       // walk-frame cycling + laugh frame + walk bob
+  tickStalkWatch(dt);      // visible "watching from the trees" stalking presence
+  tickCreepySfx(dt);       // random creepy laughter / screams / footsteps
+  tickRandomJumpscare(dt); // random non-lethal jumpscares every 10-46s
   // Random ambient events (NEAR_MISS / CIRCLE / WHISPER / DISTURBANCE).
   maybeTriggerRandomEvent();
   // Time-of-night clock — gameplay-affecting; published to a global so Agents
@@ -7189,10 +7540,10 @@ function tickClown(dt) {
     if (clownState.phase === 'hunt') playHuntMusic(); else playStalkMusic();
   }
 
-  // ---- KILL ----
-  if (dist < CLOWN_KILL_DIST && clownState.isVisible) {
-    // Round-7 — record whether the player was crouched / listening at the
-    // moment of capture. endGame uses this to fork into the TAKEN ending.
+  // ---- KILL ---- (wide jumpscare radius: caught from JUMPSCARE_DIST when the
+  // clown is visible/lit, or point-blank DIE_DIST regardless. Much wider than
+  // the old 1.5m so the catch jumpscare lands the moment he's on you.)
+  if ((dist < JUMPSCARE_DIST && clownState.isVisible) || dist < DIE_DIST) {
     player.takenWhileCrouching = player.isCrouching || player.isListening;
     triggerKillCinematic();
     return;
