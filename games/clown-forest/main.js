@@ -53,6 +53,8 @@ const playFootstep    = (s)    => { try { audio?.playFootstep?.(s); } catch {} }
 const playTwigSnap    = ()     => { try { audio?.playTwigSnap?.(); } catch {} };
 const playClownLaugh  = (p, d) => { try { audio?.playClownLaugh?.(p, d); } catch {} try { clownAnim.laughT = 0.7; } catch {} };
 const playClownStep   = (p, d) => { try { audio?.playClownStep?.(p, d); } catch {} };
+const playScream      = (p, d) => { try { audio?.playScream?.(p, d); } catch {} };
+const playStinger     = ()     => { try { audio?.playStinger?.(); } catch {} };
 const playHuntMusic   = ()     => { try { audio?.playHuntMusic?.(); } catch {} };
 const playChaseMusic  = ()     => { try { audio?.playChaseMusic?.(); } catch {} };
 const playStalkMusic  = ()     => { try { audio?.playStalkMusic?.(); } catch {} };
@@ -4184,14 +4186,16 @@ function tickCreepySfx(dt) {
       if (roll < 0.55) playClownLaugh(pan, dist);
       else { playClownStep(pan, dist); if (Math.random() < 0.5) setTimeout(() => { try { playClownStep(-pan, dist); } catch (e) {} }, 180); }
     } else if (phase === 'hunt') {
-      if (roll < 0.4) playClownLaugh(pan, dist);
-      else if (roll < 0.7) playClownStep(pan, dist);
-      else { try { audio?.playClownBreath?.(dist * 0.4); } catch (e) {} }
+      if (roll < 0.34) playClownLaugh(pan, dist);
+      else if (roll < 0.54) playClownStep(pan, dist);
+      else if (roll < 0.72) playScream(pan, dist + 18);   // distant shriek
+      else { try { audio?.playClownBreath?.(dist * 0.4); } catch (e) { /* */ } }
     } else {
       // Stalk: sparse, distant, ambiguous — is that him, or the forest?
-      if (roll < 0.35) playTwigSnap();
-      else if (roll < 0.6) playClownStep(pan, dist);
-      else if (roll < 0.82) playFootstep(0.4);
+      if (roll < 0.3) playTwigSnap();
+      else if (roll < 0.5) playClownStep(pan, dist);
+      else if (roll < 0.7) playFootstep(0.4);
+      else if (roll < 0.86) playScream(pan, dist + 28);   // far, ominous scream
       else playClownLaugh(pan, dist);
     }
   } catch (e) { /* audio optional */ }
@@ -4223,9 +4227,12 @@ function tickRandomJumpscare(dt) {
   drawKillFace(ctx);
   killCamEl.classList.add('is-on');
   triggerHitFlash();
+  // Loud, sudden: a stinger + a scream every time the face slams in.
+  playStinger();
+  playScream((Math.random() - 0.5) * 1.5, 2);
   try { audio?.playKill?.(); } catch (e) { /* */ }
   try { audio?.playClownLaugh?.(0, 2); } catch (e) { /* */ }
-  _scareClearAt = t + 0.62;
+  _scareClearAt = t + 0.72;
 }
 
 const clownState = {
@@ -6349,7 +6356,11 @@ function triggerKillCinematic() {
   ctx.fillRect(0, 0, killCanvas.width, killCanvas.height);
   drawKillFace(ctx);
   killCamEl.classList.add('is-on');
+  // Hit the player with everything the instant the face slams in.
+  playStinger();
   playKill();
+  playScream(0, 1.4);
+  setTimeout(() => { try { playScream((Math.random() - 0.5) * 1.5, 2); } catch (e) { /* */ } }, 480);
   if (player.takenWhileCrouching) {
     try { audio?.playClownBreath?.(1); } catch {}
     setTimeout(() => { try { audio?.playClownLaugh?.(0, 3); } catch {} }, 220);
@@ -6440,74 +6451,101 @@ function drawKnifeStab(g, W, H, idx, local) {
 // Bigger clown face for the kill cam — close-up, eyes filling the frame.
 function drawKillFace(g) {
   const W = killCanvas.width, H = killCanvas.height;
-  // Background: oppressive black + faint dark red corner glow.
+  const R = (function () { let s = 99173; return () => (s = (s * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff; })();
+  // Oppressive black + dark-red vignette.
   const bg = g.createRadialGradient(W / 2, H / 2, 0, W / 2, H / 2, W * 0.7);
-  bg.addColorStop(0, '#1a0a0a');
-  bg.addColorStop(1, '#000');
-  g.fillStyle = bg;
-  g.fillRect(0, 0, W, H);
-  // Pale face fills 80% of the frame.
-  g.fillStyle = '#dcc8b0';
-  g.beginPath();
-  g.ellipse(W / 2, H * 0.55, W * 0.42, H * 0.5, 0, 0, Math.PI * 2);
-  g.fill();
-  // Side shadows.
-  g.fillStyle = 'rgba(40, 30, 30, 0.55)';
-  g.beginPath();
-  g.ellipse(W * 0.3, H * 0.5, W * 0.18, H * 0.45, 0, 0, Math.PI * 2);
-  g.fill();
-  // Big black eye sockets.
-  g.fillStyle = '#0a0608';
-  g.beginPath();
-  g.ellipse(W * 0.36, H * 0.42, 40, 28, 0, 0, Math.PI * 2); g.fill();
-  g.beginPath();
-  g.ellipse(W * 0.64, H * 0.42, 40, 28, 0, 0, Math.PI * 2); g.fill();
-  // RED triangle markings.
-  g.fillStyle = '#9a0a0a';
-  g.beginPath();
-  g.moveTo(W * 0.25, H * 0.30); g.lineTo(W * 0.36, H * 0.5); g.lineTo(W * 0.47, H * 0.30);
-  g.closePath(); g.fill();
-  g.beginPath();
-  g.moveTo(W * 0.53, H * 0.30); g.lineTo(W * 0.64, H * 0.5); g.lineTo(W * 0.75, H * 0.30);
-  g.closePath(); g.fill();
-  // Glowing white pupils.
-  g.fillStyle = '#fff8e0';
-  g.fillRect(W * 0.36 - 4, H * 0.42 - 4, 8, 8);
-  g.fillRect(W * 0.64 - 4, H * 0.42 - 4, 8, 8);
-  // The smile — huge, asymmetric, blood-red.
-  g.strokeStyle = '#7a0a0a';
-  g.lineWidth = 22;
-  g.lineCap = 'round';
-  g.beginPath();
-  g.moveTo(W * 0.22, H * 0.68);
-  g.bezierCurveTo(W * 0.35, H * 0.90, W * 0.65, H * 0.92, W * 0.78, H * 0.74);
-  g.stroke();
-  g.fillStyle = '#0a0408';
-  g.beginPath();
-  g.moveTo(W * 0.23, H * 0.69);
-  g.bezierCurveTo(W * 0.35, H * 0.88, W * 0.65, H * 0.88, W * 0.77, H * 0.74);
-  g.bezierCurveTo(W * 0.65, H * 0.80, W * 0.35, H * 0.80, W * 0.23, H * 0.69);
-  g.closePath();
-  g.fill();
-  // Teeth — irregular jagged.
-  g.fillStyle = '#e8dcc0';
-  for (let i = 0; i < 11; i++) {
-    const tx = W * 0.27 + (i / 10) * W * 0.46;
-    const ty = H * 0.74 + (i % 2 === 0 ? 0 : 4);
-    g.beginPath();
-    g.moveTo(tx, ty);
-    g.lineTo(tx + 14, ty + 22 + Math.random() * 8);
-    g.lineTo(tx + 28, ty);
-    g.closePath();
-    g.fill();
+  bg.addColorStop(0, '#1c0808'); bg.addColorStop(1, '#000');
+  g.fillStyle = bg; g.fillRect(0, 0, W, H);
+
+  // ---- WILD ORANGE/RED HAIR behind the head (frizzy tufts) ----
+  for (let i = 0; i < 40; i++) {
+    const a = -Math.PI * 0.95 + (i / 39) * Math.PI * 1.5;
+    const r = W * (0.34 + R() * 0.12);
+    const hx = W / 2 + Math.cos(a) * r, hy = H * 0.5 + Math.sin(a) * r * 0.82;
+    g.fillStyle = i % 3 === 0 ? '#e1530d' : '#b81616';
+    g.beginPath(); g.ellipse(hx, hy, 10 + R() * 14, 26 + R() * 26, a + 1.57, 0, Math.PI * 2); g.fill();
   }
-  // Red nose.
-  g.fillStyle = '#7a0a0a';
+
+  // ---- CRACKED WHITE FACE filling the frame ----
+  const fg = g.createRadialGradient(W / 2, H * 0.5, W * 0.1, W / 2, H * 0.55, W * 0.5);
+  fg.addColorStop(0, '#efe8dc'); fg.addColorStop(0.7, '#d8cdb8'); fg.addColorStop(1, '#a59887');
+  g.fillStyle = fg;
+  g.beginPath(); g.ellipse(W / 2, H * 0.56, W * 0.40, H * 0.52, 0, 0, Math.PI * 2); g.fill();
+  // grime + gaunt cheek shadows
+  g.fillStyle = 'rgba(50,34,30,0.5)';
+  g.beginPath(); g.ellipse(W * 0.30, H * 0.62, W * 0.11, H * 0.22, 0.3, 0, Math.PI * 2); g.fill();
+  g.beginPath(); g.ellipse(W * 0.70, H * 0.62, W * 0.11, H * 0.22, -0.3, 0, Math.PI * 2); g.fill();
+  // hairline cracks in the paint
+  g.strokeStyle = 'rgba(30,18,16,0.5)'; g.lineWidth = 2;
+  for (let i = 0; i < 14; i++) {
+    g.beginPath();
+    let cx = W * (0.3 + R() * 0.4), cy = H * (0.35 + R() * 0.4);
+    g.moveTo(cx, cy);
+    for (let k = 0; k < 4; k++) { cx += (R() - 0.5) * 40; cy += (R() - 0.5) * 40; g.lineTo(cx, cy); }
+    g.stroke();
+  }
+
+  // ---- BATTERED BOWLER HAT on top ----
+  g.fillStyle = '#2c2317';
+  g.beginPath(); g.ellipse(W / 2, H * 0.16, W * 0.30, H * 0.05, 0, 0, Math.PI * 2); g.fill(); // brim
+  g.beginPath(); g.ellipse(W / 2, H * 0.08, W * 0.17, H * 0.10, 0, 0, Math.PI * 2); g.fill();  // dome
+  g.fillStyle = '#4a3a22'; g.fillRect(W * 0.33, H * 0.13, W * 0.34, H * 0.025);                 // band
+  g.fillStyle = 'rgba(0,0,0,0.4)'; g.fillRect(W * 0.46, H * 0.04, W * 0.05, H * 0.10);          // dent/tear
+
+  // ---- SUNKEN BLOODSHOT EYES ----
+  for (const ex of [0.37, 0.63]) {
+    // red bloodshot rim
+    g.fillStyle = '#7a1410';
+    g.beginPath(); g.ellipse(W * ex, H * 0.44, 58, 44, 0, 0, Math.PI * 2); g.fill();
+    // black smeared socket
+    g.fillStyle = '#080404';
+    g.beginPath(); g.ellipse(W * ex, H * 0.44, 46, 34, 0, 0, Math.PI * 2); g.fill();
+    // jagged black paint reaching down (the dripping eye-paint)
+    g.fillStyle = '#080404';
+    g.beginPath();
+    g.moveTo(W * ex - 14, H * 0.5); g.lineTo(W * ex - 4, H * 0.74); g.lineTo(W * ex + 6, H * 0.5);
+    g.closePath(); g.fill();
+    // small intense pupil
+    g.fillStyle = '#1a1410'; g.beginPath(); g.arc(W * ex + (ex < 0.5 ? 6 : -6), H * 0.44, 12, 0, Math.PI * 2); g.fill();
+    g.fillStyle = '#d8c0a0'; g.beginPath(); g.arc(W * ex + (ex < 0.5 ? 6 : -6), H * 0.44, 6, 0, Math.PI * 2); g.fill();
+    g.fillStyle = '#3a0808'; g.beginPath(); g.arc(W * ex + (ex < 0.5 ? 6 : -6), H * 0.44, 3, 0, Math.PI * 2); g.fill();
+  }
+  // furrowed black brows
+  g.strokeStyle = '#0a0606'; g.lineWidth = 12; g.lineCap = 'round';
+  g.beginPath(); g.moveTo(W * 0.28, H * 0.34); g.lineTo(W * 0.46, H * 0.40); g.stroke();
+  g.beginPath(); g.moveTo(W * 0.72, H * 0.34); g.lineTo(W * 0.54, H * 0.40); g.stroke();
+
+  // ---- BLOODY SMEARED GRIN ----
+  // smear of red around the mouth
+  g.fillStyle = 'rgba(120,10,8,0.6)';
+  g.beginPath(); g.ellipse(W / 2, H * 0.76, W * 0.30, H * 0.16, 0, 0, Math.PI * 2); g.fill();
+  // dark maw
+  g.fillStyle = '#0a0406';
   g.beginPath();
-  g.arc(W / 2, H * 0.55, 22, 0, Math.PI * 2); g.fill();
-  g.fillStyle = '#aa1414';
-  g.beginPath();
-  g.arc(W / 2 - 5, H * 0.54, 9, 0, Math.PI * 2); g.fill();
+  g.moveTo(W * 0.22, H * 0.70);
+  g.bezierCurveTo(W * 0.35, H * 0.96, W * 0.65, H * 0.97, W * 0.80, H * 0.72);
+  g.bezierCurveTo(W * 0.65, H * 0.84, W * 0.35, H * 0.84, W * 0.22, H * 0.70);
+  g.closePath(); g.fill();
+  // blood-red lip stroke
+  g.strokeStyle = '#9a0c08'; g.lineWidth = 20; g.lineCap = 'round';
+  g.beginPath(); g.moveTo(W * 0.20, H * 0.70); g.bezierCurveTo(W * 0.35, H * 0.98, W * 0.65, H * 0.99, W * 0.82, H * 0.72); g.stroke();
+  // jagged stained teeth
+  for (let i = 0; i < 12; i++) {
+    const tx = W * 0.26 + (i / 11) * W * 0.48;
+    const ty = H * 0.74 + (i % 2 === 0 ? 0 : 5);
+    g.fillStyle = i % 4 === 0 ? '#9a8a6a' : '#d8cba8';
+    g.beginPath(); g.moveTo(tx, ty); g.lineTo(tx + 16, ty + 24 + R() * 12); g.lineTo(tx + 32, ty); g.closePath(); g.fill();
+  }
+  // blood drips from the grin
+  g.fillStyle = 'rgba(150,8,8,0.92)';
+  for (const dx of [0.30, 0.42, 0.55, 0.68]) {
+    const dl = H * (0.06 + R() * 0.12);
+    g.fillRect(W * dx, H * 0.86, 5, dl);
+    g.beginPath(); g.arc(W * dx + 2.5, H * 0.86 + dl, 5, 0, Math.PI * 2); g.fill();
+  }
+  // reddened nose
+  g.fillStyle = 'rgba(150,30,20,0.8)';
+  g.beginPath(); g.arc(W / 2, H * 0.58, 18, 0, Math.PI * 2); g.fill();
 }
 
 // =============================================================================

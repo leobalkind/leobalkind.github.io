@@ -554,6 +554,48 @@ export function createAudio() {
     sh2.start(t0 + 0.05); sh2.stop(t0 + 0.6);
   }
 
+  // ---- SCREAM (synthesized human-ish shriek) ------------------------------
+  // Pitched formant core that rises into a shriek then cracks down, with a
+  // breathy noise rasp and a gritty second formant. Original synthesis (no clips).
+  function playScream(panX, dist) {
+    if (!started || !ctx) return;
+    const t0 = now(); const a = att(dist == null ? 2 : dist);
+    const out = gn(1.05 * a); out.connect(busSfx); pipe(out, gn(0.45), reverbIn);
+    const sw = osc('sawtooth', 520);
+    sw.frequency.setValueAtTime(520, t0);
+    sw.frequency.exponentialRampToValueAtTime(1550, t0 + 0.22);
+    sw.frequency.exponentialRampToValueAtTime(980, t0 + 0.7);
+    sw.frequency.exponentialRampToValueAtTime(210, t0 + 1.45);
+    const vib = osc('sine', 7.5); const vAmt = gn(150); pipe(vib, vAmt); vAmt.connect(sw.frequency);
+    vib.start(t0); vib.stop(t0 + 1.5);
+    pipe(sw, flt('bandpass', 1150, 6), env(t0, 0.02, 0.62, 1.45), out);
+    sw.start(t0); sw.stop(t0 + 1.5);
+    const ns = nz(1.1); pipe(ns, flt('bandpass', 2300, 2), env(t0, 0.03, 0.34, 1.2), out);
+    ns.start(t0, rnd() * 2, 1.3);
+    const sw2 = osc('square', 770); sw2.frequency.exponentialRampToValueAtTime(300, t0 + 1.3);
+    pipe(sw2, flt('bandpass', 1650, 5), env(t0, 0.02, 0.24, 1.1), out);
+    sw2.start(t0); sw2.stop(t0 + 1.3);
+  }
+
+  // ---- STINGER (the loud jumpscare "BRAAM" hit) ---------------------------
+  // Sudden detuned low brass/string cluster + a bright noise crash + a sub boom.
+  // Sharp attack = the gut-punch that lands the instant a jumpscare appears.
+  function playStinger() {
+    if (!started || !ctx) return;
+    const t0 = now();
+    const out = gn(1.15); out.connect(busSfx); pipe(out, gn(0.5), reverbIn);
+    [55, 58.2, 82, 110, 146.8].forEach((f, i) => {
+      const o = osc('sawtooth', f * (1 + (rnd() - 0.5) * 0.012));
+      pipe(o, flt('lowpass', 1500), env(t0, 0.004, 0.52 - i * 0.05, 1.6), out);
+      o.start(t0); o.stop(t0 + 1.7);
+    });
+    const ns = nz(1.4); pipe(ns, flt('highpass', 1100), env(t0, 0.002, 0.55, 0.9), out);
+    ns.start(t0, rnd() * 2, 1.0);
+    const sub = osc('sine', 44); sub.frequency.exponentialRampToValueAtTime(28, t0 + 1.2);
+    pipe(sub, env(t0, 0.005, 0.95, 1.4), out);
+    sub.start(t0); sub.stop(t0 + 1.5);
+  }
+
   // ---- 16. WIN (rising violin + A-major arpeggio) -------------------------
   function playWin() {
     if (!started || !ctx) return;
@@ -1056,7 +1098,7 @@ export function createAudio() {
     playClownLaugh, playClownStep, playClownBreath, playKnifeDrag,
     playLightning,
     playStalkMusic, playHuntMusic, playChaseMusic, stopAllMusic,
-    playJumpscare, playKill, playWin,
+    playJumpscare, playKill, playWin, playScream, playStinger,
     playItemPickup, playBeaconActivated,
     // Round-3 additions
     playCrouch, playGasp,
