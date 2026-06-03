@@ -563,38 +563,44 @@ export function createAudio() {
     if (!started || !ctx) return;
     const t0 = now(); const a = att(dist == null ? 2 : dist);
     const D = dur || 2.6;
-    const out = gn(1.0 * a); out.connect(busSfx); pipe(out, gn(0.5), reverbIn);
+    const out = gn(0.95 * a); out.connect(busSfx); pipe(out, gn(0.5), reverbIn);
 
-    // tremble bus — everything wavers like a real strained voice
-    const trem = gn(0.85); trem.connect(out);
-    const tlfo = osc('sine', 10 + rnd() * 3); const tAmt = gn(0.2);
-    pipe(tlfo, tAmt); tAmt.connect(trem.gain); tlfo.start(t0); tlfo.stop(t0 + D);
-
-    // glottal source: rich saw, rises into the scream, strains, second surge, collapse
-    const src = osc('sawtooth', 300);
-    src.frequency.setValueAtTime(280, t0);
-    src.frequency.exponentialRampToValueAtTime(560, t0 + 0.30);
-    src.frequency.exponentialRampToValueAtTime(470, t0 + 1.25);
-    src.frequency.exponentialRampToValueAtTime(640, t0 + 1.85);
-    src.frequency.exponentialRampToValueAtTime(175, t0 + D);
-    const vib = osc('sine', 6.5); const vAmt = gn(26); pipe(vib, vAmt); vAmt.connect(src.frequency);
-    vib.start(t0); vib.stop(t0 + D);
-    src.start(t0); src.stop(t0 + D);
-
-    // grit / rasp via tanh waveshaper distortion
-    const shaper = ctx.createWaveShaper();
-    const curve = new Float32Array(1024);
-    for (let i = 0; i < 1024; i++) { const x = i / 512 - 1; curve[i] = Math.tanh(x * 4.2); }
-    shaper.curve = curve; shaper.oversample = '2x';
-    pipe(src, gn(2.2), shaper);
-
-    // three vocal formants summed = an "AAAH" vowel
-    for (const [f, Q, amp] of [[720, 9, 1.0], [1180, 10, 0.72], [2650, 12, 0.46]]) {
-      pipe(shaper, flt('bandpass', f, Q), env(t0, 0.05, 0.6 * amp, D - 0.1), trem);
+    // One full screaming voice. Layered twice (below) so it's TWO people.
+    function voice(startT, pitchMul, formants, vibRate, tremRate, lvl) {
+      const trem = gn(0.85 * lvl); trem.connect(out);
+      const tlfo = osc('sine', tremRate); const tAmt = gn(0.2 * lvl);
+      pipe(tlfo, tAmt); tAmt.connect(trem.gain); tlfo.start(startT); tlfo.stop(startT + D);
+      // glottal source: rich saw — rise -> strain -> surge -> collapse
+      const base = 300 * pitchMul;
+      const src = osc('sawtooth', base);
+      src.frequency.setValueAtTime(base * 0.93, startT);
+      src.frequency.exponentialRampToValueAtTime(base * 1.87, startT + 0.30);
+      src.frequency.exponentialRampToValueAtTime(base * 1.57, startT + 1.25);
+      src.frequency.exponentialRampToValueAtTime(base * 2.13, startT + 1.85);
+      src.frequency.exponentialRampToValueAtTime(base * 0.58, startT + D);
+      const vib = osc('sine', vibRate); const vAmt = gn(26 * pitchMul);
+      pipe(vib, vAmt); vAmt.connect(src.frequency); vib.start(startT); vib.stop(startT + D);
+      src.start(startT); src.stop(startT + D);
+      // rasp
+      const shaper = ctx.createWaveShaper();
+      const curve = new Float32Array(1024);
+      for (let i = 0; i < 1024; i++) { const x = i / 512 - 1; curve[i] = Math.tanh(x * 4.2); }
+      shaper.curve = curve; shaper.oversample = '2x';
+      pipe(src, gn(2.2), shaper);
+      // vocal formants = the "AAAH" vowel
+      for (const [f, Q, amp] of formants) {
+        pipe(shaper, flt('bandpass', f, Q), env(startT, 0.05, 0.6 * amp, D - 0.1), trem);
+      }
+      // breathy noise
+      const ns = nz(1.0); pipe(ns, flt('bandpass', 2400 * pitchMul, 1.4), env(startT, 0.06, 0.3, D - 0.2), trem);
+      ns.start(startT, rnd() * 2, D);
     }
-    // breathy noise (the raw "hhh" of a real scream)
-    const ns = nz(1.0); pipe(ns, flt('bandpass', 2400, 1.4), env(t0, 0.06, 0.3, D - 0.2), trem);
-    ns.start(t0, rnd() * 2, D);
+
+    // Voice A — lower, fuller. Voice B — higher, shriller, joins ~0.1s later.
+    // Different vibrato + tremolo rates so the two voices never phase-lock and
+    // read as two separate people screaming at once.
+    voice(t0, 0.92, [[680, 9, 1.0], [1120, 10, 0.72], [2500, 12, 0.46]], 6.2, 9.5, 1.0);
+    voice(t0 + 0.10, 1.46, [[900, 9, 0.9], [1500, 10, 0.66], [3100, 12, 0.42]], 7.9, 12.0, 0.82);
   }
 
   // ---- STINGER (the loud jumpscare "BRAAM" hit) ---------------------------
