@@ -200,8 +200,8 @@ const ITEM_PICKUP_DIST    = 1.5;
 
 // Clown tuning
 const CLOWN_HEIGHT        = 3.3;   // bigger, looming ~11ft figure (was 2.2) — scarier silhouette
-const CLOWN_HUNT_SPEED    = 2.4;   // was 1.6
-const CLOWN_CHASE_SPEED   = 5.4;   // was 4.0 — now FASTER than the player's sprint (5.0): you can't simply outrun him, you must lose line-of-sight / reach the beacon
+const CLOWN_HUNT_SPEED    = 2.8;   // was 1.6
+const CLOWN_CHASE_SPEED   = 6.3;   // was 4.0 — well above the player's 5.0 sprint; he gains on you relentlessly, so you MUST break line-of-sight or reach the beacon
 const CLOWN_KILL_DIST     = 1.5;
 // JUMPSCARE / DEATH tuning (2026-06-03). The catch jumpscare now triggers from
 // MUCH farther — roughly when the clown is within the flashlight's reach lighting
@@ -4040,10 +4040,16 @@ clownSprite.position.set(100, CLOWN_HEIGHT / 2, 100);
 clownSprite.visible = false;
 scene.add(clownSprite);
 
+// Pulsing red "burning eyes" glow at the clown's head — throbs brighter/faster
+// the closer + more aggressive he is. Driven in tickClownAnim. (2026-06-03)
+const clownGlow = new THREE.PointLight(0xff1605, 0, 11, 2);
+clownGlow.visible = false;
+scene.add(clownGlow);
+
 // Clown sprite animation state (walk-frame cycling + laugh frame + walk bob).
 const clownAnim = { laughT: 0, walkT: 0, frame: 'idle', lastX: null, lastZ: null, bob: 0 };
 function tickClownAnim(dt) {
-  if (!clownSprite.visible) { clownAnim.lastX = null; return; }
+  if (!clownSprite.visible) { clownAnim.lastX = null; clownGlow.visible = false; clownGlow.intensity = 0; return; }
   clownAnim.laughT = Math.max(0, clownAnim.laughT - dt);
   // Detect movement since last frame (the clown advances during hunt/chase).
   const cx = clownState.pos.x, cz = clownState.pos.z;
@@ -4073,6 +4079,16 @@ function tickClownAnim(dt) {
   clownSprite.position.y += clownAnim.bob;
   const laughPop = clownAnim.laughT > 0 ? 1 + Math.sin((0.7 - clownAnim.laughT) * 18) * 0.05 : 1;
   clownSprite.scale.set(CLOWN_HEIGHT * 0.5 * laughPop, CLOWN_HEIGHT * laughPop, 1);
+  // Pulsing red eye-glow at head height — brighter + faster throb during the
+  // chase, with a bright spike whenever he laughs.
+  const gy2 = groundY(clownState.pos.x, clownState.pos.z);
+  clownGlow.visible = true;
+  clownGlow.position.set(clownState.pos.x, gy2 + CLOWN_HEIGHT * 0.78, clownState.pos.z);
+  const inChase = clownState.phase === 'chase';
+  const pulseRate = inChase ? 9 : 4.5;
+  const baseI = inChase ? 3.4 : 1.9;
+  const ampI = inChase ? 2.0 : 1.1;
+  clownGlow.intensity = baseI + (0.5 + 0.5 * Math.sin(totalElapsed * pulseRate)) * ampI + (clownAnim.laughT > 0 ? 2.2 : 0);
 }
 
 // ---------------------------------------------------------------------------
