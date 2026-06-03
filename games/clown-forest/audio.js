@@ -596,11 +596,46 @@ export function createAudio() {
       ns.start(startT, rnd() * 2, D);
     }
 
-    // Voice A — lower, fuller. Voice B — higher, shriller, joins ~0.1s later.
-    // Different vibrato + tremolo rates so the two voices never phase-lock and
-    // read as two separate people screaming at once.
-    voice(t0, 0.92, [[680, 9, 1.0], [1120, 10, 0.72], [2500, 12, 0.46]], 6.2, 9.5, 1.0);
-    voice(t0 + 0.10, 1.46, [[900, 9, 0.9], [1500, 10, 0.66], [3100, 12, 0.42]], 7.9, 12.0, 0.82);
+    // A wet GURGLE tail — irregular bubbles + a choked descending tone + low
+    // bloops, fading in as the screams collapse so they trail off into gurgling.
+    function gurgle(startT, lvl) {
+      const g = gn(0.95 * lvl); g.connect(out); pipe(g, gn(0.4), reverbIn);
+      // continuous wet noise, gated into irregular bubbles
+      const ns = nz(0.7); ns.loop = true;
+      const bub = gn(0.0001);
+      pipe(ns, flt('lowpass', 520, 1), bub, g);
+      ns.start(startT);
+      let tt = startT;
+      for (let i = 0; i < 16; i++) {
+        const dB = 0.05 + rnd() * 0.13;
+        bub.gain.setValueAtTime(0.0001, tt);
+        bub.gain.linearRampToValueAtTime(0.45 + rnd() * 0.55, tt + dB * 0.4);
+        bub.gain.exponentialRampToValueAtTime(0.0001, tt + dB);
+        tt += dB + rnd() * 0.06;
+      }
+      ns.stop(tt + 0.25);
+      // choked descending tone
+      const ch = osc('sawtooth', 175);
+      ch.frequency.exponentialRampToValueAtTime(52, tt);
+      pipe(ch, flt('lowpass', 430, 2), env(startT, 0.05, 0.42, tt - startT), g);
+      ch.start(startT); ch.stop(tt + 0.1);
+      // low bloops scattered through the gurgle
+      for (let i = 0; i < 7; i++) {
+        const bt = startT + rnd() * (tt - startT);
+        const o = osc('sine', 70 + rnd() * 95);
+        o.frequency.exponentialRampToValueAtTime(38, bt + 0.22);
+        pipe(o, env(bt, 0.005, 0.34, 0.22), g);
+        o.start(bt); o.stop(bt + 0.26);
+      }
+    }
+
+    // THREE distinct voices screaming at once — different registers, vibrato and
+    // tremolo rates so they never phase-lock and read as three separate people.
+    voice(t0, 0.92, [[680, 9, 1.0], [1120, 10, 0.72], [2500, 12, 0.46]], 6.2, 9.5, 0.92);  // A: low, full
+    voice(t0 + 0.10, 1.46, [[900, 9, 0.9], [1500, 10, 0.66], [3100, 12, 0.42]], 7.9, 12.0, 0.74); // B: high, shrill
+    voice(t0 + 0.06, 1.15, [[780, 9, 0.92], [1320, 10, 0.6], [2850, 12, 0.4]], 5.4, 10.7, 0.62);  // C: mid, gravelly
+    // ...trailing off into a wet gurgle as the screams give out.
+    gurgle(t0 + D * 0.72, 1.0);
   }
 
   // ---- STINGER (the loud jumpscare "BRAAM" hit) ---------------------------
