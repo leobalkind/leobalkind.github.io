@@ -203,8 +203,8 @@ const ITEM_PICKUP_DIST    = 1.5;
 
 // Clown tuning
 const CLOWN_HEIGHT        = 5.6;   // monstrous ~18ft figure (2.2 -> 3.3 -> 4.4 -> now) — towers over the trees
-const CLOWN_HUNT_SPEED    = 2.8;   // was 1.6
-const CLOWN_CHASE_SPEED   = 6.3;   // was 4.0 — well above the player's 5.0 sprint; he gains on you relentlessly, so you MUST break line-of-sight or reach the beacon
+const CLOWN_HUNT_SPEED    = 3.2;   // was 1.6
+const CLOWN_CHASE_SPEED   = 7.3;   // was 4.0 — far above the 5.0 sprint; he closes fast, so survival = breaking line-of-sight (trees/hiding) or reaching the beacon, not outrunning
 const CLOWN_KILL_DIST     = 1.5;
 // JUMPSCARE / DEATH tuning (2026-06-03). The catch jumpscare now triggers from
 // MUCH farther — roughly when the clown is within the flashlight's reach lighting
