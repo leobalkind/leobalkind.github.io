@@ -202,7 +202,7 @@ const ITEM_GLOW_DIST      = 8;
 const ITEM_PICKUP_DIST    = 1.5;
 
 // Clown tuning
-const CLOWN_HEIGHT        = 3.3;   // bigger, looming ~11ft figure (was 2.2) — scarier silhouette
+const CLOWN_HEIGHT        = 4.4;   // towering ~14ft figure (was 2.2 -> 3.3) — dwarfs the player
 const CLOWN_HUNT_SPEED    = 2.8;   // was 1.6
 const CLOWN_CHASE_SPEED   = 6.3;   // was 4.0 — well above the player's 5.0 sprint; he gains on you relentlessly, so you MUST break line-of-sight or reach the beacon
 const CLOWN_KILL_DIST     = 1.5;
@@ -4219,9 +4219,9 @@ function tickRandomJumpscare(dt) {
     if (!killCineActive) killCamEl.classList.remove('is-on');
   }
   if (_scareClearAt) return;                         // a flash is on screen
-  if (_nextScareAt === 0) { _nextScareAt = t + 10 + Math.random() * 36; return; }
+  if (_nextScareAt === 0) { _nextScareAt = t + 6 + Math.random() * 16; return; }
   if (t < _nextScareAt) return;
-  _nextScareAt = t + 10 + Math.random() * 36;        // 10-46s, random
+  _nextScareAt = t + 6 + Math.random() * 16;        // 6-22s, random
   // Fire the flash.
   const ctx = killCanvas.getContext('2d');
   ctx.fillStyle = '#000'; ctx.fillRect(0, 0, killCanvas.width, killCanvas.height);
