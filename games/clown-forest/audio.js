@@ -599,34 +599,67 @@ export function createAudio() {
     // A wet GURGLE tail — irregular bubbles + a choked descending tone + low
     // bloops, fading in as the screams collapse so they trail off into gurgling.
     function gurgle(startT, lvl) {
-      const g = gn(0.95 * lvl); g.connect(out); pipe(g, gn(0.4), reverbIn);
-      // continuous wet noise, gated into irregular bubbles
+      const g = gn(0.98 * lvl); g.connect(out); pipe(g, gn(0.45), reverbIn);
+      // wet noise gated into irregular bubbles. Resonant lowpass = throaty/wet.
       const ns = nz(0.7); ns.loop = true;
       const bub = gn(0.0001);
-      pipe(ns, flt('lowpass', 520, 1), bub, g);
+      pipe(ns, flt('lowpass', 440, 3.2), bub, g);
       ns.start(startT);
+      // deeper sub-bubble layer — adds the heavy, waterlogged wetness
+      const ns2 = nz(0.5); ns2.loop = true;
+      const bub2 = gn(0.0001);
+      pipe(ns2, flt('lowpass', 190, 4), bub2, g);
+      ns2.start(startT);
       let tt = startT;
-      for (let i = 0; i < 16; i++) {
-        const dB = 0.05 + rnd() * 0.13;
+      for (let i = 0; i < 18; i++) {
+        const dB = 0.04 + rnd() * 0.12;
         bub.gain.setValueAtTime(0.0001, tt);
-        bub.gain.linearRampToValueAtTime(0.45 + rnd() * 0.55, tt + dB * 0.4);
+        bub.gain.linearRampToValueAtTime(0.5 + rnd() * 0.6, tt + dB * 0.4);
         bub.gain.exponentialRampToValueAtTime(0.0001, tt + dB);
-        tt += dB + rnd() * 0.06;
+        bub2.gain.setValueAtTime(0.0001, tt + 0.02);
+        bub2.gain.linearRampToValueAtTime(0.32 + rnd() * 0.42, tt + dB * 0.5);
+        bub2.gain.exponentialRampToValueAtTime(0.0001, tt + dB + 0.03);
+        tt += dB + rnd() * 0.05;
       }
-      ns.stop(tt + 0.25);
-      // choked descending tone
-      const ch = osc('sawtooth', 175);
-      ch.frequency.exponentialRampToValueAtTime(52, tt);
-      pipe(ch, flt('lowpass', 430, 2), env(startT, 0.05, 0.42, tt - startT), g);
+      // choked descending tone (wet, resonant)
+      const ch = osc('sawtooth', 170);
+      ch.frequency.exponentialRampToValueAtTime(48, tt);
+      pipe(ch, flt('lowpass', 420, 4), env(startT, 0.05, 0.46, tt - startT), g);
       ch.start(startT); ch.stop(tt + 0.1);
-      // low bloops scattered through the gurgle
-      for (let i = 0; i < 7; i++) {
+      for (let i = 0; i < 8; i++) {
         const bt = startT + rnd() * (tt - startT);
-        const o = osc('sine', 70 + rnd() * 95);
-        o.frequency.exponentialRampToValueAtTime(38, bt + 0.22);
-        pipe(o, env(bt, 0.005, 0.34, 0.22), g);
+        const o = osc('sine', 68 + rnd() * 95);
+        o.frequency.exponentialRampToValueAtTime(36, bt + 0.22);
+        pipe(o, env(bt, 0.005, 0.36, 0.22), g);
         o.start(bt); o.stop(bt + 0.26);
       }
+      ns.stop(tt + 0.25); ns2.stop(tt + 0.25);
+
+      // ---- DEATH RATTLE — final labored, crackling breath ----
+      const rStart = tt + 0.05, rDur = 1.8;
+      const breath = nz(0.5); breath.loop = true;
+      const crackle = gn(0.0001);   // fast irregular gate = the rattle
+      const swell = gn(0);          // slow labored-breath envelope
+      pipe(breath, flt('bandpass', 600, 2.4), crackle, swell, g);
+      breath.start(rStart);
+      swell.gain.setValueAtTime(0.0001, rStart);
+      swell.gain.linearRampToValueAtTime(0.95, rStart + 0.55);
+      swell.gain.linearRampToValueAtTime(0.6, rStart + 1.15);
+      swell.gain.exponentialRampToValueAtTime(0.0001, rStart + rDur);
+      let ct = rStart;
+      while (ct < rStart + rDur) {
+        const cd = 0.018 + rnd() * 0.05;
+        crackle.gain.setValueAtTime(0.18 + rnd() * 0.75, ct);
+        crackle.gain.exponentialRampToValueAtTime(0.05, ct + cd);
+        ct += cd + rnd() * 0.03;
+      }
+      crackle.gain.setValueAtTime(0.0001, rStart + rDur);
+      breath.stop(rStart + rDur + 0.1);
+      // dying wheeze under it
+      const wh = osc('sawtooth', 90);
+      wh.frequency.exponentialRampToValueAtTime(44, rStart + rDur);
+      pipe(wh, flt('lowpass', 300, 1), env(rStart, 0.1, 0.32, rDur), g);
+      wh.start(rStart); wh.stop(rStart + rDur + 0.1);
     }
 
     // THREE distinct voices screaming at once — different registers, vibrato and
