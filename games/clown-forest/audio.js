@@ -690,6 +690,32 @@ export function createAudio() {
     sub.start(t0); sub.stop(t0 + 1.5);
   }
 
+  // ---- DEATH HEARTBEAT -> FLATLINE ----------------------------------------
+  // A low "lub-dub" heart that slows and weakens, then gives out into a steady
+  // EKG flatline tone. Sits under the death scream. Original synthesis.
+  function playDeathHeart() {
+    if (!started || !ctx) return;
+    const t0 = now();
+    const hg = gn(0.85); hg.connect(busSfx); pipe(hg, gn(0.3), reverbIn);
+    const beat = (bt, amp) => {
+      const o1 = osc('sine', 62); o1.frequency.exponentialRampToValueAtTime(36, bt + 0.09);
+      pipe(o1, env(bt, 0.004, amp, 0.14), hg); o1.start(bt); o1.stop(bt + 0.17);
+      const o2 = osc('sine', 54); o2.frequency.exponentialRampToValueAtTime(32, bt + 0.30);
+      pipe(o2, env(bt + 0.21, 0.004, amp * 0.65, 0.13), hg); o2.start(bt + 0.21); o2.stop(bt + 0.40);
+    };
+    let bt = t0, interval = 0.52, amp = 0.85;
+    const heartEnd = t0 + 5.0;
+    while (bt < heartEnd) { beat(bt, amp); bt += interval; interval = Math.min(1.7, interval * 1.11); amp = Math.max(0.1, amp * 0.9); }
+    // flatline — steady monitor tone, holds, then fades to nothing
+    const flat = osc('sine', 1000); const fg = gn(0); pipe(flat, fg, hg);
+    flat.start(heartEnd);
+    fg.gain.setValueAtTime(0.0001, heartEnd);
+    fg.gain.linearRampToValueAtTime(0.22, heartEnd + 0.18);
+    fg.gain.setValueAtTime(0.22, heartEnd + 1.7);
+    fg.gain.exponentialRampToValueAtTime(0.0001, heartEnd + 2.4);
+    flat.stop(heartEnd + 2.5);
+  }
+
   // ---- 16. WIN (rising violin + A-major arpeggio) -------------------------
   function playWin() {
     if (!started || !ctx) return;
@@ -1192,7 +1218,7 @@ export function createAudio() {
     playClownLaugh, playClownStep, playClownBreath, playKnifeDrag,
     playLightning,
     playStalkMusic, playHuntMusic, playChaseMusic, stopAllMusic,
-    playJumpscare, playKill, playWin, playScream, playStinger,
+    playJumpscare, playKill, playWin, playScream, playStinger, playDeathHeart,
     playItemPickup, playBeaconActivated,
     // Round-3 additions
     playCrouch, playGasp,

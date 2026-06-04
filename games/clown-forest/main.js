@@ -55,6 +55,7 @@ const playClownLaugh  = (p, d) => { try { audio?.playClownLaugh?.(p, d); } catch
 const playClownStep   = (p, d) => { try { audio?.playClownStep?.(p, d); } catch {} };
 const playScream      = (p, d) => { try { audio?.playScream?.(p, d); } catch {} };
 const playStinger     = ()     => { try { audio?.playStinger?.(); } catch {} };
+const playDeathHeart  = ()     => { try { audio?.playDeathHeart?.(); } catch {} };
 const playHuntMusic   = ()     => { try { audio?.playHuntMusic?.(); } catch {} };
 const playChaseMusic  = ()     => { try { audio?.playChaseMusic?.(); } catch {} };
 const playStalkMusic  = ()     => { try { audio?.playStalkMusic?.(); } catch {} };
@@ -6360,6 +6361,7 @@ function triggerKillCinematic() {
   playStinger();
   playKill();
   playScream(0, 1.4);
+  playDeathHeart(); // heartbeat slows under the scream, then flatlines
   setTimeout(() => { try { playScream((Math.random() - 0.5) * 1.5, 2); } catch (e) { /* */ } }, 480);
   if (player.takenWhileCrouching) {
     try { audio?.playClownBreath?.(1); } catch {}
