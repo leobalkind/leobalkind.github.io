@@ -1839,11 +1839,28 @@ function render() {
   }
   // Marker — color/glyph by delivery type (reuses module-level _DTC/_DTG)
   const mc = _DTC[currentDeliveryType] || '#5ef38c';
-  ctx.shadowColor = mc; ctx.shadowBlur = 20;
-  ctx.strokeStyle = mc; ctx.lineWidth = 4;
-  ctx.beginPath(); ctx.arc(marker.x, marker.y, 40 + Math.sin(performance.now() / 200) * 5, 0, Math.PI * 2); ctx.stroke();
-  ctx.fillStyle = mc; ctx.font = "20px serif";
-  ctx.textAlign = 'center'; ctx.fillText(_DTG[currentDeliveryType], marker.x, marker.y + 7);
+  // BEACON BEAM — a tall pulsing pillar of light rising from the marker so the
+  // delivery is visible from across the map (markers spawn 400-800px away — many
+  // players couldn't find them). Drawn in world space, under the ring. (2026-06-05)
+  ctx.save();
+  ctx.globalAlpha = 0.20 + Math.sin(performance.now() / 280) * 0.07;
+  const beam = ctx.createLinearGradient(marker.x, marker.y - 900, marker.x, marker.y);
+  beam.addColorStop(0, 'rgba(255,255,255,0)');
+  beam.addColorStop(1, mc);
+  ctx.fillStyle = beam;
+  ctx.fillRect(marker.x - 30, marker.y - 900, 60, 900);
+  ctx.restore();
+  // Ground glow ring under the marker
+  ctx.save();
+  ctx.globalAlpha = 0.30;
+  ctx.fillStyle = mc;
+  ctx.beginPath(); ctx.ellipse(marker.x, marker.y + 6, 56, 18, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+  ctx.shadowColor = mc; ctx.shadowBlur = 26;
+  ctx.strokeStyle = mc; ctx.lineWidth = 7;
+  ctx.beginPath(); ctx.arc(marker.x, marker.y, 56 + Math.sin(performance.now() / 200) * 6, 0, Math.PI * 2); ctx.stroke();
+  ctx.fillStyle = mc; ctx.font = "30px serif";
+  ctx.textAlign = 'center'; ctx.fillText(_DTG[currentDeliveryType], marker.x, marker.y + 10);
   // Multi-package: small "x/3" stops indicator above marker
   if (currentDeliveryType === 'multi') {
     ctx.fillStyle = '#4cc9f0'; ctx.font = "10px 'Press Start 2P', monospace";
