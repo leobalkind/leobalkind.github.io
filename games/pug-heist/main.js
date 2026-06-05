@@ -81,6 +81,43 @@ let heistDiary = (() => {
   try { return JSON.parse(localStorage.getItem(DIARY_KEY) || '{}'); } catch { return {}; }
 })();
 function _saveDiary() { try { localStorage.setItem(DIARY_KEY, JSON.stringify(heistDiary)); } catch {} }
+// ===== META-PROGRESSION (P9) — persistent VAULT + permanent unlocks =====
+// Declared up here (before the rAF loop) so tick() can read heistMeta without a
+// load-order TDZ. Cash banks across runs; unlocks are permanent perks.
+const META_KEY = 'pug-heist:meta';
+let heistMeta = (() => { try { return JSON.parse(localStorage.getItem(META_KEY) || '{}'); } catch { return {}; } })();
+if (typeof heistMeta.bank !== 'number') heistMeta.bank = 0;
+if (!heistMeta.unlocks) heistMeta.unlocks = {};
+function _saveMeta() { try { localStorage.setItem(META_KEY, JSON.stringify(heistMeta)); } catch {} }
+const META_UNLOCKS = [
+  { id: 'vasePlus',  cost: 800,  name: '+1 VASE',    icon: '🏺', desc: 'Start every floor with an extra throw vase.' },
+  { id: 'quickPaws', cost: 1500, name: 'QUICK PAWS', icon: '⚡', desc: 'Permanent +8% sneak speed.' },
+  { id: 'noseBalm',  cost: 1200, name: 'NOSE BALM',  icon: '🌿', desc: 'Sniffer dogs lose your scent faster.' },
+];
+function bankWinnings(v) { if (v > 0) { heistMeta.bank += Math.round(v); _saveMeta(); } }
+function renderMeta() {
+  const vault = document.getElementById('heist-vault');
+  if (vault) vault.textContent = `🏦 VAULT: $${heistMeta.bank}`;
+  const wrap = document.getElementById('heist-meta');
+  if (!wrap) return;
+  wrap.innerHTML = '';
+  for (const u of META_UNLOCKS) {
+    const owned = !!heistMeta.unlocks[u.id];
+    const afford = heistMeta.bank >= u.cost;
+    const b = document.createElement('button');
+    b.className = 'overlay__btn overlay__btn--small';
+    b.style.cssText = `font-size:0.45rem;${owned ? 'border-color:#5ef38c;color:#5ef38c;' : (afford ? '' : 'opacity:0.5;')}`;
+    b.textContent = owned ? `${u.icon} ${u.name} ✓` : `${u.icon} ${u.name} · $${u.cost}`;
+    b.title = u.desc;
+    if (!owned) b.addEventListener('click', () => {
+      if (heistMeta.bank >= u.cost) {
+        heistMeta.bank -= u.cost; heistMeta.unlocks[u.id] = true; _saveMeta(); renderMeta();
+        try { sfx.arp([523, 784, 1046], 'triangle', 0.08, 0.18, 0.2); } catch {}
+      }
+    });
+    wrap.appendChild(b);
+  }
+}
 let pug, humans, walls, loot, exitZ, floor, barkCd, fartCd, running;
 // Last-shown grade-card handle so start() can dismiss it (otherwise a CAUGHT
 // grade card lingers on top of the new floor when the user clicks REMATCH
@@ -147,6 +184,12 @@ let _alarmAt = 0;                 // gate: throttles alarm sirens to ≥1/2s
 let _stealthPop = 0;              // last "+10 STEALTH" popup time
 let _stealthEstT = 0;             // seconds spent in shadow (resets on any suspicion)
 let _stealthBadgeT = 0;           // fade timer for "STEALTH ESTABLISHED" badge
+// GUIDED TUTORIAL (P3) — a scripted coach on floor 1 (first run only). Each step
+// advances when the player actually performs the action, teaching by doing.
+let tutActive = false;
+let tutStep = 0;
+let tutBarkUsed = false;          // set by doBark() so the bark step can advance
+const TUT_DONE_KEY = 'pug-heist:tutDone';
 // SAFE crack mini-game — 5-tap rhythm. When pug stands on a safe and starts
 // cracking, a timing window opens with 5 sequential taps. Big reward if all hit.
 let safes = [];                   // {x, y, w, h, cracked:false, val:380, tapsHit, tapsNeeded:5}
@@ -160,6 +203,19 @@ let safeFailT = 0;                // brief fail-flash duration
 let scanners = [];                // {x, y, w, h, phase, period, axis}
 // Decoy robot pug visual state
 let decoyBot = null;              // {x, y, t, life} — visible mini-bot during decoy
+// === Wave AA: guard archetypes, chase/grab, comms, scent trail, alarm ===
+let scentTrail = [];              // {x,y,t} pug scent dots (t = 1..0 freshness) — sniffers track these
+let reinforcedThisFloor = false;  // P4: tier-3 reinforcement spawned once per floor
+let _alarmCoolT = 0;              // alarm de-escalation timer
+let _exitLockT = 0;              // P4: exit briefly sealed on full alarm
+let _getawayT = 0;               // P17: "clean getaway" banner timer (building-cycle clears)
+// Per-archetype stats — speed (patrol px/s), chase speed, cone reach + half-angle.
+const GUARD_STATS = {
+  patrol:  { speed: 50, chase: 132, coneReach: 178, fov: 0.60, label: '' },
+  heavy:   { speed: 30, chase: 76,  coneReach: 222, fov: 0.86, label: 'HVY' },
+  watcher: { speed: 0,  chase: 0,   coneReach: 234, fov: 0.52, label: 'CAM' },
+  sniffer: { speed: 62, chase: 122, coneReach: 120, fov: 0.66, label: 'K9'  },
+};
 function addShake(mag, dur) { shakeMag = Math.max(shakeMag, mag); shakeT = Math.max(shakeT, dur); }
 function addPopup(x, y, text, color) {
   // Spawn with small random horizontal drift + jitter so back-to-back popups
@@ -394,16 +450,34 @@ function genFloor(level) {
       }
     }
   }
-  // Humans - 2 + level/2 (floor 1 = 1 human for a softer intro)
+  // Humans — mix of guard ARCHETYPES (Wave AA). Each type has a distinct speed
+  // + cone so a floor reads as a puzzle of different threats instead of a field
+  // of identical cones:
+  //   patrol  — standard rover (medium cone, medium chase)
+  //   heavy   — slow, very WIDE cone, slow chase (the wall you route around)
+  //   watcher — stationary swivel-cam pug; can't chase, but sounds the ALARM
+  //   sniffer — weak eyes, FOLLOWS YOUR SCENT TRAIL (the reason not to backtrack)
   humans = [];
   const humanCount = level === 1 ? 1 : 1 + Math.floor(level / 2) + 1;
+  const _pickType = (i) => {
+    if (level === 1) return 'patrol';
+    if (i === 0) return 'patrol';                 // always one plain patrol
+    const roll = Math.random();
+    if (level >= 3 && roll < 0.22) return 'watcher';
+    if (level >= 4 && roll < 0.46) return 'sniffer';
+    if (level >= 2 && roll < 0.70) return 'heavy';
+    return 'patrol';
+  };
   for (let i = 0; i < humanCount; i++) {
     for (let tries = 0; tries < 50; tries++) {
       const x = W / 2 + (Math.random() - 0.5) * W * 0.5;
       const y = H / 2 + (Math.random() - 0.5) * H * 0.5;
       if (!isWallNear(x, y, 30) && Math.hypot(x - pug.x, y - pug.y) > 200) {
+        const type = _pickType(i);
+        const st = GUARD_STATS[type];
+        const ang0 = Math.random() * Math.PI * 2;
         humans.push({
-          x, y, ang: Math.random() * Math.PI * 2, lookT: 0,
+          x, y, ang: ang0, baseAng: ang0, lookT: 0,
           patrol: [
             { x: x + (Math.random() - 0.5) * 200, y: y + (Math.random() - 0.5) * 200 },
             { x: x + (Math.random() - 0.5) * 200, y: y + (Math.random() - 0.5) * 200 },
@@ -412,6 +486,10 @@ function genFloor(level) {
           state: 'patrol',
           alertT: 0,
           distractTarget: null,
+          // archetype
+          type, speed: st.speed, chaseSpeed: st.chase,
+          coneReach: st.coneReach, coneFov: st.fov,
+          lastSeen: null, chaseLostT: 0,
         });
         break;
       }
@@ -425,8 +503,8 @@ function genFloor(level) {
   alertedThisFloor = false;
   lootValueThisFloor = 0;
   floorStartTime = performance.now();
-  // Throw distraction: 2 vases per floor (+2 with POCKETS+ upgrade)
-  throwsLeft = 2 + (runUpgrades.pockets ? 2 : 0);
+  // Throw distraction: 2 vases per floor (+2 with POCKETS+ upgrade, +1 permanent VASE+ unlock)
+  throwsLeft = 2 + (runUpgrades.pockets ? 2 : 0) + (heistMeta.unlocks.vasePlus ? 1 : 0);
   throwCd = 0; vases = []; noiseRings = [];
   // Assign a room "type" per cell (deterministic per floor)
   const ROOM_TYPES = ['bedroom', 'kitchen', 'living', 'office', 'vault'];
@@ -516,6 +594,13 @@ function genFloor(level) {
   // Stealth combo + ghost recording reset
   perfectFloor = true; comboBonus = 0;
   slowmoT = 0; slowmoUsed = 0; _jumpT = 0; alarmTier = 0;
+  // Wave AA per-floor resets
+  scentTrail = []; reinforcedThisFloor = false; _alarmCoolT = 0; _exitLockT = 0;
+  // Tutorial — floor 1 of the first-ever run only (until cleared once).
+  let _tutSeen = false; try { _tutSeen = !!localStorage.getItem(TUT_DONE_KEY); } catch {}
+  tutActive = (level === 1) && !_tutSeen;
+  tutStep = 0; tutBarkUsed = false;
+  if (pug) { pug._spawnX = pug.x; pug._spawnY = pug.y; }
   _curRecord = { samples: [], floor, theme: buildingTheme, t: 0 };
   _ghostT = 0;
   if (difficulty === 'ghost') { smokeCd = 9999; decoyCd = 9999; }
@@ -639,6 +724,7 @@ canvas.addEventListener('touchend', () => touchAim = null);
 function doBark() {
   if (barkCd > 0 || !running) return;
   barkCd = 5;
+  tutBarkUsed = true;
   sfx.tone(440, 'square', 0.15, 0.22);
   // Find nearest human and distract toward a random direction
   let near = null, bestD = 200;
@@ -959,7 +1045,8 @@ function tick(dt) {
   let heldBars = 0;
   for (const lt of loot) if (lt.taken && lt.kind === 'goldBar') heldBars++;
   const heavyMul = Math.max(0.55, 1 - heldBars * 0.06);
-  const targetSpeed = (pug.fartT > 0 ? 220 : 110) * heavyMul;
+  const _metaSpeed = heistMeta.unlocks.quickPaws ? 1.08 : 1; // QUICK PAWS unlock (P9)
+  const targetSpeed = (pug.fartT > 0 ? 220 : 110) * heavyMul * _metaSpeed;
   let tvx = 0, tvy = 0;
   if (mx || my) {
     const l = Math.hypot(mx, my);
@@ -972,9 +1059,35 @@ function tick(dt) {
   const blend = Math.min(1, accel * dt);
   pug._mvx += (tvx - pug._mvx) * blend;
   pug._mvy += (tvy - pug._mvy) * blend;
-  if (Math.abs(pug._mvx) > 0.5 || Math.abs(pug._mvy) > 0.5) {
+  const _moving = Math.abs(pug._mvx) > 0.5 || Math.abs(pug._mvy) > 0.5;
+  if (_moving) {
     rectCollide(pug, pug._mvx * dt, pug._mvy * dt);
   } else { pug._mvx = 0; pug._mvy = 0; }
+  // SCENT TRAIL (P7) — drop a fading scent dot ~3×/s while moving; sniffers
+  // home in on the freshest nearby one (rendered faintly so you can read it too).
+  pug._scentT = (pug._scentT || 0) + dt;
+  if (_moving && pug._scentT > 0.30) {
+    pug._scentT = 0;
+    scentTrail.push({ x: pug.x, y: pug.y, t: 1 });
+    if (scentTrail.length > 60) scentTrail.shift();
+  }
+  const _scentDecay = heistMeta.unlocks.noseBalm ? 0.27 : 0.16; // NOSE BALM unlock (P9)
+  for (let i = scentTrail.length - 1; i >= 0; i--) {
+    scentTrail[i].t -= dt * _scentDecay; // ~6s (or ~3.5s with Nose Balm)
+    if (scentTrail[i].t <= 0) scentTrail.splice(i, 1);
+  }
+  // THEME HAZARD (P18) — MANSION has CREAKY FLOORBOARDS: sneaking periodically
+  // creaks (a noise spike + ring) so the mansion plays differently from the
+  // other buildings. Holding still keeps you silent; rushing gets you heard.
+  if (buildingTheme === 'mansion' && _moving && pug.fartT <= 0) {
+    pug._creakT = (pug._creakT || 0) + dt;
+    if (pug._creakT > 1.1) {
+      pug._creakT = 0;
+      pug.sound = Math.max(pug.sound, 0.7);
+      noiseRings.push({ x: pug.x, y: pug.y, t: 0, life: 0.7, r: 0 });
+      try { sfx.tone(90, 'sine', 0.06, 0.10); } catch {}
+    }
+  }
 
   // Loot pickup
   for (const lt of loot) {
@@ -1120,6 +1233,15 @@ function tick(dt) {
   // Exit check
   if (loot.every((l) => l.taken)) {
     if (Math.hypot(exitZ.x - pug.x, exitZ.y - pug.y) < exitZ.r) {
+      // P4: full-alarm seals the exit for a few seconds. Fall through (no return)
+      // so the guard AI keeps running and the chasers can still reach you.
+      if (_exitLockT > 0) {
+        if (!pug._exitLockWarned || performance.now() - pug._exitLockWarned > 900) {
+          pug._exitLockWarned = performance.now();
+          addPopup(exitZ.x, exitZ.y - 20, '🔒 EXIT SEALED!', '#ff3a3a');
+          try { sfx.tone(140, 'square', 0.1, 0.18); } catch {}
+        }
+      } else {
       // PERFECT STEALTH combo: floor cleared with no detection AT ALL → 2x value bonus
       if (perfectFloor) {
         const bonus = Math.round(lootValueThisFloor);
@@ -1134,6 +1256,21 @@ function tick(dt) {
       if (perfectFloor) d.master = true;
       heistDiary[t] = d;
       _saveDiary();
+      // CLEAN GETAWAY (P17) — clearing a full 5-building cycle is a milestone:
+      // celebratory burst + getaway banner + a cash kicker.
+      if (floor % 5 === 0) {
+        _getawayT = 2.6;
+        const kicker = 250 * (floor / 5);
+        totalLootValue += kicker;
+        addPopup(pug.x, pug.y - 30, '🚗 CLEAN GETAWAY! +$' + kicker, '#5ef38c');
+        addShake(5, 0.3);
+        try { sfx.arp([523, 659, 784, 1046, 1320], 'triangle', 0.07, 0.16, 0.22); } catch {}
+        for (let i = 0; i < 26; i++) {
+          const a = Math.random() * Math.PI * 2, s = 70 + Math.random() * 120;
+          particles.push({ x: pug.x, y: pug.y, vx: Math.cos(a) * s, vy: Math.sin(a) * s - 30,
+            color: ['#ffd23f', '#5ef38c', '#4cc9f0', '#ff3aa1'][i % 4], life: 0.8, t: 0, size: 3 });
+        }
+      }
       // Save replay buffer as ghost for the NEXT attempt of this same floor.
       if (_curRecord && _curRecord.samples.length > 4) {
         ghostReplay = { ..._curRecord, floor };
@@ -1146,33 +1283,71 @@ function tick(dt) {
       // S/A/B/C/D grade card — wraps openHeistShop on dismissal
       showFloorGrade(true);
       return;
+      }
     }
   }
 
-  // Humans
+  // ===== GUARD AI (Wave AA) — archetypes · chase/grab · comms · scent =====
+  // guardSpeed multiplier now applies to EVERY movement state, not just patrol
+  // (P8 fix — GHOST mode guards are genuinely faster while distracted/searching/chasing).
+  const _gm = (DIFFICULTY[difficulty] || DIFFICULTY.mastermind).guardSpeed;
+  // Clear line-of-sight helper (walls OR smoke clouds break it).
+  const losClear = (ax, ay, bx, by) => {
+    const steps = 16;
+    for (let i = 1; i < steps; i++) {
+      const t = i / steps;
+      const sx = ax + (bx - ax) * t, sy = ay + (by - ay) * t;
+      if (isWallNear(sx, sy, 2)) return false;
+      for (const sb of smokeBombs) if (Math.hypot(sx - sb.x, sy - sb.y) < 90) return false;
+    }
+    return true;
+  };
+  let _chasersThisFrame = 0;
   for (const h of humans) {
     if (h.lookT > 0) h.lookT -= dt;
     if (h.alertT > 0) h.alertT -= dt;
+    const isWatcher = h.type === 'watcher';
+    // ---- Behaviour FSM ----
     if (h.state === 'patrol') {
-      const target = h.patrol[h.patrolIdx];
-      const dx = target.x - h.x, dy = target.y - h.y;
-      const d = Math.hypot(dx, dy);
-      if (d < 20) {
-        h.patrolIdx = (h.patrolIdx + 1) % h.patrol.length;
-        h.lookT = 1.2; // pause to look
-      } else if (h.lookT <= 0) {
-        h.ang = Math.atan2(dy, dx);
-        const gm = (DIFFICULTY[difficulty] || DIFFICULTY.mastermind).guardSpeed;
-        rectCollide(h, (dx / d) * 50 * gm * dt, (dy / d) * 50 * gm * dt);
+      if (isWatcher) {
+        // Stationary swivel-cam — slow sinusoidal sweep around its mount angle.
+        h._sweepT = (h._sweepT || 0) + dt;
+        h.ang = h.baseAng + Math.sin(h._sweepT * 0.7) * 1.1;
+      } else {
+        const target = h.patrol[h.patrolIdx];
+        const dx = target.x - h.x, dy = target.y - h.y;
+        const d = Math.hypot(dx, dy);
+        if (d < 20) {
+          h.patrolIdx = (h.patrolIdx + 1) % h.patrol.length;
+          h.lookT = 1.2; // pause to look
+        } else if (h.lookT <= 0) {
+          h.ang = Math.atan2(dy, dx);
+          rectCollide(h, (dx / d) * h.speed * _gm * dt, (dy / d) * h.speed * _gm * dt);
+        }
+        // SNIFFER (P7) — weak eyes, but diverts toward the freshest nearby scent.
+        if (h.type === 'sniffer' && scentTrail.length) {
+          let best = null, bestScore = -1;
+          for (const s of scentTrail) {
+            const sd = Math.hypot(s.x - h.x, s.y - h.y);
+            if (sd < 150) {
+              const score = (1 - sd / 150) * s.t; // closer + fresher = stronger
+              if (score > bestScore) { bestScore = score; best = s; }
+            }
+          }
+          if (best && bestScore > 0.18) {
+            h.state = 'search';
+            h.searchTarget = { x: best.x, y: best.y };
+            h.searchT = 2.4; h.searchSweep = 0; h.searchBaseAng = null;
+          }
+        }
       }
     } else if (h.state === 'distracted' && h.distractTarget) {
       const dx = h.distractTarget.x - h.x, dy = h.distractTarget.y - h.y;
       const d = Math.hypot(dx, dy);
       h.ang = Math.atan2(dy, dx);
-      if (d > 20) rectCollide(h, (dx / d) * 60 * dt, (dy / d) * 60 * dt);
+      if (!isWatcher && d > 20) rectCollide(h, (dx / d) * 60 * _gm * dt, (dy / d) * 60 * _gm * dt);
       // When the distraction wears off, INVESTIGATE the spot before resuming —
-      // walk there + sweep the cone for ~3s. This is what gives barks/vases/decoys
-      // a real tactical payoff (Hotline Miami / Monaco). (2026-06-05)
+      // walk there + sweep the cone for ~3s (barks/vases/decoys get a payoff).
       if (h.alertT <= 0) {
         h.state = 'search';
         h.searchTarget = h.distractTarget || { x: h.x, y: h.y };
@@ -1182,85 +1357,109 @@ function tick(dt) {
     } else if (h.state === 'search' && h.searchTarget) {
       const dx = h.searchTarget.x - h.x, dy = h.searchTarget.y - h.y;
       const d = Math.hypot(dx, dy);
-      if (d > 22) {
-        // still walking to the last-known spot
+      if (!isWatcher && d > 22) {
         h.ang = Math.atan2(dy, dx);
-        rectCollide(h, (dx / d) * 55 * dt, (dy / d) * 55 * dt);
+        rectCollide(h, (dx / d) * 56 * _gm * dt, (dy / d) * 56 * _gm * dt);
       } else {
-        // arrived — sweep the vision cone left/right while looking, then give up
         if (h.searchBaseAng == null) h.searchBaseAng = h.ang;
         h.searchT -= dt;
         h.searchSweep = (h.searchSweep || 0) + dt;
         h.ang = h.searchBaseAng + Math.sin(h.searchSweep * 2.4) * 1.2;
         if (h.searchT <= 0) { h.state = 'patrol'; h.searchTarget = null; h.searchBaseAng = null; }
       }
+    } else if (h.state === 'chase') {
+      // P1 — pursue the player's last-known position at chase speed. Caught only
+      // on a physical GRAB (below), so a spot is the START of tension, not the end.
+      _chasersThisFrame++;
+      const tgt = h.lastSeen || { x: pug.x, y: pug.y };
+      const dx = tgt.x - h.x, dy = tgt.y - h.y;
+      const d = Math.hypot(dx, dy);
+      h.ang = Math.atan2(dy, dx);
+      if (d > 4) rectCollide(h, (dx / d) * h.chaseSpeed * _gm * dt, (dy / d) * h.chaseSpeed * _gm * dt);
+      if (Math.hypot(pug.x - h.x, pug.y - h.y) < 30 && losClear(h.x, h.y, pug.x, pug.y)) {
+        alertedThisFloor = true; perfectFloor = false;
+        caught(); return;
+      }
     }
-    // Vision cone check — pug in TV light gets spotted easier (cone reach +40)
+
+    // ---- Vision cone (TV light pool extends reach +40) ----
     const dx = pug.x - h.x, dy = pug.y - h.y;
     const d = Math.hypot(dx, dy);
     const ang = Math.atan2(dy, dx);
-    let diff = ang - h.ang;
-    while (diff > Math.PI) diff -= Math.PI * 2;
-    while (diff < -Math.PI) diff += Math.PI * 2;
-    let coneReach = 180;
+    const diff = angDiff(ang, h.ang);
+    let coneReach = h.coneReach || 180;
     for (const tv of tvs) {
-      // TV light pool is a downward 80px-radius half-disc in front of the screen
       const tdx = pug.x - tv.x, tdy = pug.y - tv.y;
-      if (tdy > -10 && Math.hypot(tdx, tdy) < 80) { coneReach = 220; break; }
+      if (tdy > -10 && Math.hypot(tdx, tdy) < 80) { coneReach += 40; break; }
     }
-    const inCone = d < coneReach && Math.abs(diff) < 0.6;
-    // line-of-sight: any wall between?
-    let blocked = false;
-    if (inCone) {
-      const steps = 16;
-      for (let i = 1; i < steps; i++) {
-        const t = i / steps;
-        const sx = h.x + (pug.x - h.x) * t;
-        const sy = h.y + (pug.y - h.y) * t;
-        if (isWallNear(sx, sy, 2)) { blocked = true; break; }
-        // Smoke blocks vision
-        for (const sb of smokeBombs) {
-          if (Math.hypot(sx - sb.x, sy - sb.y) < 90) { blocked = true; break; }
-        }
-        if (blocked) break;
-      }
-    }
-    // Cone-color escalation: mark suspicion based on closeness
+    const inCone = d < coneReach && Math.abs(diff) < (h.coneFov || 0.6);
+    const visible = inCone && losClear(h.x, h.y, pug.x, pug.y);
     if (inCone && d < 240) h._closeT = (h._closeT || 0) + dt; else h._closeT = Math.max(0, (h._closeT || 0) - dt);
-    // SLOW-MO trigger (max 2/floor) — gives 0.5s @ 0.4x speed.
-    if (inCone && !blocked && slowmoT <= 0 && slowmoUsed < 2 && d < 220) {
-      slowmoT = 0.5;
-      slowmoUsed++;
-      sfx.tone(180, 'sine', 0.18, 0.14);
-      addPopup(pug.x, pug.y - 14, 'CLOSE!', '#4cc9f0');
-    }
-    // REACTION WINDOW (Hitman GO / Monaco): a cone no longer kills instantly.
-    // The guard "locks on" over ~0.55s — break line-of-sight (duck behind a
-    // wall, smoke bomb, vent) to escape. Only crossing the threshold = caught,
-    // and only then is the perfect/undetected bonus blown. Cools down ~2x faster
-    // than it builds, so brief cone-sweeps are forgiving. (2026-06-02)
-    if (inCone && !blocked) {
+
+    if (visible) {
+      h.lastSeen = { x: pug.x, y: pug.y };
+      h.chaseLostT = 0;
+      // SLOW-MO close call (only before fully locked on — max 2/floor).
+      if (h.state !== 'chase' && slowmoT <= 0 && slowmoUsed < 2 && d < 200) {
+        slowmoT = 0.5; slowmoUsed++;
+        try { sfx.tone(180, 'sine', 0.18, 0.14); } catch {}
+        addPopup(pug.x, pug.y - 14, 'CLOSE!', '#4cc9f0');
+      }
       h._spotT = (h._spotT || 0) + dt;
       if (!h._spotWarned) {
         h._spotWarned = true;
         addPopup(pug.x, pug.y - 16, '! SPOTTED', '#ff8a3a');
         try { sfx.tone(320, 'square', 0.12, 0.14); } catch (e) { /* */ }
       }
-      if (h._spotT >= 0.55) { alertedThisFloor = true; perfectFloor = false; alarmTier = Math.max(alarmTier, 2); caught(); }
+      // Lock-on window varies by type: heavy is sluggish, sniffer snappy.
+      const lockTime = h.type === 'heavy' ? 0.75 : (h.type === 'sniffer' ? 0.5 : 0.55);
+      if (h._spotT >= lockTime && h.state !== 'chase') {
+        perfectFloor = false; alertedThisFloor = true;
+        if (isWatcher) {
+          // Camera-pug can't chase — it sounds the ALARM and calls the guards.
+          _raiseAlarm(2);
+          _alertNearby(h, pug.x, pug.y, 380);
+          addPopup(h.x, h.y - 24, 'ALARM!', '#ff3a3a');
+        } else {
+          h.state = 'chase';
+          h.lastSeen = { x: pug.x, y: pug.y };
+          _raiseAlarm(2);
+          _alertNearby(h, pug.x, pug.y, 280); // GUARD COMMS (P5)
+          try { sfx.sweep(300, 520, 'square', 0.18, 0.12); } catch {}
+        }
+      }
     } else {
       h._spotT = Math.max(0, (h._spotT || 0) - dt * 2);
       if (h._spotT <= 0) h._spotWarned = false;
+      // Lost sight mid-chase — keep pushing to last-known, then drop to search.
+      if (h.state === 'chase') {
+        h.chaseLostT = (h.chaseLostT || 0) + dt;
+        if (h.chaseLostT > 3) {
+          h.state = 'search';
+          h.searchTarget = h.lastSeen || { x: h.x, y: h.y };
+          h.searchT = 3.2; h.searchSweep = 0; h.searchBaseAng = null;
+        }
+      }
     }
-    // Sound detection (QUIETER PAWS: halve effective sound radius)
+    // ---- Sound detection (QUIETER PAWS halves the radius) ----
     const soundReach = runUpgrades.quietPaws ? 120 : 240;
-    if (pug.sound > 0.6 && d < soundReach) {
-      // turn toward sound
+    if (pug.sound > 0.6 && d < soundReach && h.state !== 'chase' && !isWatcher) {
       h.ang = ang;
       h.state = 'distracted';
       h.distractTarget = { x: pug.x, y: pug.y };
       h.alertT = 1.5;
     }
   }
+  // Alarm de-escalation: with nobody chasing, the alarm cools one tier / 4s.
+  if (_chasersThisFrame === 0 && alarmTier > 0) {
+    _alarmCoolT += dt;
+    if (_alarmCoolT > 4) { alarmTier = Math.max(0, alarmTier - 1); _alarmCoolT = 0; }
+  } else { _alarmCoolT = 0; }
+  // FULL ALARM (P4): 2+ active chasers → tier 3 → one-time reinforcement + exit seal.
+  if (_chasersThisFrame >= 2) _raiseAlarm(3);
+  if (alarmTier >= 3 && !reinforcedThisFloor) { reinforcedThisFloor = true; _spawnReinforcement(); }
+  if (_exitLockT > 0) _exitLockT = Math.max(0, _exitLockT - dt);
+  if (_getawayT > 0) _getawayT = Math.max(0, _getawayT - dt);
   // SECURITY CAMERAS — sweep cone hits = caught (same as guard).
   for (const cam of secCams) {
     const ang = cam.baseAng + Math.sin(cam.phase * cam.sweep) * 1.0;
@@ -1292,7 +1491,16 @@ function tick(dt) {
         addPopup(pug.x, pug.y - 16, '! CAMERA', '#ff8a3a');
         try { sfx.tone(320, 'square', 0.12, 0.14); } catch (e) { /* */ }
       }
-      if (cam._spotT >= 0.55) { alertedThisFloor = true; perfectFloor = false; alarmTier = Math.max(alarmTier, 2); caught(); }
+      if (cam._spotT >= 0.55) {
+        alertedThisFloor = true; perfectFloor = false;
+        _raiseAlarm(2);
+        if (performance.now() - _hazAt > 1200) {
+          _hazAt = performance.now();
+          _triggerPursuit(pug.x, pug.y);
+          addPopup(cam.x, cam.y - 14, 'ALARM!', '#ff3a3a');
+        }
+        cam._spotT = 0; cam._spotWarned = false;
+      }
     } else {
       cam._spotT = Math.max(0, (cam._spotT || 0) - dt * 2);
       if (cam._spotT <= 0) cam._spotWarned = false;
@@ -1306,11 +1514,16 @@ function tick(dt) {
       if (!active) continue;
       const px = pug.x, py = pug.y;
       if (px > lz.x - 8 && px < lz.x + lz.w + 8 && py > lz.y - 8 && py < lz.y + lz.h + 8) {
-        alertedThisFloor = true; perfectFloor = false; alarmTier = 3;
-        _trySiren(now_perf());
+        // Tripping a beam = FULL ALARM + every guard converges (no longer instant
+        // death — you can still run for it). Throttled so the beam doesn't spam.
+        alertedThisFloor = true; perfectFloor = false; _raiseAlarm(3);
         addShake(8, 0.35);
-        for (const h of humans) h.alertT = 4.5; // wake all
-        caught();
+        if (performance.now() - _hazAt > 1200) {
+          _hazAt = performance.now();
+          _trySiren(now_perf());
+          _triggerPursuit(pug.x, pug.y);
+          addPopup(pug.x, pug.y - 18, '⚠ ALARM TRIPPED!', '#ff3a3a');
+        }
         break;
       }
     }
@@ -1323,11 +1536,14 @@ function tick(dt) {
       if (!active) continue;
       const px = pug.x, py = pug.y;
       if (px > sc.x - 6 && px < sc.x + sc.w + 6 && py > sc.y - 6 && py < sc.y + sc.h + 6) {
-        alertedThisFloor = true; perfectFloor = false; alarmTier = 3;
-        _trySiren(now_perf());
+        alertedThisFloor = true; perfectFloor = false; _raiseAlarm(3);
         addShake(7, 0.32);
-        for (const h of humans) h.alertT = 4.5;
-        caught();
+        if (performance.now() - _hazAt > 1200) {
+          _hazAt = performance.now();
+          _trySiren(now_perf());
+          _triggerPursuit(pug.x, pug.y);
+          addPopup(pug.x, pug.y - 18, '⚠ SCANNER ALARM!', '#ff3a3a');
+        }
         break;
       }
     }
@@ -1373,6 +1589,22 @@ function tick(dt) {
     }
   }
   if (_stealthBadgeT > 0) _stealthBadgeT = Math.max(0, _stealthBadgeT - dt);
+  // GUIDED TUTORIAL (P3) — advance the coach step as the player acts.
+  if (tutActive) {
+    const allTaken = loot.length > 0 && loot.every((l) => l.taken);
+    if (tutStep === 0) {
+      const moved = pug._spawnX != null && Math.hypot(pug.x - pug._spawnX, pug.y - pug._spawnY) > 70;
+      if (moved) tutStep = 1;
+    } else if (tutStep === 1) {
+      if (lootStolen >= 1) tutStep = 2;
+    } else if (tutStep === 2) {
+      if (tutBarkUsed) tutStep = 3;
+    } else if (tutStep === 3) {
+      if (allTaken) tutStep = 4; // "head for the exit" — final hint until they leave
+    }
+    // Mark complete once they've reached the exit step (or simply finish floor 1).
+    if (tutStep >= 4) { tutActive = false; try { localStorage.setItem(TUT_DONE_KEY, '1'); } catch {} }
+  }
   updateHud();
 }
 // Throttled alarm siren.
@@ -1382,6 +1614,58 @@ function _trySiren(t) {
   _alarmAt = t;
   sfx.sweep(880, 220, 'square', 0.5, 0.32);
   sfx.tone(110, 'sawtooth', 0.4, 0.4);
+}
+
+// === Wave AA alarm + comms helpers ===
+// Raise the global alarm tier and ping the siren when it actually climbs.
+function _raiseAlarm(tier) {
+  if (tier > alarmTier) { alarmTier = tier; try { _trySiren(now_perf()); } catch {} }
+}
+// GUARD COMMS (P5): a guard who locks on shouts — every OTHER guard within
+// `radius` drops what it's doing and converges on the player's last-known spot.
+function _alertNearby(src, x, y, radius) {
+  for (const o of humans) {
+    if (o === src || o.type === 'watcher') continue;
+    if (o.state === 'chase') continue;
+    if (Math.hypot(o.x - x, o.y - y) > radius) continue;
+    o.state = 'search';
+    o.searchTarget = { x, y };
+    o.searchT = 3.4; o.searchSweep = 0; o.searchBaseAng = null;
+  }
+}
+// REINFORCEMENTS (P4): full alarm summons one fresh patrol near the exit that
+// beelines for the player's last-known position. Once per floor.
+function _spawnReinforcement() {
+  const ex = exitZ ? exitZ.x : W - 60, ey = exitZ ? exitZ.y : 60;
+  const st = GUARD_STATS.patrol;
+  const g = {
+    x: ex, y: ey + 40, ang: Math.PI / 2, baseAng: Math.PI / 2, lookT: 0,
+    patrol: [{ x: ex, y: ey + 40 }, { x: ex - 120, y: ey + 80 }],
+    patrolIdx: 0, state: 'search',
+    searchTarget: { x: pug.x, y: pug.y }, searchT: 6, searchSweep: 0, searchBaseAng: null,
+    alertT: 0, distractTarget: null,
+    type: 'patrol', speed: st.speed, chaseSpeed: st.chase,
+    coneReach: st.coneReach, coneFov: st.fov, lastSeen: null, chaseLostT: 0,
+    _reinforced: true,
+  };
+  humans.push(g);
+  _exitLockT = 4.5; // seal the exit briefly so you can't just sprint out
+  addShake(8, 0.4);
+  addPopup(pug.x, pug.y - 30, '⚠ REINFORCEMENTS!', '#ff3a3a');
+  try { sfx.sweep(660, 180, 'sawtooth', 0.5, 0.4); } catch {}
+}
+// Hazards (cameras / lasers) no longer instant-kill — they TRIGGER A PURSUIT:
+// the nearest mobile guard starts chasing your spot, the rest converge to search.
+let _hazAt = 0;
+function _triggerPursuit(x, y) {
+  let nearest = null, bd = Infinity;
+  for (const h of humans) {
+    if (h.type === 'watcher') continue;
+    const dd = Math.hypot(h.x - x, h.y - y);
+    if (dd < bd) { bd = dd; nearest = h; }
+  }
+  if (nearest) { nearest.state = 'chase'; nearest.lastSeen = { x, y }; nearest.chaseLostT = 0; }
+  _alertNearby(nearest || {}, x, y, 99999);
 }
 
 function caught() {
@@ -1416,6 +1700,9 @@ function caught() {
   document.getElementById('hud').hidden = true;
   document.getElementById('end-overlay').hidden = false;
   document.getElementById('end-overlay').classList.remove('is-hidden');
+  // META (P9): bank this run's haul toward permanent unlocks, refresh the panel.
+  bankWinnings(totalLootValue);
+  renderMeta();
   // Grade card layered above the end-overlay buttons (per the spec).
   showFloorGrade(false);
 }
@@ -1812,53 +2099,70 @@ function render() {
     ctx.fillStyle = '#5ef38c'; ctx.font = "20px sans-serif"; ctx.textAlign = 'center';
     ctx.fillText('EXIT', exitZ.x, exitZ.y + 6);
   }
-  // Humans + vision cones (color shifts with suspicion) — depth-sort so
-  // overlapping guards layer back-to-front for a fake 3D feel.
+  // SCENT TRAIL (P7) — faint green paw-glow the sniffer tracks (you can read it too).
+  for (const s of scentTrail) {
+    ctx.fillStyle = `rgba(120,210,150,${0.12 * s.t})`;
+    ctx.beginPath(); ctx.arc(s.x, s.y, 5, 0, Math.PI * 2); ctx.fill();
+  }
+  // Humans + vision cones — color now reads guard AWARENESS at a glance (P6):
+  //   calm = soft yellow · searching/suspicious = amber · CHASING = hot red.
+  // Cone reach + spread come from each guard's archetype so a wide heavy cone
+  // and a narrow sniffer cone look genuinely different. Depth-sorted for fake 3D.
   _depthSort(humans);
   for (const h of humans) {
-    // cone color: yellow safe → orange suspicious → red alerted
-    const sus = Math.min(1, (h._closeT || 0) / 1.5);
-    const alert = h.alertT > 0 ? 1 : 0;
-    const r = Math.max(255, Math.floor(255));
-    const g = alert ? 58 : Math.floor(210 - sus * 130);
-    const b = alert ? 58 : Math.floor(63 - sus * 5);
-    // GHOST CONE — faint preview of where guard will be facing in ~1.5s.
-    // Hitman-GO-style readability: lets players plan peeks. Hidden while alerted.
-    if (!alert) {
+    const chasing = h.state === 'chase';
+    const searching = !chasing && (h.state === 'search' || h.state === 'distracted' || h.alertT > 0);
+    let cr, cg, cb;
+    if (chasing) { cr = 255; cg = 46; cb = 46; }
+    else if (searching) { cr = 255; cg = 176; cb = 48; }
+    else { const sus = Math.min(1, (h._closeT || 0) / 1.5); cr = 255; cg = Math.floor(210 - sus * 150); cb = Math.floor(70 - sus * 8); }
+    const reach = h.coneReach || 180;
+    const fov = h.coneFov || 0.6;
+    // GHOST CONE — faint preview of facing in ~1.5s (only while calm/patrolling).
+    if (!chasing && !searching) {
       const ghostAng = predictGuardAngle(h);
       if (ghostAng !== null && Math.abs(angDiff(ghostAng, h.ang)) > 0.08) {
-        ctx.fillStyle = `rgba(${r},${g},${b},0.08)`;
-        ctx.strokeStyle = `rgba(${r},${g},${b},0.35)`;
+        ctx.fillStyle = `rgba(${cr},${cg},${cb},0.08)`;
+        ctx.strokeStyle = `rgba(${cr},${cg},${cb},0.35)`;
         ctx.lineWidth = 1;
         ctx.setLineDash([4, 4]);
         ctx.beginPath();
         ctx.moveTo(h.x, h.y);
-        ctx.arc(h.x, h.y, 180, ghostAng - 0.6, ghostAng + 0.6);
+        ctx.arc(h.x, h.y, reach, ghostAng - fov, ghostAng + fov);
         ctx.closePath(); ctx.fill(); ctx.stroke();
         ctx.setLineDash([]);
       }
     }
-    ctx.fillStyle = `rgba(${r},${g},${b},0.20)`;
+    ctx.fillStyle = `rgba(${cr},${cg},${cb},${chasing ? 0.30 : 0.20})`;
     ctx.beginPath();
     ctx.moveTo(h.x, h.y);
-    ctx.arc(h.x, h.y, 180, h.ang - 0.6, h.ang + 0.6);
+    ctx.arc(h.x, h.y, reach, h.ang - fov, h.ang + fov);
     ctx.closePath(); ctx.fill();
     // depth3D drop shadow under guard
     _depthShadow(ctx, h.x, h.y + 16, 18, { alpha: 0.4 });
-    // Guard body + theme uniform. Each guard receives a stable variant index
-    // (cached on first draw) so they keep the same uniform across frames even
-    // though humans are not labeled. Variants are picked from a theme palette
-    // so e.g. museum gives jacket/cap/blazer/captain looks while office gives
-    // suit/tie/blazer/lanyard looks. Pure cosmetic.
+    // Guard body + theme uniform (stable per-guard variant).
     if (h._uniformIdx == null) h._uniformIdx = ((h.x | 0) ^ (h.y | 0)) % 4;
     const _gOut = _heistGuardOutfit(buildingTheme, h._uniformIdx);
-    drawPug(ctx, h.x, h.y, { size: 32, ..._gOut });
-    _drawHeistGuardAccessory(ctx, h.x, h.y, buildingTheme, h._uniformIdx, 32);
+    // Watchers are mounted cameras — draw smaller + greyer so they read as fixtures.
+    const gsize = h.type === 'watcher' ? 24 : (h.type === 'heavy' ? 38 : 32);
+    drawPug(ctx, h.x, h.y, { size: gsize, ..._gOut });
+    _drawHeistGuardAccessory(ctx, h.x, h.y, buildingTheme, h._uniformIdx, gsize);
     // facing dot
     ctx.fillStyle = '#fff';
     ctx.beginPath(); ctx.arc(h.x + Math.cos(h.ang) * 10, h.y + Math.sin(h.ang) * 10, 3, 0, Math.PI * 2); ctx.fill();
-    if (h.alertT > 0) {
-      ctx.fillStyle = '#ff3a3a'; ctx.font = "12px sans-serif"; ctx.textAlign = 'center';
+    // Archetype badge so the threat type reads instantly.
+    const badge = GUARD_STATS[h.type] ? GUARD_STATS[h.type].label : '';
+    if (badge) {
+      ctx.fillStyle = 'rgba(0,0,0,0.55)';
+      ctx.font = "7px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
+      ctx.fillText(badge, h.x, h.y + (h.type === 'watcher' ? 20 : 26));
+    }
+    // State indicator above the head.
+    if (chasing) {
+      ctx.fillStyle = '#ff3a3a'; ctx.font = "bold 14px sans-serif"; ctx.textAlign = 'center';
+      ctx.fillText('!!', h.x, h.y - 24);
+    } else if (searching) {
+      ctx.fillStyle = '#ffb030'; ctx.font = "12px sans-serif"; ctx.textAlign = 'center';
       ctx.fillText('?', h.x, h.y - 22);
     }
   }
@@ -2672,6 +2976,95 @@ function drawGadgetHud() {
     ctx.fillStyle = '#1a0d05';
     ctx.beginPath(); ctx.arc(ex, ey, 3, 0, Math.PI * 2); ctx.fill();
   }
+  // NOISE METER (P12) — shows how loud you currently are. pug.sound spikes on
+  // bark/fart/throw; guards within range turn toward you above the red mark.
+  // Tells the player WHY a guard suddenly looked over.
+  {
+    const nx = 42, ny = 22, nw = 64, nh = 7;
+    const lvl = Math.min(1, (pug && pug.sound ? pug.sound : 0) / 1.2);
+    ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.fillRect(nx, ny, nw, nh);
+    // fill: green (quiet) → yellow → red (loud enough to attract guards)
+    const nc = lvl > 0.5 ? '#ff3a3a' : (lvl > 0.25 ? '#ffd23f' : '#5ef38c');
+    ctx.fillStyle = nc; ctx.fillRect(nx + 1, ny + 1, (nw - 2) * lvl, nh - 2);
+    // red threshold tick at the 0.6 "guards hear you" mark
+    ctx.fillStyle = 'rgba(255,90,90,0.9)'; ctx.fillRect(nx + (nw - 2) * 0.5, ny - 1, 1, nh + 2);
+    ctx.fillStyle = '#b0e8ff'; ctx.font = "6px 'Press Start 2P', monospace"; ctx.textAlign = 'left';
+    ctx.fillText('NOISE', nx, ny + nh + 7);
+  }
+  // ALARM-TIER pips (top, under theme banner) — calm → suspicion → alert → ALARM.
+  if (alarmTier > 0) {
+    const labels = ['', 'SUSPICION', 'ALERT', '⚠ FULL ALARM'];
+    const cols = ['', '#ffd23f', '#ff8e3c', '#ff3a3a'];
+    ctx.fillStyle = cols[alarmTier];
+    ctx.font = "8px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
+    const blink = alarmTier >= 3 ? (0.5 + 0.5 * Math.sin(performance.now() / 120)) : 1;
+    ctx.globalAlpha = blink;
+    ctx.fillText(labels[alarmTier], W / 2, 34);
+    ctx.globalAlpha = 1;
+  }
+  // OBJECTIVE BANNER + EXIT ARROW (P13) — always tells you what to do next.
+  {
+    let takenN = 0; for (const l of loot) if (l.taken) takenN++;
+    const allLoot = takenN >= loot.length;
+    const txt = allLoot ? '→ ESCAPE TO THE EXIT' : `STEAL LOOT  ${takenN}/${loot.length}`;
+    ctx.font = "9px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
+    const tw = ctx.measureText(txt).width;
+    ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(W / 2 - tw / 2 - 8, H - 30, tw + 16, 18);
+    ctx.fillStyle = allLoot ? '#5ef38c' : '#ffd23f';
+    ctx.fillText(txt, W / 2, H - 17);
+    // When the loot's all gathered, point a screen-edge arrow at the exit.
+    if (allLoot && exitZ) {
+      const cam = getCamera();
+      const sx = (exitZ.x - cam.x) * CAM_ZOOM;
+      const sy = (exitZ.y - cam.y) * CAM_ZOOM;
+      const off = sx < 40 || sx > W - 40 || sy < 40 || sy > H - 40;
+      if (off) {
+        const ang = Math.atan2(sy - H / 2, sx - W / 2);
+        const m = 54, hw = W / 2 - m, hh = H / 2 - m;
+        const tx = Math.cos(ang), ty = Math.sin(ang);
+        const sc = Math.min(Math.abs(tx) > 1e-3 ? hw / Math.abs(tx) : Infinity, Math.abs(ty) > 1e-3 ? hh / Math.abs(ty) : Infinity);
+        const ax = W / 2 + tx * sc, ay = H / 2 + ty * sc;
+        ctx.save(); ctx.translate(ax, ay); ctx.rotate(ang);
+        ctx.shadowColor = '#5ef38c'; ctx.shadowBlur = 14;
+        ctx.fillStyle = '#5ef38c';
+        ctx.beginPath(); ctx.moveTo(20, 0); ctx.lineTo(-8, -12); ctx.lineTo(-2, 0); ctx.lineTo(-8, 12); ctx.closePath(); ctx.fill();
+        ctx.restore(); ctx.shadowBlur = 0;
+      }
+    }
+  }
+  // GUIDED TUTORIAL coach banner (P3) — big readable hint at top-center, floor 1.
+  if (tutActive) {
+    const steps = [
+      _isTouch ? '① Drag the JOYSTICK to sneak around' : '① Use WASD to sneak around',
+      '② Grab the glowing LOOT — stay out of guard cones',
+      _isTouch ? '③ Tap BARK to lure a guard to the noise' : '③ Press SPACE to BARK — lure a guard away',
+      '④ Got it all? Slip out the green EXIT →',
+    ];
+    const msg = steps[Math.min(tutStep, 3)];
+    ctx.font = "9px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
+    const tw = ctx.measureText(msg).width;
+    const by = 52;
+    ctx.fillStyle = 'rgba(10,7,22,0.86)';
+    ctx.fillRect(W / 2 - tw / 2 - 12, by - 13, tw + 24, 22);
+    ctx.strokeStyle = '#5ef38c'; ctx.lineWidth = 1;
+    ctx.strokeRect(W / 2 - tw / 2 - 12, by - 13, tw + 24, 22);
+    ctx.fillStyle = '#5ef38c';
+    ctx.fillText(msg, W / 2, by + 1);
+    ctx.fillStyle = 'rgba(176,232,255,0.7)'; ctx.font = "6px 'Press Start 2P', monospace";
+    ctx.fillText('TUTORIAL', W / 2, by - 18);
+  }
+  // CLEAN GETAWAY banner (P17) — flashes over the screen on a building-cycle clear.
+  if (_getawayT > 0) {
+    const k = Math.min(1, _getawayT / 2.6);
+    ctx.fillStyle = `rgba(10,7,22,${0.45 * k})`; ctx.fillRect(0, 0, W, H);
+    ctx.textAlign = 'center';
+    ctx.fillStyle = `rgba(94,243,140,${k})`;
+    ctx.font = "22px 'Press Start 2P', monospace";
+    ctx.fillText('🚗 CLEAN GETAWAY', W / 2, H / 2 - 6);
+    ctx.fillStyle = `rgba(176,232,255,${k})`;
+    ctx.font = "9px 'Press Start 2P', monospace";
+    ctx.fillText('BUILDING CLEARED · ON TO THE NEXT JOB', W / 2, H / 2 + 22);
+  }
   // MINI-MAP (toggle M) — top-right
   if (miniMapOn) drawMiniMap();
   // v4 polish: STEALTH MODE VIGNETTE — subtle blue tint pulse when fully
@@ -2862,6 +3255,7 @@ function _renderDiary() {
   el.innerHTML = h;
 }
 _renderDiary();
+renderMeta();
 
 // =============================================================================
 // CONTRACTS — random objective overlay rolled once per run (~50% chance).
@@ -2926,6 +3320,7 @@ function start() {
   showContractBanner();
   closeHeistShop();
   renderHeistShopChips();
+  renderMeta();
   // Dismiss any lingering grade card from the previous run.
   try { _activeGradeCard?.close?.(); } catch (e) { /* */ }
   _activeGradeCard = null;
@@ -3159,11 +3554,20 @@ function showFloorBriefing(level) {
   if (!_briefingOv || !document.getElementById('brief-floor')) { genFloor(level); return; }
   const theme = BUILDING_THEMES[(level - 1) % BUILDING_THEMES.length];
   const flavor = { museum: 'Gems + artifacts. Fragile haul.', bank: 'Heavy gold bars slow you.',
-    mansion: 'Paintings block vision while held.', office: 'Plentiful laptops, low value.',
+    mansion: 'CREAKY FLOORS — moving makes noise.', office: 'Plentiful laptops, low value.',
     airport: 'Luggage + passports. WATCH the X-RAY scanners.' }[theme] || '';
   document.getElementById('brief-floor').textContent = level;
   document.getElementById('brief-theme').textContent = theme.toUpperCase();
-  document.getElementById('brief-flavor').textContent = flavor;
+  // CASE FILE threat intel (P15) — estimated guard count + which specialists
+  // start showing up at this depth, so the briefing reads like a heist dossier.
+  const guardEst = level === 1 ? 1 : 1 + Math.floor(level / 2) + 1;
+  const specialists = [];
+  if (level >= 2) specialists.push('HEAVY');
+  if (level >= 3) specialists.push('CAM');
+  if (level >= 4) specialists.push('K9');
+  if (level >= 1 && difficulty !== 'student') specialists.push('cams');
+  const intel = `🚨 ~${guardEst} guards${specialists.length ? ' · ' + specialists.slice(0, 3).join(' / ') : ''}`;
+  document.getElementById('brief-flavor').textContent = flavor + '  ' + intel;
   const lootCount = 4 + level;
   const pool = THEME_LOOT[theme] || [];
   const avg = pool.length ? pool.reduce((s, t) => s + t.val, 0) / pool.length : 80;
@@ -3220,13 +3624,16 @@ if (_startOv) {
 // === Round 3B: start/end screen polish (fun-facts, new-best confetti, share, view-data, replay-prompt) ===
 (function _r3bPolish(){
   const FACTS = [
-    'TIP: Bark from far away — humans investigate the sound.',
-    'TIP: Smoke bombs blind the vision cone for 3 seconds.',
-    'TIP: Rare loot (gold) = 5× score bonus.',
-    'TIP: Stay UNDETECTED on a floor for the S-grade.',
+    'TIP: Spotted? Break line of sight — a chase isn\'t a capture.',
+    'TIP: Smoke bombs blind cones AND let you slip a chasing guard.',
+    'TIP: K9 sniffers follow your SCENT — don\'t backtrack past them.',
+    'TIP: CAM watchers can\'t move, but they\'ll sound the alarm.',
+    'TIP: HEAVY guards have huge cones but are slow — out-run them.',
+    'TIP: Trip a laser and EVERY guard converges. Jump (J) over beams.',
+    'TIP: Bank your haul for permanent VAULT unlocks between runs.',
+    'TIP: Full alarm seals the exit — lose the heat before you leave.',
+    'TIP: Stay UNDETECTED on a floor for the S-grade + 2× bonus.',
     'LORE: The Heist Society pugs have stolen for centuries.',
-    'TIP: Decoy pugs distract guards for 6 seconds.',
-    'LORE: The forbidden cheese is in the master bedroom.',
     'JOKE: A pug walks into a kitchen — and steals everything.',
   ];
   const GAME_ID = 'pug-heist';
