@@ -641,16 +641,35 @@ function predictGuardAngle(h) {
 }
 
 // Camera: 1.25x zoom centered on pug, clamped to world bounds (0,0)→(W,H).
+// The center is a SMOOTHED point (_camCX/_camCY) that eases toward the pug plus a
+// small velocity look-ahead — updated once per frame in tick(). Snapping straight
+// to pug.x/pug.y read rigid; the lag + lead gives top-down movement real weight.
 const CAM_ZOOM = 1.25;
+let _camCX = null, _camCY = null;
 function getCamera() {
   const viewW = W / CAM_ZOOM, viewH = H / CAM_ZOOM;
-  const cx = pug ? pug.x : W / 2;
-  const cy = pug ? pug.y : H / 2;
+  const cx = _camCX != null ? _camCX : (pug ? pug.x : W / 2);
+  const cy = _camCY != null ? _camCY : (pug ? pug.y : H / 2);
   let camX = cx - viewW / 2;
   let camY = cy - viewH / 2;
   camX = Math.max(0, Math.min(W - viewW, camX));
   camY = Math.max(0, Math.min(H - viewH, camY));
   return { x: camX, y: camY, zoom: CAM_ZOOM };
+}
+// Waddle pose for the hero pug while walking — a hoppy bob plus an alternating
+// squash/stretch that grows with speed (so a fart-sprint reads more frantic).
+// Returns null when essentially still so the pug rests flat.
+function _pugWaddle() {
+  if (!pug) return null;
+  const spd = Math.hypot(pug._mvx || 0, pug._mvy || 0);
+  if (spd < 8) return null;
+  const f = Math.min(1, spd / 130);
+  const p = pug._waddleP || 0;
+  return {
+    bob: Math.abs(Math.sin(p)) * 2.4 * f,   // lifts on each "step"
+    sx: 1 + Math.sin(p * 2) * 0.05 * f,
+    sy: 1 - Math.sin(p * 2) * 0.05 * f,
+  };
 }
 // Convert screen-space (clientX/clientY) coords into world coords for input.
 function screenToWorld(sx, sy) {
@@ -967,6 +986,12 @@ function tick(dt) {
   // keeps falling even after running=false.
   if (pug && pug.knockedT != null) pug.knockedT += dt;
   if (!running) return;
+  // GUARD: start() flips running=true and shows the pre-floor briefing BEFORE the
+  // first genFloor() builds `pug`. Without this, tick() touched pug.fartT while it
+  // was still undefined and threw — and because the throw skips the loop's
+  // requestAnimationFrame(loop) call, it permanently KILLED the render loop (black
+  // screen, unplayable). Bail until the floor — and the pug — actually exist.
+  if (!pug) return;
   if (shopPending) return; // pause world while shop overlay is open
   // Hit-pause — freeze the world for a few frames after a knockout (set in caught()).
   if (_hitstopT && _hitstopT > 0) { _hitstopT -= dt; return; }
@@ -1063,6 +1088,21 @@ function tick(dt) {
   if (_moving) {
     rectCollide(pug, pug._mvx * dt, pug._mvy * dt);
   } else { pug._mvx = 0; pug._mvy = 0; }
+  // SMOOTH CAMERA (game-feel) — ease the view center toward the pug plus a short
+  // velocity look-ahead so you see a touch further in the direction you're going.
+  // Snap on big gaps (new floor / vent teleport) so we don't pan across the map.
+  const _laX = pug._mvx * 0.26, _laY = pug._mvy * 0.26;
+  const _tcx = pug.x + _laX, _tcy = pug.y + _laY;
+  if (_camCX == null || Math.hypot(_tcx - _camCX, _tcy - _camCY) > 260) {
+    _camCX = _tcx; _camCY = _tcy;
+  } else {
+    const _cb = Math.min(1, 7 * dt);
+    _camCX += (_tcx - _camCX) * _cb;
+    _camCY += (_tcy - _camCY) * _cb;
+  }
+  // WADDLE — advance the gait phase while moving (drives the bob + squash in render).
+  const _spd = Math.hypot(pug._mvx, pug._mvy);
+  if (_spd > 8) pug._waddleP = (pug._waddleP || 0) + dt * (6 + _spd * 0.03);
   // SCENT TRAIL (P7) — drop a fading scent dot ~3×/s while moving; sniffers
   // home in on the freshest nearby one (rendered faintly so you can read it too).
   pug._scentT = (pug._scentT || 0) + dt;
@@ -1708,6 +1748,10 @@ function caught() {
 }
 
 function render() {
+  // GUARD: the loop calls render() whenever running is true, but start() turns
+  // running on while the pre-floor briefing is up — before genFloor() builds the
+  // world. Drawing then threw ("walls is not iterable"). Wait for the floor.
+  if (!pug || !walls) return;
   // Screen shake offset
   let _sx = 0, _sy = 0;
   if (shakeT > 0 && shakeMag > 0) {
@@ -2260,6 +2304,15 @@ function render() {
   // Theme-based pug outfit. Each building gives the pug a distinct disguise so
   // returning players can tell what floor they're on at a glance.
   const _pugOutfit = _heistPugOutfit(buildingTheme);
+  // WADDLE/SQUASH (game-feel) — a little hop + alternating squash while walking
+  // so the hero reads as alive in motion. Skipped while knocked (own pose).
+  const _wob = isKnocked ? null : _pugWaddle();
+  if (_wob) {
+    ctx.save();
+    ctx.translate(pug.x, pug.y - _wob.bob);
+    ctx.scale(_wob.sx, _wob.sy);
+    ctx.translate(-pug.x, -pug.y);
+  }
   if (hitFlashT > 0) {
     ctx.save(); ctx.filter = 'brightness(2.5) saturate(0)';
     drawPug(ctx, pug.x, pug.y, { size: 30, ..._pugOutfit });
@@ -2269,6 +2322,7 @@ function render() {
     drawPug(ctx, pug.x, pug.y, { size: 30, ..._pugOutfit });
     _drawHeistPugAccessory(ctx, pug.x, pug.y, buildingTheme, 30);
   }
+  if (_wob) ctx.restore();
   if (isKnocked) { ctx.restore(); }
   // restore actual y after jump-lift draw offset
   if (_jumpLift) pug.y = _origY;
@@ -3403,7 +3457,12 @@ setInterval(() => { if (running) _heistUpdateMusic(performance.now()); }, 350);
 let lastT = performance.now();
 (function loop(now) {
   const dt = Math.min((now - lastT) / 1000, 0.05);
-  lastT = now; tick(dt); if (running) render();
+  lastT = now;
+  // Resilience: keep the rAF loop alive even if a frame throws. A single
+  // uncaught error used to skip the reschedule below and brick the whole game
+  // (black screen). Log it but always re-request the next frame.
+  try { tick(dt); if (running) render(); }
+  catch (e) { console.error('pug-heist frame error:', e); }
   requestAnimationFrame(loop);
 })(performance.now());
 
