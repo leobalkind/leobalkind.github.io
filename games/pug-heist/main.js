@@ -1170,7 +1170,30 @@ function tick(dt) {
       const d = Math.hypot(dx, dy);
       h.ang = Math.atan2(dy, dx);
       if (d > 20) rectCollide(h, (dx / d) * 60 * dt, (dy / d) * 60 * dt);
-      if (h.alertT <= 0) { h.state = 'patrol'; h.distractTarget = null; }
+      // When the distraction wears off, INVESTIGATE the spot before resuming —
+      // walk there + sweep the cone for ~3s. This is what gives barks/vases/decoys
+      // a real tactical payoff (Hotline Miami / Monaco). (2026-06-05)
+      if (h.alertT <= 0) {
+        h.state = 'search';
+        h.searchTarget = h.distractTarget || { x: h.x, y: h.y };
+        h.searchT = 3.0; h.searchSweep = 0; h.searchBaseAng = null;
+        h.distractTarget = null;
+      }
+    } else if (h.state === 'search' && h.searchTarget) {
+      const dx = h.searchTarget.x - h.x, dy = h.searchTarget.y - h.y;
+      const d = Math.hypot(dx, dy);
+      if (d > 22) {
+        // still walking to the last-known spot
+        h.ang = Math.atan2(dy, dx);
+        rectCollide(h, (dx / d) * 55 * dt, (dy / d) * 55 * dt);
+      } else {
+        // arrived — sweep the vision cone left/right while looking, then give up
+        if (h.searchBaseAng == null) h.searchBaseAng = h.ang;
+        h.searchT -= dt;
+        h.searchSweep = (h.searchSweep || 0) + dt;
+        h.ang = h.searchBaseAng + Math.sin(h.searchSweep * 2.4) * 1.2;
+        if (h.searchT <= 0) { h.state = 'patrol'; h.searchTarget = null; h.searchBaseAng = null; }
+      }
     }
     // Vision cone check — pug in TV light gets spotted easier (cone reach +40)
     const dx = pug.x - h.x, dy = pug.y - h.y;

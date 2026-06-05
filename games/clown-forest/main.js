@@ -68,6 +68,25 @@ const playOwl         = ()     => { try { audio?.playOwl?.(); } catch {} };
 const playAmbience    = (v)    => { try { (audio?.playAmbience || audio?.playForestAmbience)?.call(audio, v); } catch {} };
 const stopAllMusic    = ()     => { try { audio?.stopAllMusic?.(); } catch {} };
 const startAudio      = ()     => { try { audio?.start?.(); } catch {} };
+// BULLETPROOF AUDIO START (2026-06-04): the browser's autoplay policy keeps the
+// AudioContext suspended until a real user gesture. Some players reported "no
+// sound at all" — so we now (re)start the audio on the FIRST of ANY interaction
+// anywhere on the page, not just the ENTER click. Idempotent (start() returns if
+// already running); stays until it actually starts.
+(function ensureAudioOnGesture() {
+  let done = false;
+  const kick = () => {
+    try { audio?.start?.(); } catch (e) { /* */ }
+    // consider it done only once the context is actually running
+    try { if (audio && audio.isRunning && audio.isRunning()) done = true; } catch (e) { done = true; }
+    if (done) {
+      ['pointerdown', 'mousedown', 'touchstart', 'keydown', 'click'].forEach((ev) =>
+        window.removeEventListener(ev, kick, true));
+    }
+  };
+  ['pointerdown', 'mousedown', 'touchstart', 'keydown', 'click'].forEach((ev) =>
+    window.addEventListener(ev, kick, { capture: true }));
+})();
 const stopAudio       = ()     => { try { audio?.stop?.(); } catch {} };
 const updateClownDist = (d)    => { try { audio?.updateClownDistance?.(d); } catch {} };
 const setHeartbeat    = (r)    => { try { audio?.setHeartbeatRate?.(r); } catch {} };

@@ -124,7 +124,7 @@ const MONSTER_WANDER_SPEED = 1.6;
 const MONSTER_HUNT_SPEED = 3.1;
 const MONSTER_DETECT_DIST = 50;
 const MONSTER_CATCH_DIST = 1.6;
-const MONSTER_TELEPORT_INTERVAL = 30; // seconds without sighting → relocate
+const MONSTER_TELEPORT_INTERVAL = 16; // seconds without sighting → relocate near player (was 30 — felt absent)
 // Sanity
 const SANITY_DRAIN_BASE = 0.6;       // per second when not in light
 const SANITY_DRAIN_MONSTER = 4.0;    // per second when monster within 25m
@@ -2251,7 +2251,10 @@ function tickMonster(dt) {
     if (!monsterState.wanderTarget || Math.hypot(
           monsterState.pos.x - monsterState.wanderTarget.x,
           monsterState.pos.z - monsterState.wanderTarget.z) < 1.0) {
-      const ang = Math.random() * Math.PI * 2;
+      // Bias the wander TOWARD the player (70%) so it closes in over time and is
+      // actually encountered — instead of drifting aimlessly and never being seen.
+      const toPlayer = Math.atan2(dz, dx);
+      const ang = (Math.random() < 0.7) ? toPlayer + (Math.random() - 0.5) * 1.4 : Math.random() * Math.PI * 2;
       const r = 6 + Math.random() * 12;
       monsterState.wanderTarget = {
         x: monsterState.pos.x + Math.cos(ang) * r,
@@ -2298,7 +2301,7 @@ function tickMonster(dt) {
       && now() - monsterState.lastTeleport > MONSTER_TELEPORT_INTERVAL) {
     monsterState.lastTeleport = now();
     const ang = Math.random() * Math.PI * 2;
-    const r = 35 + Math.random() * 20;
+    const r = 16 + Math.random() * 12;   // relocate to STALKING range (was 35-55m, lost in fog)
     monsterState.pos.x = player.pos.x + Math.cos(ang) * r;
     monsterState.pos.z = player.pos.z + Math.sin(ang) * r;
     monsterSprite.position.set(monsterState.pos.x, MONSTER_HEIGHT / 2 + 0.3, monsterState.pos.z);

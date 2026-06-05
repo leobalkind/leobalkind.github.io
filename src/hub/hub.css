@@ -1030,10 +1030,10 @@ body.reduced-motion .card:focus-visible {
   justify-content: space-between;
   align-items: center;
   padding: 8px 10px;
-  border: 1px solid var(--border);
+  border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 4px;
   margin-bottom: 6px;
-  background: rgba(0, 0, 0, 0.3);
+  background: #4a4d5a;   /* light-gray for clear contrast (was rgba(0,0,0,0.3)) */
 }
 .profile-item.is-active { border-color: var(--neon-cyan); background: rgba(76, 201, 240, 0.12); }
 .profile-item__name { color: var(--text); font-size: 0.9rem; }
@@ -1783,9 +1783,11 @@ body.login-locked #signed-in-pill { pointer-events: none; filter: blur(2px) satu
   align-items: center;
   gap: 12px;
   padding: 10px 12px;
-  border: 2px solid var(--border);
+  border: 2px solid rgba(255, 255, 255, 0.14);
   border-radius: 8px;
-  background: rgba(0, 0, 0, 0.35);
+  /* Light-gray tile so each profile reads clearly against the dark panel
+     (was a near-invisible rgba(0,0,0,0.35)). Light text stays readable. */
+  background: #4a4d5a;
   cursor: pointer;
   transition: border-color 0.15s, background 0.15s, transform 0.12s, box-shadow 0.15s;
   position: relative;

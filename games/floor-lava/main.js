@@ -46,6 +46,9 @@ let nextMilestone = 5;
 let hitFlashT = 0;
 let shakeT = 0, shakeMag = 0;
 let caveOffset = 0;   // background parallax y scroll
+let climbY = 0;       // total distance scrolled (real climb height) — the camera
+                      // clamps pug.y, so height MUST come from this accumulator,
+                      // not from pug.y, or it freezes after the first screen.
 // Map decor — stalactites/stalagmites + strata bands stored as world-y arrays
 let caveSpikes = [];  // {x, y, side: 'top'|'bot'|'left'|'right', h}
 let strataBands = []; // {y, color}
@@ -270,7 +273,7 @@ function reset() {
   }
   for (let i = 0; i < 30; i++) addPlatformAbove();
   lavaY = H + 200;
-  height = 0; maxHeight = 0; score = 0; treatsGot = 0;
+  height = 0; maxHeight = 0; score = 0; treatsGot = 0; climbY = 0;
   // Track best altitude across runs
   bestAltitudeLineY = null;
 }
@@ -943,7 +946,10 @@ function tick(dt) {
   }
 
   // Lava rises — accelerating (paused if freeze powerup active)
-  height = Math.max(height, Math.floor((H - 200 - pug.y) / 10));
+  // Real climb height = accumulated scroll (climbY) + how far above the baseline
+  // the pug currently is on-screen. Previously this used only pug.y, which the
+  // camera clamps — so height (and score = height*10) froze. (2026-06-05 fix)
+  height = Math.max(height, Math.floor((climbY + (H - 200 - pug.y)) / 10));
   maxHeight = Math.max(maxHeight, height);
   // Combo decay: standing on the same platform >0.7s resets the chain.
   if (pug.onGround) {
@@ -993,11 +999,15 @@ function tick(dt) {
   if (height >= 500 && ((performance.now() - runStartT) / 1000) < 30) unlockAchievement('speedrunner');
   // VOIDSPACE anti-gravity sections — lower gravity if in VOIDSPACE biome (biome 3)
   // Done as a soft multiplier already applied in pug movement code via biome check.
-  const lavaSpeed = (freezeT > 0 ? 0 : 40 + height * 0.38);
+  // Harder: faster base + steeper scaling. (Also note the height fix above means
+  // this now actually accelerates — before, frozen height kept lava ~46px/s,
+  // which is why it felt trivially easy.) (2026-06-05)
+  const lavaSpeed = (freezeT > 0 ? 0 : 58 + height * 0.55);
   lavaY -= lavaSpeed * dt;
   // Camera: when pug is above middle, scroll world down
   if (pug.y < H * 0.4) {
     const dy = H * 0.4 - pug.y;
+    climbY += dy;   // bank the scrolled distance as real climb height
     pug.y += dy;
     lavaY += dy;
     for (const p of plats) p.y += dy;
