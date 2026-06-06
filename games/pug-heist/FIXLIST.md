@@ -22,8 +22,13 @@ Working list for Pug Heist. Status as of 2026-06-05.
   frantic). Skipped during the knockout pose.
 
 ## 🟡 Next game-feel candidates (not yet done)
-- [ ] Footstep cadence audio synced to the waddle phase (quiet tick per step;
-      louder on fart-sprint / mansion creak).
+- [x] **Footstep cadence audio synced to the waddle phase.** `_footstep()` fires
+      on each waddle foot-plant (phase crossing a multiple of π in `tick`):
+      alternating L/R pitch (132/116 Hz), stereo-panned by the pug's screen
+      position, slightly louder + brighter during a fart-sprint, with a faint
+      scuff tick. Purely cosmetic — does NOT feed `pug.sound`, so sneaking stays
+      silent to guards. Verified in-browser: ~3 steps/s, clean L/R alternation,
+      no errors.
 - [ ] Loot-grab "pop": brief scale-punch on the pug + the loot icon on pickup
       (currently particles + tiny shake only).
 - [ ] Guard-cone edge pulse / desaturation as you near its rim, to telegraph

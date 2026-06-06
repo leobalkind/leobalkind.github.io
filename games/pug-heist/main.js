@@ -671,6 +671,23 @@ function _pugWaddle() {
     sy: 1 - Math.sin(p * 2) * 0.05 * f,
   };
 }
+// Soft paw-pad footstep, fired on each waddle foot-plant (see tick). Alternates
+// L/R paws via a tiny pitch shift, panned by the pug's screen position, and a
+// touch louder + brighter during a fart-sprint. Purely cosmetic — it does NOT
+// feed pug.sound, so sneaking stays silent to the guards.
+function _footstep(spd) {
+  if (!pug) return;
+  const left = (pug._stepToggle = !pug._stepToggle);
+  const base = left ? 132 : 116;          // alternating paws
+  const sprint = pug.fartT > 0;
+  const vol = sprint ? 0.07 : 0.05;
+  const center = _camCX != null ? _camCX : pug.x;
+  const pan = sfx.panFromWorld(pug.x, center, 300);
+  try {
+    sfx.tonePanned(base, 'sine', sprint ? 0.05 : 0.045, vol, pan);
+    sfx.noise(0.03, vol * 0.5, sprint ? 1500 : 1100); // faint scuff tick
+  } catch {}
+}
 // Convert screen-space (clientX/clientY) coords into world coords for input.
 function screenToWorld(sx, sy) {
   const cam = getCamera();
@@ -1101,8 +1118,14 @@ function tick(dt) {
     _camCY += (_tcy - _camCY) * _cb;
   }
   // WADDLE — advance the gait phase while moving (drives the bob + squash in render).
+  // The bob bottoms out (paw plant) each time the phase crosses a multiple of π,
+  // so a FOOTSTEP fires on those crossings — audio stays locked to the waddle.
   const _spd = Math.hypot(pug._mvx, pug._mvy);
-  if (_spd > 8) pug._waddleP = (pug._waddleP || 0) + dt * (6 + _spd * 0.03);
+  if (_spd > 8) {
+    const _prevP = pug._waddleP || 0;
+    pug._waddleP = _prevP + dt * (6 + _spd * 0.03);
+    if (Math.floor(pug._waddleP / Math.PI) > Math.floor(_prevP / Math.PI)) _footstep(_spd);
+  }
   // SCENT TRAIL (P7) — drop a fading scent dot ~3×/s while moving; sniffers
   // home in on the freshest nearby one (rendered faintly so you can read it too).
   pug._scentT = (pug._scentT || 0) + dt;
