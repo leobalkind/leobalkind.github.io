@@ -29,8 +29,12 @@ Working list for Pug Heist. Status as of 2026-06-05.
       scuff tick. Purely cosmetic — does NOT feed `pug.sound`, so sneaking stays
       silent to guards. Verified in-browser: ~3 steps/s, clean L/R alternation,
       no errors.
-- [ ] Loot-grab "pop": brief scale-punch on the pug + the loot icon on pickup
-      (currently particles + tiny shake only).
+- [x] **Loot-grab "pop".** On pickup, a quick scale-punch on the pug
+      (`pug._grabPop`, eased back to 1 with a squared falloff, composed with the
+      waddle squash) plus the loot icon balloons (~1.7×) and fades as it's
+      snatched (`lt._popT`), instead of just vanishing. Adds to the existing
+      particles/popup/shake. Verified in-browser: loot pop scale peaks ~1.67×,
+      render transforms stay balanced, no errors.
 - [ ] Guard-cone edge pulse / desaturation as you near its rim, to telegraph
       "you're about to be seen" before the awareness color flips.
 - [ ] Controller + touch parity check for the new feel (waddle is render-only so

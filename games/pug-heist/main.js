@@ -1154,9 +1154,11 @@ function tick(dt) {
 
   // Loot pickup
   for (const lt of loot) {
-    if (lt.taken) continue;
+    if (lt.taken) { if (lt._popT > 0) lt._popT -= dt; continue; } // decay grab-pop
     if (Math.hypot(lt.x - pug.x, lt.y - pug.y) < 20) {
       lt.taken = true;
+      lt._popT = 0.26;     // GRAB POP: loot icon scales up + fades as it's snatched
+      pug._grabPop = 0.22; // GRAB POP: brief scale-punch on the hero pug
       // LUCKY CHARM: 25% chance loot drops 2x value
       const mult = (runUpgrades.luckyCharm && Math.random() < 0.25) ? 2 : 1;
       const val = lt.val * mult;
@@ -1186,6 +1188,8 @@ function tick(dt) {
       }
     }
   }
+  // Grab-pop scale-punch decay (cosmetic; consumed in render)
+  if (pug._grabPop > 0) pug._grabPop = Math.max(0, pug._grabPop - dt);
   // Gadget cooldown decay
   smokeCd = Math.max(0, smokeCd - dt);
   tongueCd = Math.max(0, tongueCd - dt);
@@ -2117,7 +2121,23 @@ function render() {
   for (const w of walls) ctx.fillRect(w.x + w.w - 2, w.y + 2, 2, w.h - 2);
   // Loot — pixel-art icons from shared library (or themed fallback)
   for (const lt of loot) {
-    if (lt.taken) continue;
+    if (lt.taken) {
+      // GRAB POP — a snatched item briefly balloons + fades instead of just
+      // vanishing, so the pickup reads as a satisfying "pop".
+      if (!(lt._popT > 0)) continue;
+      const k = lt._popT / 0.26;               // 1 → 0 over the pop
+      ctx.save();
+      ctx.globalAlpha = Math.max(0, k);        // fade out
+      ctx.translate(lt.x, lt.y);
+      ctx.scale(1 + (1 - k) * 0.7, 1 + (1 - k) * 0.7); // grow as it leaves
+      ctx.translate(-lt.x, -lt.y);
+      ctx.shadowColor = '#ffd23f'; ctx.shadowBlur = 16;
+      const pf = drawIcon[lt.iconName];
+      if (pf) pf(ctx, lt.x, lt.y, 22); else drawThemedLoot(lt);
+      ctx.shadowBlur = 0;
+      ctx.restore();
+      continue;
+    }
     ctx.shadowColor = '#ffd23f'; ctx.shadowBlur = 12;
     const fn = drawIcon[lt.iconName];
     if (fn) fn(ctx, lt.x, lt.y, 22);
@@ -2330,10 +2350,17 @@ function render() {
   // WADDLE/SQUASH (game-feel) — a little hop + alternating squash while walking
   // so the hero reads as alive in motion. Skipped while knocked (own pose).
   const _wob = isKnocked ? null : _pugWaddle();
-  if (_wob) {
+  // GRAB POP (game-feel) — a quick scale-punch when loot is snatched, easing back
+  // to 1. Squared falloff makes it snap in and settle fast. Composes with waddle.
+  const _gp = (!isKnocked && pug._grabPop > 0)
+    ? 1 + 0.26 * Math.pow(pug._grabPop / 0.22, 2)
+    : 1;
+  const _pose = _wob || _gp !== 1;
+  if (_pose) {
+    const _bob = _wob ? _wob.bob : 0;
     ctx.save();
-    ctx.translate(pug.x, pug.y - _wob.bob);
-    ctx.scale(_wob.sx, _wob.sy);
+    ctx.translate(pug.x, pug.y - _bob);
+    ctx.scale((_wob ? _wob.sx : 1) * _gp, (_wob ? _wob.sy : 1) * _gp);
     ctx.translate(-pug.x, -pug.y);
   }
   if (hitFlashT > 0) {
@@ -2345,7 +2372,7 @@ function render() {
     drawPug(ctx, pug.x, pug.y, { size: 30, ..._pugOutfit });
     _drawHeistPugAccessory(ctx, pug.x, pug.y, buildingTheme, 30);
   }
-  if (_wob) ctx.restore();
+  if (_pose) ctx.restore();
   if (isKnocked) { ctx.restore(); }
   // restore actual y after jump-lift draw offset
   if (_jumpLift) pug.y = _origY;
