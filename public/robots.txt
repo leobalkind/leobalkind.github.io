@@ -1,0 +1,5 @@
+# BORKADE — free pixel-pug arcade. No ads, no tracking.
+User-agent: *
+Allow: /
+
+Sitemap: https://leobalkind.github.io/sitemap.xml
