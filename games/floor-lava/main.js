@@ -11,6 +11,7 @@ import { createMobileControls } from '../../src/shared/mobileControls.js';
 import { createSettingsMenu } from '../../src/shared/settingsMenu.js';
 import { getShakeMul as _shakeMul } from '../../src/shared/screenShake.js';
 import { drawShadow as _depthShadow, isReducedMotion as _depthReduced } from '../../src/shared/depth3D.js';
+import { GhostRecorder, loadGhost, saveBestGhost, loadBestGhost } from '../../src/shared/ghost.js';
 
 const canvas = document.getElementById('game-canvas');
 const ctx = canvas.getContext('2d');
@@ -36,6 +37,8 @@ window.addEventListener('resize', resize); resize();
 const GRAV = 1400;
 const JUMP_V = -680;
 let pug, plats, treats, powerups, blobs, lavaY, height, maxHeight, score, treatsGot, running, lastPlatY;
+// Ghost-replay: race a translucent pug of your best run for this mode (V4-6).
+let ghostRec = null, ghostBest = null, ghostT = 0, ghostSampleAcc = 0;
 let jetpackT = 0, freezeT = 0, shrinkT = 0, wingsT = 0;
 // Juice + visual layers
 let embers = [];      // {x,y,vx,vy,life,max,r}
@@ -294,6 +297,10 @@ function reset() {
   height = 0; maxHeight = 0; score = 0; treatsGot = 0; climbY = 0;
   // Track best altitude across runs
   bestAltitudeLineY = null;
+  // Ghost-replay: start recording this run; load the best ghost for this mode.
+  ghostT = 0; ghostSampleAcc = 0;
+  try { ghostRec = new GhostRecorder({ tickHz: 20, scale: 8 }); } catch { ghostRec = null; }
+  try { const g = loadBestGhost('floor-lava', gameMode); ghostBest = g ? loadGhost(g.str) : null; } catch { ghostBest = null; }
 }
 function seedCaveSpikes(yAround) {
   // ~6 per "slice" — split between left/right walls, top/bottom orientation
@@ -641,6 +648,16 @@ function tick(dt) {
   if (jetpackT > 0 && keys.has(' ')) pug.vy = Math.max(pug.vy, -200); // hover
   pug.x += pug.vx * dt;
   pug.y += pug.vy * dt;
+
+  // Ghost-replay: sample this run at ~20Hz ({t, screen-x, world-climb}).
+  ghostT += dt;
+  if (ghostRec) {
+    ghostSampleAcc += dt;
+    if (ghostSampleAcc >= 0.05) {
+      ghostSampleAcc = 0;
+      try { ghostRec.sample({ t: ghostT, x: pug.x, y: climbY }); } catch {}
+    }
+  }
   // Wrap horizontally
   if (pug.x < -10) pug.x = W;
   if (pug.x > W + 10) pug.x = 0;
@@ -1859,6 +1876,30 @@ function render() {
     drawPug(ctx, 0, 0, { size: 30 });
     ctx.restore();
   }
+  // Ghost-replay: draw the translucent best-run pug, offset vertically by how
+  // much higher/lower it was at this same elapsed time. Fully guarded so it can
+  // never break the render loop.
+  if (ghostBest) {
+    try {
+      const gf = ghostBest.frameAt(ghostT);
+      if (gf) {
+        const gy = pug.y - (gf.y - climbY);
+        if (gy > -50 && gy < H + 50) {
+          ctx.save();
+          ctx.globalAlpha = 0.30;
+          ctx.translate(gf.x, gy);
+          drawPug(ctx, 0, 0, { size: 30 });
+          ctx.globalAlpha = 0.8;
+          ctx.fillStyle = '#9aebff';
+          ctx.font = '7px "Press Start 2P", monospace';
+          ctx.textAlign = 'center';
+          ctx.fillText('👻', 0, -22);
+          ctx.restore();
+        }
+      }
+    } catch {}
+  }
+
   ctx.save();
   ctx.translate(pug.x, pug.y + _pugBob);
   ctx.scale(_pugSX, _pugSY);
@@ -2106,6 +2147,9 @@ function die(success) {
   running = false;
   sfx.sweep(440, 110, 'sawtooth', 0.6, 0.25);
   if (maxHeight > bestAltitudeM) { bestAltitudeM = maxHeight; saveBestAlt(); }
+  // Ghost-replay: persist this run as the mode's best ghost (only overwrites on
+  // a strictly-better score — saveBestGhost self-gates).
+  try { if (ghostRec) saveBestGhost('floor-lava', gameMode, ghostRec.serialize(), maxHeight); } catch {}
   document.getElementById('end-height').textContent = maxHeight + 'm';
   document.getElementById('end-treats').textContent = treatsGot;
   // Round-2 polish: surface BEST COMBO + reached BIOME on end-stats list.
