@@ -49,6 +49,33 @@ no-backend site, in priority order of **felt impact ÷ effort**):
 
 ---
 
+## STATUS — what's shipped (updated 2026-06-08)
+
+**✅ Shipped & live (front-door P0 tier, verified in-browser):**
+- **P0-1** — killed the on-load gate. New visitors land straight on the game grid
+  (silent guest; login still reachable via the GUEST chip). Onboarding tip modal
+  no longer auto-opens (reachable via "?"/help).
+- **P0-2** — first game row above the fold (cut the 80px hero top-padding). At
+  1440×900: hero + Featured banner + full first card row on first paint.
+- **P0-3 / P0-5** — fixed card-title self-overlap (Press Start 2P line-height).
+- **P0-4** — removed both "coming soon" dev tiles from the grid.
+- **P0-7** — lightened `--muted` to clear WCAG AA.
+- **P6-7** — hero now leads with the differentiator ("no ads · no tracking ·
+  instant"; chips "FREE · NO ADS" / "NO TRACKING").
+
+**🟡 Already existed in code (don't rebuild):** daily-login **streak**
+(`wg:streak`, DAY-N / "Welcome back!" toasts) → P2-3/P2-9 partly done; a
+daily-seed footer chip; `wg:lastPlayed` tracking; a hidden `#hub-featured`
+banner (now visible since the gate is gone).
+
+**▶️ Next up (not yet done):** P0-8 hover PLAY pill · P1 discovery rails
+(recently-played / most-played / recommended) + facet chips + badges · P2-1/P2-2
+real daily challenge + Wordle-style share · P2-4..6 cross-game XP/level +
+achievement wall · P3 per-game pages + "unblocked" SEO · P4 ratings/play-counts ·
+P5 arcade-wide juice pass · P6 PWA install prompt + loading splash.
+
+---
+
 ## 1. Honest gap analysis — BORKADE vs the big leagues
 
 BORKADE's *engineering* is strong (15 original games, 0 console errors, design
