@@ -741,7 +741,7 @@ export function showWin(stats, cb) {
   shareBtn.className = 'br-cut__btn'; shareBtn.type = 'button';
   shareBtn.textContent = '\u{1F4CB} SHARE';
   shareBtn.addEventListener('click', async () => {
-    const text = `\u{1F436} BACKROOMS OF PUG — Noclipped out! Beat me at https://leobalkind.github.io/web-games/`;
+    const text = `\u{1F436} BACKROOMS OF PUG — Noclipped out! Beat me at https://leobalkind.github.io/games/backrooms-pug/`;
     try {
       if (navigator.share) await navigator.share({ title: 'BACKROOMS OF PUG', text });
       else { await navigator.clipboard.writeText(text); shareBtn.textContent = '✓ COPIED'; }

@@ -6911,9 +6911,9 @@ void showTip; // explicit reference so linters don't yell about unused import
     shareBtn.addEventListener('click', async () => {
       const lvl = document.getElementById('end-level')?.textContent || '0';
       const cans = document.getElementById('end-cans')?.textContent || '0';
-      const text = `🐶 BACKROOMS OF PUG — Reached level ${lvl} with ${cans} cans! Beat me at https://leobalkind.github.io/web-games/`;
+      const text = `🐶 BACKROOMS OF PUG — Reached level ${lvl} with ${cans} cans! Beat me at https://leobalkind.github.io/games/backrooms-pug/`;
       try {
-        if (navigator.share) await navigator.share({ title: 'BACKROOMS OF PUG', text, url: 'https://leobalkind.github.io/web-games/' });
+        if (navigator.share) await navigator.share({ title: 'BACKROOMS OF PUG', text, url: 'https://leobalkind.github.io/games/backrooms-pug/' });
         else { await navigator.clipboard.writeText(text); shareBtn.textContent = '✓ COPIED!'; setTimeout(() => { shareBtn.textContent = '📋 SHARE'; }, 1800); }
       } catch { shareBtn.textContent = '⚠ FAILED'; setTimeout(() => { shareBtn.textContent = '📋 SHARE'; }, 1800); }
     });

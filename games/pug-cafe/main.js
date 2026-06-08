@@ -2468,9 +2468,9 @@ if (_startOv) {
     shareBtn.addEventListener('click', async () => {
       const m = document.getElementById('end-money')?.textContent || '$0';
       const s = document.getElementById('end-served')?.textContent || '0';
-      const text = `🐶 PUG CAFÉ PANIC — Made ${m} from ${s} orders! Beat me at https://leobalkind.github.io/web-games/`;
+      const text = `🐶 PUG CAFÉ PANIC — Made ${m} from ${s} orders! Beat me at https://leobalkind.github.io/games/pug-cafe/`;
       try {
-        if (navigator.share) await navigator.share({ title: 'PUG CAFÉ PANIC', text, url: 'https://leobalkind.github.io/web-games/' });
+        if (navigator.share) await navigator.share({ title: 'PUG CAFÉ PANIC', text, url: 'https://leobalkind.github.io/games/pug-cafe/' });
         else { await navigator.clipboard.writeText(text); shareBtn.textContent = '✓ COPIED!'; setTimeout(() => { shareBtn.textContent = '📋 SHARE'; }, 1800); }
       } catch { shareBtn.textContent = '⚠ FAILED'; setTimeout(() => { shareBtn.textContent = '📋 SHARE'; }, 1800); }
     });

@@ -3889,9 +3889,9 @@ if (_startOv) {
     shareBtn.addEventListener('click', async () => {
       const f = document.getElementById('end-floor')?.textContent || '0';
       const l = document.getElementById('end-loot')?.textContent || '0';
-      const text = `🐶 ${TITLE_TEXT} — Cleared ${f} floors with ${l} loot! Beat me at https://leobalkind.github.io/web-games/`;
+      const text = `🐶 ${TITLE_TEXT} — Cleared ${f} floors with ${l} loot! Beat me at https://leobalkind.github.io/games/pug-heist/`;
       try {
-        if (navigator.share) await navigator.share({ title: TITLE_TEXT, text, url: 'https://leobalkind.github.io/web-games/' });
+        if (navigator.share) await navigator.share({ title: TITLE_TEXT, text, url: 'https://leobalkind.github.io/games/pug-heist/' });
         else { await navigator.clipboard.writeText(text); shareBtn.textContent = '✓ COPIED!'; setTimeout(() => { shareBtn.textContent = '📋 SHARE'; }, 1800); }
       } catch { shareBtn.textContent = '⚠ FAILED'; setTimeout(() => { shareBtn.textContent = '📋 SHARE'; }, 1800); }
     });

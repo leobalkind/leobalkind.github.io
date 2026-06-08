@@ -3354,9 +3354,9 @@ if (_startOv) {
       const sc = document.getElementById('end-score')?.textContent || '0';
       const sm = document.getElementById('end-smashed')?.textContent || '0';
       const cmbo = comboMaxThisRun > 1 ? ` · max combo ×${comboMaxThisRun}` : '';
-      const text = `🐶 PUGZILLA RAMPAGE — Score ${sc} · ${sm} buildings smashed${cmbo}! Beat me at https://leobalkind.github.io/web-games/`;
+      const text = `🐶 PUGZILLA RAMPAGE — Score ${sc} · ${sm} buildings smashed${cmbo}! Beat me at https://leobalkind.github.io/games/pugzilla/`;
       try {
-        if (navigator.share) await navigator.share({ title: 'PUGZILLA RAMPAGE', text, url: 'https://leobalkind.github.io/web-games/' });
+        if (navigator.share) await navigator.share({ title: 'PUGZILLA RAMPAGE', text, url: 'https://leobalkind.github.io/games/pugzilla/' });
         else { await navigator.clipboard.writeText(text); shareBtn.textContent = '✓ COPIED!'; setTimeout(() => { shareBtn.textContent = '📋 SHARE'; }, 1800); }
       } catch { shareBtn.textContent = '⚠ FAILED'; setTimeout(() => { shareBtn.textContent = '📋 SHARE'; }, 1800); }
     });

@@ -136,11 +136,11 @@ document.getElementById('end-share')?.addEventListener('click', async () => {
   const nights = document.getElementById('end-nights')?.textContent || '0';
   const kills = document.getElementById('end-kills')?.textContent || '0';
   const walls = document.getElementById('end-walls')?.textContent || '0';
-  const text = `🐶 PUGFORT.EXE — I survived ${nights} nights, killed ${kills} zombies, built ${walls} walls! Beat me at https://leobalkind.github.io/web-games/`;
+  const text = `🐶 PUGFORT.EXE — I survived ${nights} nights, killed ${kills} zombies, built ${walls} walls! Beat me at https://leobalkind.github.io/games/pugfort/`;
   const btn = document.getElementById('end-share');
   try {
     if (navigator.share) {
-      await navigator.share({ title: 'PUGFORT.EXE', text, url: 'https://leobalkind.github.io/web-games/' });
+      await navigator.share({ title: 'PUGFORT.EXE', text, url: 'https://leobalkind.github.io/games/pugfort/' });
     } else {
       await navigator.clipboard.writeText(text);
       btn.textContent = '✓ COPIED!';

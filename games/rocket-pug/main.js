@@ -2760,9 +2760,9 @@ if (_startOv) {
   if (shareBtn) {
     shareBtn.addEventListener('click', async () => {
       const k = document.getElementById('end-kills')?.textContent || '0';
-      const text = `🐶 ROCKET PUG ARENA — ${k} kills! Beat me at https://leobalkind.github.io/web-games/`;
+      const text = `🐶 ROCKET PUG ARENA — ${k} kills! Beat me at https://leobalkind.github.io/games/rocket-pug/`;
       try {
-        if (navigator.share) await navigator.share({ title: 'ROCKET PUG ARENA', text, url: 'https://leobalkind.github.io/web-games/' });
+        if (navigator.share) await navigator.share({ title: 'ROCKET PUG ARENA', text, url: 'https://leobalkind.github.io/games/rocket-pug/' });
         else { await navigator.clipboard.writeText(text); shareBtn.textContent = '✓ COPIED!'; setTimeout(() => { shareBtn.textContent = '📋 SHARE'; }, 1800); }
       } catch { shareBtn.textContent = '⚠ FAILED'; setTimeout(() => { shareBtn.textContent = '📋 SHARE'; }, 1800); }
     });

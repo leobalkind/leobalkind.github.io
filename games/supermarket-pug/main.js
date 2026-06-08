@@ -2865,9 +2865,9 @@ if (_startOv) {
     shareBtn.addEventListener('click', async () => {
       const h = document.getElementById('end-haul')?.textContent || '$0';
       const s = document.getElementById('end-shelves')?.textContent || '0';
-      const text = `🐶 SUPERMARKET PUG — Stole ${h} and trashed ${s} shelves! Beat me at https://leobalkind.github.io/web-games/`;
+      const text = `🐶 SUPERMARKET PUG — Stole ${h} and trashed ${s} shelves! Beat me at https://leobalkind.github.io/games/supermarket-pug/`;
       try {
-        if (navigator.share) await navigator.share({ title: 'SUPERMARKET PUG', text, url: 'https://leobalkind.github.io/web-games/' });
+        if (navigator.share) await navigator.share({ title: 'SUPERMARKET PUG', text, url: 'https://leobalkind.github.io/games/supermarket-pug/' });
         else { await navigator.clipboard.writeText(text); shareBtn.textContent = '✓ COPIED!'; setTimeout(() => { shareBtn.textContent = '📋 SHARE'; }, 1800); }
       } catch { shareBtn.textContent = '⚠ FAILED'; setTimeout(() => { shareBtn.textContent = '📋 SHARE'; }, 1800); }
     });

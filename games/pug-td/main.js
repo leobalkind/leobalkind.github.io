@@ -2730,9 +2730,9 @@ if (_startOv) {
       const sc = document.getElementById('end-score')?.textContent || '0';
       const wn = parseInt(w, 10) || 0;
       const endlessSuffix = wn > 15 ? ` (★ ENDLESS +${wn - 15})` : '';
-      const text = `🐶 PUG TOWER DEFENSE — Survived ${w} waves with ${sc} score${endlessSuffix}! Beat me at https://leobalkind.github.io/web-games/`;
+      const text = `🐶 PUG TOWER DEFENSE — Survived ${w} waves with ${sc} score${endlessSuffix}! Beat me at https://leobalkind.github.io/games/pug-td/`;
       try {
-        if (navigator.share) await navigator.share({ title: 'PUG TOWER DEFENSE', text, url: 'https://leobalkind.github.io/web-games/' });
+        if (navigator.share) await navigator.share({ title: 'PUG TOWER DEFENSE', text, url: 'https://leobalkind.github.io/games/pug-td/' });
         else { await navigator.clipboard.writeText(text); shareBtn.textContent = '✓ COPIED!'; setTimeout(() => { shareBtn.textContent = '📋 SHARE'; }, 1800); }
       } catch { shareBtn.textContent = '⚠ FAILED'; setTimeout(() => { shareBtn.textContent = '📋 SHARE'; }, 1800); }
     });

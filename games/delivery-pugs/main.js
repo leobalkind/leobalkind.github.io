@@ -3208,9 +3208,9 @@ if (_startOv) {
     shareBtn.addEventListener('click', async () => {
       const d = document.getElementById('end-del')?.textContent || '0';
       const t = document.getElementById('end-tip')?.textContent || '$0';
-      const text = `🐶 APOCALYPSE DELIVERY PUGS — ${d} deliveries, ${t} tips! Beat me at https://leobalkind.github.io/web-games/`;
+      const text = `🐶 APOCALYPSE DELIVERY PUGS — ${d} deliveries, ${t} tips! Beat me at https://leobalkind.github.io/games/delivery-pugs/`;
       try {
-        if (navigator.share) await navigator.share({ title: 'APOCALYPSE DELIVERY PUGS', text, url: 'https://leobalkind.github.io/web-games/' });
+        if (navigator.share) await navigator.share({ title: 'APOCALYPSE DELIVERY PUGS', text, url: 'https://leobalkind.github.io/games/delivery-pugs/' });
         else { await navigator.clipboard.writeText(text); shareBtn.textContent = '✓ COPIED!'; setTimeout(() => { shareBtn.textContent = '📋 SHARE'; }, 1800); }
       } catch { shareBtn.textContent = '⚠ FAILED'; setTimeout(() => { shareBtn.textContent = '📋 SHARE'; }, 1800); }
     });

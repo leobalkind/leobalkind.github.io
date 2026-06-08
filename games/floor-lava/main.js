@@ -2320,10 +2320,10 @@ if (_startOv) {
     shareBtn.addEventListener('click', async () => {
       const h = document.getElementById('end-height')?.textContent || '0m';
       const t = document.getElementById('end-treats')?.textContent || '0';
-      const text = `🐶 ${TITLE_TEXT} — I climbed ${h} and grabbed ${t} treats! Beat me at https://leobalkind.github.io/web-games/`;
+      const text = `🐶 ${TITLE_TEXT} — I climbed ${h} and grabbed ${t} treats! Beat me at https://leobalkind.github.io/games/floor-lava/`;
       try {
         if (navigator.share) {
-          await navigator.share({ title: TITLE_TEXT, text, url: 'https://leobalkind.github.io/web-games/' });
+          await navigator.share({ title: TITLE_TEXT, text, url: 'https://leobalkind.github.io/games/floor-lava/' });
         } else {
           await navigator.clipboard.writeText(text);
           shareBtn.textContent = '✓ COPIED!';
