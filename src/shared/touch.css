@@ -1,0 +1,75 @@
+/* ===========================================================================
+   SHARED TOUCH UTILITIES — safe-area padding + mobile tap-hygiene helpers.
+   Pairs with src/shared/touch.js. Import once per game that wants the polished
+   floating-joystick look or the safe-area / no-select utility classes.
+
+   Everything here is OPT-IN via class names (no global element selectors) so it
+   can never clash with a game's own styles.
+   =========================================================================== */
+
+/* --- Safe-area padding utilities (iOS notch / home-bar; needs
+       <meta name="viewport" content="...viewport-fit=cover"> on the page). --- */
+.wg-safe-top    { padding-top:    env(safe-area-inset-top, 0px); }
+.wg-safe-bottom { padding-bottom: max(env(safe-area-inset-bottom, 0px), 34px); } /* 34px iOS home-bar gutter */
+.wg-safe-left   { padding-left:   env(safe-area-inset-left, 0px); }
+.wg-safe-right  { padding-right:  env(safe-area-inset-right, 0px); }
+.wg-safe        {
+  padding-top:    env(safe-area-inset-top, 0px);
+  padding-right:  env(safe-area-inset-right, 0px);
+  padding-bottom: max(env(safe-area-inset-bottom, 0px), 34px);
+  padding-left:   env(safe-area-inset-left, 0px);
+}
+/* Inset utilities for absolutely-positioned chrome (pause, back, score). */
+.wg-inset-top    { top:    calc(10px + env(safe-area-inset-top, 0px)); }
+.wg-inset-bottom { bottom: calc(10px + env(safe-area-inset-bottom, 0px)); }
+.wg-inset-left   { left:   calc(10px + env(safe-area-inset-left, 0px)); }
+.wg-inset-right  { right:  calc(10px + env(safe-area-inset-right, 0px)); }
+
+/* --- Full-height that survives the iOS address-bar (uses --vh from
+       installViewportFixes(), with dvh/svh as progressive fallbacks). --- */
+.wg-fill-h { height: 100vh; height: calc(var(--vh, 1vh) * 100); height: 100dvh; }
+.wg-fill-svh { height: 100svh; }
+
+/* --- Tap-hygiene helpers: kill text selection, callouts, tap-highlight, and
+       the 300ms click delay. Apply to interactive controls + the game canvas. */
+.wg-no-select {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+.wg-no-tap-highlight { -webkit-tap-highlight-color: transparent; }
+.wg-tap {
+  touch-action: manipulation;       /* no 300ms delay, no double-tap zoom */
+  -webkit-tap-highlight-color: transparent;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  cursor: pointer;
+}
+/* Canvas / play-surface lock: never scroll, zoom, or pull-to-refresh. */
+.wg-canvas-lock {
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* --- Minimum tap targets (≥48px baseline, 56px for primary actions). --- */
+.wg-hit-48 { min-width: 48px; min-height: 48px; }
+.wg-hit-56 { min-width: 56px; min-height: 56px; }
+.wg-hit-64 { min-width: 64px; min-height: 64px; } /* "large controls" a11y assist */
+
+/* --- Floating joystick visuals — matches the base/thumb that
+       makeFloatingJoystick() injects (it works without these, but these make
+       it look like the rest of the arcade). --- */
+.wg-stick__base {
+  background: radial-gradient(circle at 50% 50%, rgba(76,201,240,.18), rgba(0,0,0,.55) 70%);
+  border: 2px solid rgba(76,201,240,.5);
+  box-shadow: 0 0 24px rgba(76,201,240,.3), inset 0 0 14px rgba(0,0,0,.5);
+}
+.wg-stick__thumb {
+  background: radial-gradient(circle at 35% 30%, #fff, #ff3aa1 55%, #7a1450);
+  box-shadow: 0 4px 12px rgba(0,0,0,.5), 0 0 18px rgba(255,58,161,.6);
+  transition: transform .05s linear;
+}

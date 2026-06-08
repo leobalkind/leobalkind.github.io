@@ -1,0 +1,55 @@
+/* =============================================================================
+   SHARED ACCESSIBILITY CLASSES — companion to a11ySettings.js (VOL4 §V4-4).
+   =============================================================================
+   ADDITIVE + OPTIONAL: import this once (e.g. in a game/hub entry) to get the
+   visual effects of the body classes that a11ySettings.js toggles. It only
+   styles its own classes/var and never overrides game-specific selectors.
+
+   Classes toggled by the module:
+     body.reduced-motion          — kill transitions/animations + parallax juice
+     body.high-contrast           — boost contrast, thicker focus rings
+     body.colorblind              — generic "any CB mode on" flag
+     body.cb-protan/-deutan/-tritan — specific palette presets (hook points)
+   CSS var set by the module:
+     --a11y-text-scale  (1.0–2.0) — multiply your root font-size by this.
+   ============================================================================ */
+
+/* Text scale: apply the var to the page root font-size. Games that want a
+   separate HUD scale can read var(--a11y-text-scale) on their own elements. */
+:root { --a11y-text-scale: 1; }
+html { font-size: calc(100% * var(--a11y-text-scale, 1)); }
+
+/* --- Reduced motion --------------------------------------------------------
+   Disable transitions/animations everywhere and flatten smooth scrolling. */
+body.reduced-motion *,
+body.reduced-motion *::before,
+body.reduced-motion *::after {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+  scroll-behavior: auto !important;
+}
+
+/* --- High contrast ---------------------------------------------------------
+   Pump up text weight + focus visibility. Conservative so it layers on top of
+   any game theme without nuking layout. */
+body.high-contrast {
+  filter: contrast(1.15);
+}
+body.high-contrast :focus-visible {
+  outline: 4px solid #ff0 !important;
+  outline-offset: 3px !important;
+}
+
+/* --- Colour-blind presets --------------------------------------------------
+   Lightweight palette nudges. These are intentionally subtle hook points: a
+   game can override .cb-protan/.cb-deutan/.cb-tritan with its own remaps. The
+   default here simply rotates/strengthens hues to widen red/green separation. */
+body.cb-protan  { filter: saturate(1.15) hue-rotate(-8deg); }
+body.cb-deutan  { filter: saturate(1.15) hue-rotate(8deg); }
+body.cb-tritan  { filter: saturate(1.1)  hue-rotate(18deg); }
+
+/* When both high-contrast and a CB mode are on, chain the filters sensibly. */
+body.high-contrast.cb-protan { filter: contrast(1.15) saturate(1.15) hue-rotate(-8deg); }
+body.high-contrast.cb-deutan { filter: contrast(1.15) saturate(1.15) hue-rotate(8deg); }
+body.high-contrast.cb-tritan { filter: contrast(1.15) saturate(1.1)  hue-rotate(18deg); }
