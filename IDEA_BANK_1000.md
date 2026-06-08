@@ -13,6 +13,13 @@ already ships (so ideas are net-new, not duplicates) and told to favor a no-ads,
 no-tracking, static-site, teen/meme pug arcade. Ideas mix quick wins and ambitious
 bets. Nothing here is committed work — it's a menu to pull from.
 
+## Shipped from this bank (2026-06-08)
+- **A33 / B60 / D72 — Favorites:** ♥ heart on every card + a "♥ FAVES" filter chip (localStorage `wg:fav`). Live.
+- **A40 — HOT badge:** 🔥 flame auto-stamped on your most-played game. Live.
+- Found already-built while mining the bank (don't rebuild): PWA install prompt
+  (K46/C80 — just refreshed its stale "WEB GAMES"→"BORKADE" label), most-played
+  sort, recently-played pill, daily challenge + share, Bork Level, achievements.
+
 ## How to use it
 - **Don't do it all.** Pull the highest impact ÷ effort items per cycle.
 - Cross-check against `COMPETITIVE_RESEARCH_2026.md` "already shipped/exists" before
