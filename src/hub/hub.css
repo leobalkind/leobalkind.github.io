@@ -450,6 +450,41 @@ body.reduced-motion .hub__pug-bg > i {
   cursor: help;
 }
 
+/* FAVORITES (idea-bank A33/B60) — pink-accented FAVES filter chip + per-card heart. */
+.hub__cat--fav.is-active { border-color: var(--neon-pink); color: var(--neon-pink); }
+.card__art { position: relative; } /* anchor for the heart + existing play overlay */
+.card__fav {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 6;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  background: rgba(10, 7, 22, 0.62);
+  color: #fff;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.15s ease, transform 0.12s ease, color 0.15s ease, border-color 0.15s ease;
+}
+.card:hover .card__fav,
+.card:focus-within .card__fav,
+.card__fav.is-fav,
+.card__fav:focus-visible { opacity: 1; }
+.card__fav:hover { transform: scale(1.15); background: rgba(10, 7, 22, 0.85); }
+.card__fav.is-fav { color: var(--neon-pink); border-color: var(--neon-pink); }
+.card__fav.pop { animation: favPop 0.3s ease-out; }
+@keyframes favPop { 0% { transform: scale(1); } 45% { transform: scale(1.45); } 100% { transform: scale(1); } }
+/* On touch devices (no hover) the heart is always visible so it's discoverable. */
+@media (hover: none) { .card__fav { opacity: 1; } }
+body.reduced-motion .card__fav.pop { animation: none; }
+
 .hub__grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));

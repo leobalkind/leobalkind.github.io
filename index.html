@@ -94,6 +94,7 @@
         />
         <div id="hub-cats" class="hub__cats" role="tablist" aria-label="Filter by category">
           <button class="hub__cat is-active" data-cat="all" type="button" role="tab" aria-selected="true">ALL</button>
+          <button class="hub__cat hub__cat--fav" data-cat="favorites" type="button" role="tab" aria-selected="false">♥ FAVES</button>
           <button class="hub__cat" data-cat="action" type="button" role="tab" aria-selected="false">ACTION</button>
           <button class="hub__cat hub__cat--horror" data-cat="horror" type="button" role="tab" aria-selected="false">HORROR</button>
           <button class="hub__cat" data-cat="stealth" type="button" role="tab" aria-selected="false">STEALTH</button>
@@ -4079,6 +4080,11 @@
           return qi === q.length;
         }
 
+        // FAVORITES store (♥) — a set of favorited gids in localStorage, powering
+        // both the per-card heart toggle and the "FAVES" filter chip. (Idea bank
+        // A33 / B60 / D72 — a proven retention + discovery lever, fully offline.)
+        const getFavs = () => { try { return new Set(JSON.parse(localStorage.getItem('wg:fav') || '[]')); } catch { return new Set(); } };
+
         let activeCat = 'all';
         let activeSort = 'default';
         let emptyEl = null;  // built lazily on first miss
@@ -4092,6 +4098,10 @@
           // mode — it overlays a horror filter without disturbing the chip.
           let effectiveCat = activeCat;
           if (activeSort === 'horror-only') effectiveCat = 'horror';
+          const favs = getFavs();
+          const catOK = (c) => effectiveCat === 'all' ? true
+            : effectiveCat === 'favorites' ? favs.has(c.dataset.gid)
+            : (c.dataset.cats || '').includes(effectiveCat);
 
           let visible = 0;
           // First pass: substring match. If zero hits, retry with fuzzy.
@@ -4099,7 +4109,7 @@
           for (const c of cards) {
             const hay = c.dataset.search || '';
             const matchQ = !q || hay.includes(q);
-            const matchCat = effectiveCat === 'all' || (c.dataset.cats || '').includes(effectiveCat);
+            const matchCat = catOK(c);
             const match = matchQ && matchCat;
             c.style.display = match ? '' : 'none';
             if (match) { visible++; visibleSet.push(c); }
@@ -4107,7 +4117,7 @@
           if (visible === 0 && q) {
             // fuzzy retry
             for (const c of cards) {
-              const matchCat = effectiveCat === 'all' || (c.dataset.cats || '').includes(effectiveCat);
+              const matchCat = catOK(c);
               const match = fuzzy(c.dataset.search || '', q) && matchCat;
               c.style.display = match ? '' : 'none';
               if (match) { visible++; visibleSet.push(c); }
@@ -4226,6 +4236,38 @@
             cats[next].focus();
           });
         });
+
+        // FAVORITES heart (♥) — inject a toggle into every game card's art. Click
+        // toggles wg:fav, pops, and (if the FAVES filter is active) re-filters.
+        // Whole card is an <a>, so the button preventDefaults + stops propagation.
+        (function favoriteHearts() {
+          const renderHeart = (btn, on) => {
+            btn.textContent = on ? '♥' : '♡';
+            btn.classList.toggle('is-fav', on);
+            btn.setAttribute('aria-pressed', String(on));
+            btn.setAttribute('aria-label', on ? 'Remove from favorites' : 'Add to favorites');
+          };
+          for (const c of cards) {
+            if (c.classList.contains('card--coming')) continue;
+            const gid = c.dataset.gid;
+            if (!gid) continue;
+            const host = c.querySelector('.card__art') || c;
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'card__fav';
+            renderHeart(btn, getFavs().has(gid));
+            btn.addEventListener('click', (e) => {
+              e.preventDefault(); e.stopPropagation();
+              const favs = getFavs();
+              if (favs.has(gid)) { favs.delete(gid); }
+              else { favs.add(gid); btn.classList.remove('pop'); void btn.offsetWidth; btn.classList.add('pop'); }
+              try { localStorage.setItem('wg:fav', JSON.stringify([...favs])); } catch {}
+              renderHeart(btn, favs.has(gid));
+              if (activeCat === 'favorites') apply();
+            });
+            host.appendChild(btn);
+          }
+        })();
 
         // Arrow-key navigation across visible cards in the grid (left/right and
         // up/down by approximate column count). Enter is the default <a> action.
