@@ -4568,9 +4568,19 @@
           $$('hub-featured-title').textContent = title;
           $$('hub-featured-sub').textContent = desc.length > 80 ? desc.slice(0, 77) + '…' : desc;
           banner.hidden = false;
-          // Stash pick id so other features (e.g. share modal) can default to it.
+          // Stash pick id + seed so the share modal can build the daily brag.
           const m = (pick.getAttribute('href') || '').match(/\/games\/([^/]+)/);
           if (m) banner.dataset.gid = m[1];
+          banner.dataset.seed = seed;
+          // DAILY CHALLENGE framing (P2-1): reframe the daily pick as a challenge
+          // with a "done today" state, and mark it done when the player launches
+          // it. Pure client-side; the shareable daily brag reads this. Reversible.
+          const _done = (() => { try { return localStorage.getItem('wg:daily:' + seed) === '1'; } catch { return false; } })();
+          const ribbon = banner.querySelector('.hub-featured__ribbon');
+          if (ribbon) ribbon.textContent = _done ? '✅ DAILY · DONE TODAY' : '★ DAILY CHALLENGE';
+          banner.addEventListener('click', () => {
+            try { localStorage.setItem('wg:daily:' + seed, '1'); } catch {}
+          }, { passive: true, once: true });
         })();
 
         // ====================================================================
@@ -4855,12 +4865,33 @@
           function buildShare(gid) {
             const playable = cards();
             const card = gid ? playable.find((c) => (c.getAttribute('href') || '').includes('/games/' + gid + '/')) : null;
-            const title = card ? (card.querySelector('.card__title')?.textContent?.trim() || gid) : 'Web Games';
-            const url = card ? new URL(card.getAttribute('href'), SITE_URL).href : SITE_URL;
-            const text = card
-              ? `I just played ${title} on Web Games. Try it: ${url}`
-              : `15 quick-hit browser pug games. No installs, no accounts. Play: ${url}`;
-            return { title, url, text };
+            if (card) {
+              const title = card.querySelector('.card__title')?.textContent?.trim() || gid;
+              const url = new URL(card.getAttribute('href'), SITE_URL).href;
+              return { title, url, text: `I just played ${title} on BORKADE 🐶 Try it: ${url}` };
+            }
+            // No specific game → a Wordle-style DAILY BRAG card (P2-2): streak +
+            // games-played + today's daily challenge + done state. Spoiler-free,
+            // copy-pasteable, all from localStorage. Drives daily return + virality.
+            let streak = 0;
+            try { streak = (JSON.parse(localStorage.getItem('wg:streak') || '{}').count) || 0; } catch {}
+            const played = playable.filter((c) => {
+              const mm = (c.getAttribute('href') || '').match(/\/games\/([^/]+)/);
+              try { return mm && (Number(localStorage.getItem('wg:plays:' + mm[1])) || 0) > 0; } catch { return false; }
+            }).length;
+            const banner = $$('hub-featured');
+            const dGid = banner?.dataset?.gid || '';
+            const dSeed = banner?.dataset?.seed || '';
+            const dCard = dGid ? playable.find((c) => (c.getAttribute('href') || '').includes('/games/' + dGid + '/')) : null;
+            const dTitle = dCard ? (dCard.querySelector('.card__title')?.textContent?.trim() || dGid) : '';
+            let dDone = false;
+            try { dDone = dSeed && localStorage.getItem('wg:daily:' + dSeed) === '1'; } catch {}
+            const lines = ['🐶 BORKADE — Daily Pug Challenge'];
+            if (streak > 0) lines.push(`🔥 ${streak}-day streak`);
+            lines.push(`🎮 ${played}/${playable.length} games played`);
+            if (dTitle) lines.push(`🎯 Today: ${dTitle} ${dDone ? '✅' : '▶️ play it'}`);
+            lines.push(`No ads, no installs — play free: ${SITE_URL}`);
+            return { title: 'BORKADE', url: SITE_URL, text: lines.join('\n') };
           }
           function open(gid) {
             const m = $$('share-modal');
@@ -4881,13 +4912,15 @@
             openModal('share-modal');
             // bind copy / share once per open
             $$('share-copy').onclick = async () => {
-              try { await navigator.clipboard.writeText(url); } catch {}
+              // Copy the full message (it ends with the link) so the daily brag
+              // card survives the paste, not just the bare URL.
+              try { await navigator.clipboard.writeText(text); } catch {}
               const msg = $$('share-msg');
-              if (msg) { msg.textContent = 'Link copied to clipboard.'; msg.hidden = false; msg.style.color = '#5ef38c'; msg.style.background = 'rgba(94,243,140,0.1)'; }
+              if (msg) { msg.textContent = 'Copied to clipboard!'; msg.hidden = false; msg.style.color = '#5ef38c'; msg.style.background = 'rgba(94,243,140,0.1)'; }
             };
             $$('share-native').onclick = async () => {
               if (!navigator.share) return;
-              try { await navigator.share({ title: 'Web Games · ' + title, text, url }); } catch {}
+              try { await navigator.share({ title: 'BORKADE · ' + title, text, url }); } catch {}
             };
           }
           $$('share-btn')?.addEventListener('click', () => open(null));
