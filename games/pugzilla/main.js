@@ -216,6 +216,19 @@ let shakeT = 0, shakeMag = 0;
 let _zillaHitstopT = 0;
 let _evoFlashT = 0;
 let hitFlashT = 0;
+// V3-6 zoom-punch: brief scale-in on big destruction events. Decays to 0.
+// `zoomPunch` holds the current extra scale (e.g. 0.08 = +8%).
+let zoomPunch = 0;
+function addZoomPunch(amt) {
+  // Respect reduced-motion (depth module shares the prefers-reduced-motion read).
+  if (_depthReduced()) return;
+  zoomPunch = Math.min(0.16, Math.max(zoomPunch, amt));
+}
+// V3-6 directional damage kick — screen-edge flash toward damage source.
+// {x,y world-pos of source, t, life}
+let dmgKick = null;
+// Footstep stomp cadence for heavy forms (V3-5 heavy-land shockwave ring).
+let _stompDist = 0;
 let popups = []; // {x, y, text, color, t}
 let smokeColumns = []; // ambient smoke pillars at smash sites: {x, y, t, life}
 let craters = []; // permanent floor scars from smashed buildings
@@ -267,6 +280,7 @@ function reset() {
   combo = 0; comboT = 0; dmgBoostT = 0; _comboTier = 0; comboFlash = null;
   cam = { x: pug.x, y: pug.y };
   shakeT = 0; shakeMag = 0; hitFlashT = 0; _zillaHitstopT = 0; _evoFlashT = 0;
+  zoomPunch = 0; dmgKick = null; _stompDist = 0;
   popups = []; smokeColumns = []; craters = [];
   // Distant skyline silhouette choppers (decorative — drift across horizon band)
   distantChoppers = [];
@@ -453,6 +467,7 @@ function triggerEvolve() {
   hp = Math.min(100 + formIdx * 50, hp + 80);
   sfx.arp([523, 659, 784, 1047, 1319], 'triangle', 0.1, 0.25, 0.3);
   addShake(20, 0.7);
+  addZoomPunch(0.14); // V3-6 zoom-punch — the transformation "feel" anchor
   _zillaHitstopT = 0.18;
   _evoFlashT = 0.5;
   evoCelebrateT = 1.6;
@@ -801,6 +816,8 @@ function bumpCombo() {
     if (typeof comboFlashPopup === 'function') comboFlashPopup(tier);
     // Screen-shake spike (bigger at higher tiers)
     addShake(6 + tier * 2, 0.28);
+    // V3-6: combo-driven zoom-punch tightens the frame on each new tier.
+    addZoomPunch(0.03 + tier * 0.012);
     // Bright bell tone — ascending triad scaled with tier
     const base = 740 + tier * 80;
     try {
@@ -856,8 +873,16 @@ function smashBuilding(b, idx) {
   }
   const cx = b.x + b.w / 2, cy = b.y + b.h / 2;
   spawnDust(cx, cy, b.color);
+  // V3-5: directional shard burst blown away from the pug + the building's mass
+  // scales the chunk count so towers explode bigger than shacks.
+  const blastAng = Math.atan2(cy - pug.y, cx - pug.x);
+  spawnShards(cx, cy, b.color, blastAng, 6 + Math.floor((b.w * b.h) / 900));
   addPopup(cx, cy - b.h / 2, '+' + gain, b.special === 'bank' ? '#5ef38c' : (b.special === 'gas' ? '#ff8e3c' : '#ffd23f'));
-  addShake(b.special ? 6 : 4, b.special ? 0.28 : 0.18);
+  // V3-6 escalating destruction shake: bigger buildings + higher combos hit
+  // harder, with a brief zoom-punch on the meaty ones.
+  const sizeKick = Math.min(5, (b.w * b.h) / 2200);
+  addShake((b.special ? 7 : 4) + sizeKick + Math.min(6, combo), b.special ? 0.3 : 0.2);
+  if (b.special || combo >= 4 || (b.w * b.h) > 6000) addZoomPunch(0.05 + Math.min(0.05, sizeKick * 0.012));
   smokeColumns.push({ x: cx, y: cy, t: 0, life: 4, mag: b.h });
   if (smokeColumns.length > 30) smokeColumns.shift();
   craters.push({ x: cx, y: cy, r: Math.max(b.w, b.h) * 0.45 });
@@ -1006,6 +1031,41 @@ function spawnDust(x, y, color) {
     });
   }
   particles.push({ ring: true, x, y, t: 0, maxR: 70, color: 'rgba(180,170,160,0.6)' });
+}
+
+// V3-5 debris/breakables: a directional chunky shard burst biased toward a
+// blast direction so a smashed building visibly "blows apart" away from impact.
+// Reused by building smashes for extra heft on top of spawnDust's radial puff.
+function spawnShards(x, y, color, dirAng, count) {
+  const n = count || 9;
+  for (let i = 0; i < n; i++) {
+    // Cone biased toward dirAng (±0.9rad spread); some fly fully radial.
+    const spread = (Math.random() - 0.5) * 1.8;
+    const a = (dirAng != null) ? dirAng + spread : Math.random() * Math.PI * 2;
+    const s = 160 + Math.random() * 260;
+    const c = i % 3 === 0 ? color : (i % 3 === 1 ? '#2e2e3a' : '#5a4a36');
+    particles.push({
+      x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s - 70,
+      color: c, life: 1.3, t: 0, size: 7 + Math.random() * 7,
+      gravity: 420, chunk: true,
+      rot: Math.random() * Math.PI * 2,
+      rotSpd: (Math.random() - 0.5) * 12,
+    });
+  }
+}
+
+// V3-5 heavy-land shockwave ring + dust at a footfall. Called by the stomp
+// cadence for big pug forms — sells the weight of a kaiju walking the city.
+function spawnStompShockwave() {
+  const x = pug.x, y = pug.y + form().r * 0.55;
+  particles.push({ ring: true, x, y, t: 0, maxR: 120 + form().r * 1.4, color: 'rgba(210,200,190,0.55)' });
+  for (let i = 0; i < 8; i++) {
+    const a = Math.random() * Math.PI * 2, s = 50 + Math.random() * 90;
+    particles.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s * 0.4 - 20, color: '#c8bfb2', life: 0.6, t: 0, size: 5, smoke: true });
+  }
+  // Vertical-dominant ground-pound shake (V3-6 directional/shaped shake).
+  addShake(2.5 + formIdx * 1.2, 0.14);
+  sfx.tone(64 - formIdx * 4, 'sine', 0.12, 0.18);
 }
 
 function drawBuilding(b) {
@@ -1392,6 +1452,10 @@ function tick(dt) {
   if (shopOpen) return; // pause world while shopping
   // Tick the evolution white-flash overlay (independent of hit-pause).
   if (_evoFlashT > 0) _evoFlashT = Math.max(0, _evoFlashT - dt);
+  // V3-6 zoom-punch decays back to neutral (spring-ish, ~0.25s settle).
+  if (zoomPunch > 0) { zoomPunch = Math.max(0, zoomPunch - dt * 0.6); }
+  // V3-6 directional damage-kick edge flash decays.
+  if (dmgKick) { dmgKick.t += dt; if (dmgKick.t >= dmgKick.life) dmgKick = null; }
   // Hit-pause — freeze world for a few frames after evolve / big event.
   if (_zillaHitstopT > 0) { _zillaHitstopT -= dt; return; }
   borkCd = Math.max(0, borkCd - dt);
@@ -1455,6 +1519,17 @@ function tick(dt) {
   pug.vx += (tvx - pug.vx) * blend;
   pug.vy += (tvy - pug.vy) * blend;
   pug.x += pug.vx * dt; pug.y += pug.vy * dt;
+  // V3-5 stomp cadence — bigger forms leave heavy-land shockwaves as they walk.
+  // Accumulate distance travelled; every stride length, drop a shockwave.
+  if (formIdx >= 1) {
+    const moved = Math.hypot(pug.vx, pug.vy) * dt;
+    _stompDist += moved;
+    const stride = 70 - formIdx * 6; // larger forms = longer, heavier strides
+    if (_stompDist >= stride && moved > 0.2) {
+      _stompDist = 0;
+      spawnStompShockwave();
+    }
+  }
   pug.x = Math.max(form().r, Math.min(WORLD_W - form().r, pug.x));
   pug.y = Math.max(form().r, Math.min(WORLD_H - form().r, pug.y));
   cam.x += (pug.x - cam.x) * 5 * dt;
@@ -1733,8 +1808,13 @@ function tick(dt) {
       hp -= dmg;
       missiles.splice(i, 1);
       sfx.tone(180, 'square', 0.1, 0.22);
-      addShake(5, 0.22);
+      addShake(m.big ? 8 : 5, 0.22);
       hitFlashT = 0.18;
+      // V3-6 directional damage kick — flag where the hit came from so the
+      // render can flash that screen edge (clear "you got hit from there").
+      dmgKick = { x: m.x, y: m.y, t: 0, life: 0.3 };
+      // Bigger hits punch the camera so heavy missiles read as heavy.
+      if (m.big) addZoomPunch(0.05);
       addPopup(pug.x, pug.y - form().r - 4, '-' + dmg + ' HP', '#ff5a5a');
       if (hp <= 0) return end();
     }
@@ -1922,6 +2002,14 @@ function render() {
     _sy = (Math.random() - 0.5) * shakeMag * 2 * k;
   }
   ctx.save();
+  // V3-6 zoom-punch: scale the world about screen-center for a brief punch-in
+  // on big smashes / evolutions, then it eases back to 1.0.
+  if (zoomPunch > 0.001) {
+    const z = 1 + zoomPunch;
+    ctx.translate(W / 2, H / 2);
+    ctx.scale(z, z);
+    ctx.translate(-W / 2, -H / 2);
+  }
   ctx.translate(W / 2 - cam.x + _sx, H / 2 - cam.y + _sy);
   // Ground / streets — environment palette
   ctx.fillStyle = _env.ground; ctx.fillRect(0, 0, WORLD_W, WORLD_H);
@@ -2506,6 +2594,35 @@ function render() {
   if (hitFlashT > 0) {
     ctx.fillStyle = `rgba(255,58,58,${Math.min(0.45, hitFlashT * 2.2)})`;
     ctx.fillRect(0, 0, W, H);
+  }
+  // V3-6 directional damage edge-flash — a red band on the screen edge nearest
+  // the incoming missile so off-centre hits read clearly. (skip reduced-motion)
+  if (dmgKick && !_depthReduced()) {
+    const a = (1 - dmgKick.t / dmgKick.life) * 0.5;
+    // Vector from pug to the hit source, in screen space.
+    const ang = Math.atan2(dmgKick.y - pug.y, dmgKick.x - pug.x);
+    const dx = Math.cos(ang), dy = Math.sin(ang);
+    if (Math.abs(dx) >= Math.abs(dy)) {
+      const g = ctx.createLinearGradient(dx > 0 ? W : 0, 0, dx > 0 ? W * 0.7 : W * 0.3, 0);
+      g.addColorStop(0, `rgba(255,58,58,${a})`); g.addColorStop(1, 'rgba(255,58,58,0)');
+      ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+    } else {
+      const g = ctx.createLinearGradient(0, dy > 0 ? H : 0, 0, dy > 0 ? H * 0.7 : H * 0.3);
+      g.addColorStop(0, `rgba(255,58,58,${a})`); g.addColorStop(1, 'rgba(255,58,58,0)');
+      ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+    }
+  }
+  // V3-5 low-health breathing vignette — pulsing red rim when HP is critical,
+  // a calm always-on damage cue that never flashes fast (photosensitivity-safe).
+  {
+    const maxHp = 100 + formIdx * 50;
+    if (hp > 0 && hp / maxHp < 0.3) {
+      const pulse = 0.18 + 0.12 * (0.5 + 0.5 * Math.sin(performance.now() / 340));
+      const lv = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.3, W / 2, H / 2, Math.max(W, H) * 0.65);
+      lv.addColorStop(0, 'rgba(180,0,0,0)');
+      lv.addColorStop(1, `rgba(180,0,0,${pulse})`);
+      ctx.fillStyle = lv; ctx.fillRect(0, 0, W, H);
+    }
   }
   // Evolution white-screen flash — peaks at start, fades to transparent.
   if (_evoFlashT > 0) {

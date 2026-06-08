@@ -564,6 +564,10 @@ export class Game {
     this._radioRevealT = 0; // seconds of "RADIO" reveal-bots buff
     this._hitstopT = 0;
     this._slowmoT = 0;
+    this._flashT = 0;      // white kill-flash overlay timer
+    this._flashColor = 0xffffff;
+    this._flashPeak = 0.0;
+    this._flashDur = 0.18;
     // Center tornado loot — first drop ~12s in so the player has time to gear up
     this._tornadoLootT = 12;
     this._tornadoLootInterval = 25;
@@ -595,6 +599,11 @@ export class Game {
     this.effectsLayer = new Container();
     this.effectsLayer.label = 'effects';
     this.world.container.addChild(this.effectsLayer);
+
+    // Screen-space FX overlay (kill flash + low-HP vignette). Lives on the
+    // stage (not the world) and is counter-translated each frame in
+    // _updateCamera so it stays locked to the viewport while the camera moves.
+    this._buildFxOverlay();
 
     this.pugs = [];
 
@@ -654,6 +663,17 @@ export class Game {
     }
     this.pugs = [];
     if (this._decoys) this._decoys = []; // containers are children of pugsLayer (destroyed with world)
+    // Screen-space FX overlay lives on the stage, not the world — remove it
+    // here so a restart doesn't leak / double-stack overlays.
+    if (this._fxOverlay) {
+      try {
+        this.app.stage.removeChild(this._fxOverlay);
+        this._fxOverlay.destroy({ children: true });
+      } catch (e) {}
+      this._fxOverlay = null;
+      this._fxFlash = null;
+      this._fxVignette = null;
+    }
     // Clear killcam state so a fresh match doesn't inherit a frozen flag.
     this._killcamPending = false;
     if (this._killcamOverlay) {
@@ -929,9 +949,19 @@ export class Game {
         // Color escalates with size: white < 10, yellow < 20, orange < 40, red ≥ 40.
         if (owner === this.player && localStorage.getItem('wg:damage-numbers') !== '0') {
           const dmgN = Math.round(dmgDealt);
-          const dcol = dmgN >= 40 ? 0xff3a3a : (dmgN >= 20 ? 0xff8e3c : (dmgN >= 10 ? 0xffd23f : 0xffffff));
-          const dsize = Math.max(11, Math.min(20, 10 + Math.floor(dmgN / 4)));
+          const crit = dmgN >= 40; // heavy hit reads as a "crit"
+          const dcol = crit ? 0xff3a3a : (dmgN >= 20 ? 0xff8e3c : (dmgN >= 10 ? 0xffd23f : 0xffffff));
+          const dsize = crit
+            ? Math.max(20, Math.min(28, 16 + Math.floor(dmgN / 4)))   // crits pop bigger
+            : Math.max(11, Math.min(20, 10 + Math.floor(dmgN / 4)));
           this._spawnTextBurst(hit.x + (Math.random() - 0.5) * 12, hit.y - 18, String(dmgN), dcol, dsize);
+          // Crit juice (V3-4 floating-number juice): white impact flash + extra
+          // shake + a bright spark pop on the same frame the big number lands.
+          if (crit) {
+            this._flashScreen(0.20, 0xffffff, 0.10);
+            this._screenShake(6, 0.18);
+            this._spawnHitParticles(hit.x, hit.y, 0xffffff);
+          }
         }
         // Track player stats
         if (owner === this.player) {
@@ -948,7 +978,11 @@ export class Game {
         }
         // Audio — quiet hit click when player is the shooter OR target
         if (owner === this.player) Sfx.hit();
-        else if (hit === this.player) Sfx.hurt();
+        else if (hit === this.player) {
+          Sfx.hurt();
+          // Brief red hit-flash so taking damage registers peripherally.
+          this._flashScreen(0.22, 0xff1a2e, 0.14);
+        }
         // Lifesteal — heal owner if it's the player
         if (owner === this.player && this.player.bonus.lifestealPct > 0) {
           this.player.heal(p.damage * this.player.bonus.lifestealPct);
@@ -1028,6 +1062,10 @@ export class Game {
 
     // Camera follow + screen shake
     this._updateCamera(dt);
+
+    // Full-screen FX overlay (kill flash + low-HP vignette). Uses rawDt so the
+    // heartbeat vignette keeps animating even during hitstop (dt == 0).
+    this._updateFxOverlay(rawDt);
 
     // (Bot respawn removed — kill all bots = WIN)
 
@@ -1382,6 +1420,16 @@ export class Game {
     const recoil = w.id === 'shotgun' ? 80 : (w.id === 'sniper' ? 120 : (w.id === 'ar' ? 18 : 40));
     pug.vx -= Math.cos(aim) * recoil;
     pug.vy -= Math.sin(aim) * recoil;
+    // Camera recoil kick — small decaying offset opposite the muzzle (V3-6
+    // kick & recoil). Player only; scaled by weapon so the sniper/shotgun feel
+    // heavier than the pistol. Reuses the existing _camNudge decay channel.
+    if (pug === this.player) {
+      const camKick = w.id === 'shotgun' ? 7 : (w.id === 'sniper' ? 9 : (w.id === 'ar' ? 2 : 4));
+      const km = _bb_shakeMul();
+      this._camNudgeX = -Math.cos(aim) * camKick * km;
+      this._camNudgeY = -Math.sin(aim) * camKick * km;
+      this._camNudgeT = 0.18;
+    }
     // Decrement ammo + auto-reload when empty
     if (pug.ammo != null) {
       pug.ammo -= 1;
@@ -2477,6 +2525,107 @@ export class Game {
     this.shakeT = duration;
   }
 
+  // ===========================================================================
+  // SCREEN-SPACE FX OVERLAY (V3-5 full-screen VFX)
+  //   - _fxFlash:    brief white (or tinted) full-screen punch on big events.
+  //   - _fxVignette: red breathing vignette when player HP is critical.
+  // Both are children of a stage-level container that is counter-translated in
+  // _updateCamera so it stays viewport-locked while the camera pans/shakes.
+  // ===========================================================================
+  _buildFxOverlay() {
+    const overlay = new Container();
+    overlay.label = 'fx-overlay';
+    overlay.eventMode = 'none';
+    // Flash quad — covers the screen, alpha driven each frame.
+    const flash = new Graphics();
+    flash.alpha = 0;
+    overlay.addChild(flash);
+    // Vignette — radial-ish red frame built from layered edge bars (cheap,
+    // pixel-friendly). Alpha pulses with the low-HP heartbeat.
+    const vignette = new Graphics();
+    vignette.alpha = 0;
+    overlay.addChild(vignette);
+    this.app.stage.addChild(overlay);
+    this._fxOverlay = overlay;
+    this._fxFlash = flash;
+    this._fxVignette = vignette;
+    this._redrawFxOverlay();
+  }
+
+  // Redraw the static geometry of the flash quad + vignette frame to current
+  // screen size. Cheap enough to call on resize; we just call it on build.
+  _redrawFxOverlay() {
+    if (!this._fxFlash || !this._fxVignette) return;
+    const w = this.app.screen.width, h = this.app.screen.height;
+    this._fxFlash.clear();
+    this._fxFlash.rect(0, 0, w, h).fill(0xffffff); // tint applied via _fxFlash.tint
+    // Vignette: 4 soft inner-glow bars hugging the edges, darker toward corners.
+    const v = this._fxVignette;
+    v.clear();
+    const band = Math.max(60, Math.min(w, h) * 0.16);
+    const col = 0xff1a2e;
+    for (let i = 0; i < 3; i++) {
+      const t = (i + 1) / 3;            // 0.33 .. 1
+      const a = 0.10 + 0.18 * (1 - t);  // inner bands fainter
+      const inset = band * (1 - t);
+      v.rect(0, inset, w, band * 0.34).fill({ color: col, alpha: a });             // top
+      v.rect(0, h - inset - band * 0.34, w, band * 0.34).fill({ color: col, alpha: a }); // bottom
+      v.rect(inset, 0, band * 0.34, h).fill({ color: col, alpha: a });             // left
+      v.rect(w - inset - band * 0.34, 0, band * 0.34, h).fill({ color: col, alpha: a }); // right
+    }
+  }
+
+  // Trigger a screen flash. Respects the shared shake/reduced-motion scalar so
+  // photosensitive users who lowered shake also get a gentler flash.
+  _flashScreen(peak = 0.35, color = 0xffffff, dur = 0.18) {
+    const k = _bb_shakeMul();
+    if (k <= 0) return;
+    this._flashColor = color;
+    this._flashPeak = peak * k;
+    this._flashT = dur;
+    this._flashDur = dur;
+  }
+
+  _updateFxOverlay(dt) {
+    if (!this._fxOverlay) return;
+    // Keep the overlay viewport-locked despite camera translation.
+    const cam = this.app.stage;
+    this._fxOverlay.x = -cam.x;
+    this._fxOverlay.y = -cam.y;
+    // Redraw geometry if the viewport resized (resizeTo: window).
+    const w = this.app.screen.width, h = this.app.screen.height;
+    if (this._fxW !== w || this._fxH !== h) {
+      this._fxW = w; this._fxH = h;
+      this._redrawFxOverlay();
+    }
+    // --- Flash decay ---
+    if (this._fxFlash) {
+      if (this._flashT > 0) {
+        this._flashT -= dt;
+        const k = Math.max(0, this._flashT) / (this._flashDur || 0.18);
+        this._fxFlash.tint = this._flashColor;
+        this._fxFlash.alpha = this._flashPeak * k;
+      } else if (this._fxFlash.alpha !== 0) {
+        this._fxFlash.alpha = 0;
+      }
+    }
+    // --- Low-HP red vignette (breathing) ---
+    if (this._fxVignette) {
+      const p = this.player;
+      const hpFrac = (p && p.alive && p.maxHp > 0) ? (p.hp / p.maxHp) : 1;
+      let target = 0;
+      if (p && p.alive && hpFrac < 0.30) {
+        // 0 at 30% HP → 1 at 0% HP, gently curved.
+        const sev = Math.min(1, (0.30 - hpFrac) / 0.30);
+        const beat = 0.7 + 0.3 * Math.sin(this.matchTime * 6); // ~heartbeat pulse
+        target = (0.25 + 0.55 * sev) * beat * _bb_shakeMul();
+      }
+      // Ease toward target so it fades in/out smoothly.
+      const cur = this._fxVignette.alpha;
+      this._fxVignette.alpha = cur + (target - cur) * Math.min(1, dt * 8);
+    }
+  }
+
   _applyContactDamage(dt) {
     // O(n^2) but n is small (~12)
     for (let i = 0; i < this.pugs.length; i++) {
@@ -2755,8 +2904,6 @@ export class Game {
   _handleKill(killer, victim, byZone) {
     victim.alive = false;
     this._spawnRandomDeathEffect(victim.x, victim.y);
-    // Audio — kill sound, louder when player kills or is killed
-    if (killer === this.player || victim === this.player) Sfx.kill();
     // Combo system: if player chained kill within 3s, grow combo
     if (killer === this.player) {
       const now = this.matchTime;
@@ -2769,6 +2916,14 @@ export class Game {
       this._comboLast = now;
       this._comboExpiresAt = now + COMBO_WINDOW;
       this._updateComboUI();
+    }
+    // Audio — kill sound, louder when player kills or is killed. Player kills
+    // pitch the splat up per combo link (~+8%/link, capped) so a streak climbs
+    // audibly (V3-4 escalating combo audio). Non-player deaths stay flat.
+    if (killer === this.player) {
+      Sfx.kill(1 + ((this._combo || 1) - 1) * 0.08);
+    } else if (victim === this.player) {
+      Sfx.kill();
     }
     // Drop energy (treats → money for player); ELITES give 1.5× treats.
     const treatMult = victim.skill === 'elite' ? 1.5 : (victim.skill === 'rookie' ? 0.75 : 1.0);
@@ -2867,6 +3022,9 @@ export class Game {
       this._hitstopT = Math.max(this._hitstopT || 0, 0.08);
       const comboBoost = Math.min(2.2, 1 + ((this._combo || 1) - 1) * 0.18);
       this._screenShake(8 * comboBoost, 0.3);
+      // White impact flash — punchier on combo chains (V3-5 full-screen VFX),
+      // capped well below full white so it never blinds.
+      this._flashScreen(Math.min(0.34, 0.16 + ((this._combo || 1) - 1) * 0.04), 0xffffff, 0.16);
       this._spawnKillBanner(this.player.x, this.player.y - 60);
       // Bigger blood/spark burst on kill so it reads as a major event.
       this._spawnHitParticles(victim.x, victim.y, 0xff3a3a);

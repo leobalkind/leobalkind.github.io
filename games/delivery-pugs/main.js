@@ -163,6 +163,23 @@ function spawnTireSmoke(x, y) {
 // Round 2C: weather change flash — brief screen wash on transition
 let weatherFlashT = 0;
 let weatherFlashCol = 'rgba(255,255,255,0)';
+// VOL3 polish (V3-5/V3-6): speed-feel state. cometTrail = world-space ghost
+// positions of the vehicle, length/opacity scaled by velocity for a motion
+// streak. speedRush eases 0..1 with speed so screen speed-lines + a faint
+// edge-zoom vignette ramp in only when actually hauling.
+let cometTrail = []; // {x, y, t}
+let speedRush = 0;   // 0..1 eased speed factor (smoothed)
+// V3-4: near-miss flash — brief radial pulse + slow-mo kiss on a clean dodge.
+let nearMissFlashT = 0;
+let nearMissChain = 0;     // consecutive close calls without taking a hit
+let nearMissChainT = 0;    // window timer for the chain
+// V3-11: low-time urgency — pulsing red vignette + heartbeat when time is short.
+let lowTimePulseT = 0;     // sine accumulator for the heartbeat pulse
+let lowTimeBeepT = 0;      // countdown to next per-second tick beep
+// Delivery-arrival payoff: expanding shock ring + lingering glow at the marker.
+let deliveryFx = [];       // {x, y, t, life, color}
+// Beacon arrival hint — grows as you near the marker so the drop reads clearly.
+let _markerProx = 0;
 // Stunt multiplier — bumped by drift/near-miss/delivery events. Each bump
 // adds 1 to the multiplier (capped at 5x) and refreshes the 6s window. While
 // active, awarded score values are scaled up. Decay is handled in tick().
@@ -235,6 +252,11 @@ function reset() {
   shakeT = 0; shakeMag = 0; hitFlashT = 0;
   popups = []; exhaust = []; burst = [];
   tireSmoke = []; weatherFlashT = 0;
+  // VOL3 polish state
+  cometTrail = []; speedRush = 0;
+  nearMissFlashT = 0; nearMissChain = 0; nearMissChainT = 0;
+  lowTimePulseT = 0; lowTimeBeepT = 0;
+  deliveryFx = []; _markerProx = 0;
   // seed smog particles across viewport (drift across screen)
   smog = [];
   for (let i = 0; i < 30; i++) {
@@ -611,6 +633,26 @@ function tick(dt) {
   timeOfDay = (timeOfDay + dt / 120) % 1;
   time -= dt;
   if (time <= 0) return end();
+  // V3-11: LOW-TIME URGENCY — under 8s, a heartbeat pulse drives the red
+  // vignette (drawn in render) and a per-second tick beep ratchets up tension.
+  if (time < 8) {
+    lowTimePulseT += dt;
+    lowTimeBeepT -= dt;
+    if (lowTimeBeepT <= 0) {
+      // Beep faster as the clock runs down (every 1s at 8s → ~0.4s near 0).
+      lowTimeBeepT = 0.4 + (time / 8) * 0.6;
+      try { sfx.tone(time < 4 ? 1320 : 990, 'square', 0.05, 0.16); } catch {}
+    }
+  } else {
+    lowTimePulseT = 0; lowTimeBeepT = 0;
+  }
+  if (nearMissFlashT > 0) nearMissFlashT = Math.max(0, nearMissFlashT - dt);
+  if (nearMissChainT > 0) { nearMissChainT -= dt; if (nearMissChainT <= 0) nearMissChain = 0; }
+  // Delivery-arrival FX rings expand + fade.
+  for (let i = deliveryFx.length - 1; i >= 0; i--) {
+    const f = deliveryFx[i]; f.t += dt;
+    if (f.t >= f.life) deliveryFx.splice(i, 1);
+  }
   if (crashSpinT > 0) { crashSpinT -= dt; crashSpinAng += dt * 18; }
   if (customerBubble) { customerBubble.life += dt; if (customerBubble.life >= customerBubble.max) customerBubble = null; }
   // Polish R2: SHARK (waterfront visual gag) — fin pops up in the water area
@@ -872,6 +914,22 @@ function tick(dt) {
   }
   // Vehicle exhaust trail (only when moving)
   const _spd = Math.hypot(pug.vx, pug.vy);
+  // V3-5/V3-6: SPEED FEEL. speedRush eases 0..1 vs a ~360 reference top speed
+  // (boost can exceed it → clamps at 1). Drives comet-trail length, screen
+  // speed-lines and the edge-zoom vignette in render(). Eased so it doesn't
+  // flicker frame-to-frame.
+  const _spdFactor = Math.min(1, _spd / 360);
+  speedRush += (_spdFactor - speedRush) * Math.min(1, dt * 6);
+  // Comet trail: drop a world-space ghost behind the vehicle while fast. More
+  // samples + longer life the faster you go, so the streak visibly lengthens.
+  if (_spd > 120) {
+    cometTrail.push({ x: pug.x, y: pug.y, t: 0 });
+  }
+  for (let i = cometTrail.length - 1; i >= 0; i--) {
+    const c = cometTrail[i]; c.t += dt;
+    if (c.t >= 0.4) cometTrail.splice(i, 1);
+  }
+  if (cometTrail.length > 26) cometTrail.splice(0, cometTrail.length - 26);
   if (_spd > 80 && Math.random() < 0.6) {
     const back = pug.ang + Math.PI;
     exhaust.push({ x: pug.x + Math.cos(back) * 16, y: pug.y + Math.sin(back) * 16, vx: Math.cos(back) * 20 + (Math.random() - 0.5) * 20, vy: Math.sin(back) * 20 + (Math.random() - 0.5) * 20, t: 0, life: nitroT > 0 ? 0.6 : 0.4, r: 4 + Math.random() * 3, hot: nitroT > 0 });
@@ -1003,8 +1061,13 @@ function tick(dt) {
   cam.x += (pug.x - cam.x) * 5 * dt;
   cam.y += (pug.y - cam.y) * 5 * dt;
 
+  // Beacon proximity (0..1) — eased ramp drives an arrival glow in render so
+  // the drop-zone reads more clearly as you close in.
+  const _mdist = Math.hypot(pug.x - marker.x, pug.y - marker.y);
+  const _mTarget = Math.max(0, Math.min(1, (320 - _mdist) / 280));
+  _markerProx += (_mTarget - _markerProx) * Math.min(1, dt * 8);
   // Marker reach
-  if (Math.hypot(pug.x - marker.x, pug.y - marker.y) < 50) {
+  if (_mdist < 50) {
     // MULTI-PACKAGE — pop next stop, don't count delivery until all 3 done
     if (currentDeliveryType === 'multi' && multiStops > 1) {
       multiStops--;
@@ -1110,6 +1173,10 @@ function tick(dt) {
     addBurst(marker.x, marker.y, '#ff3aa1', 10);
     addBurst(marker.x, marker.y, '#4cc9f0', 10);
     addShake(6, 0.24);
+    // VOL3 payoff: expanding shock ring(s) at the drop. A perfect delivery
+    // gets a brighter double-ring for extra "ka-ching" satisfaction.
+    deliveryFx.push({ x: marker.x, y: marker.y, t: 0, life: 0.55, color: '#5ef38c' });
+    if (isPerfect) deliveryFx.push({ x: marker.x, y: marker.y, t: -0.08, life: 0.6, color: '#ffd23f' });
     try {
       const tag = combo > 1 ? ` x${combo}` : '';
       __deliveryFeed.push(`DELIVERED #${deliveries}${tag}`, combo > 1 ? '#ff3aa1' : '#5ef38c');
@@ -1203,17 +1270,27 @@ function tick(dt) {
     if (o.type !== 'mailbox') {
       const cd = Math.hypot(pug.x - o.x, pug.y - o.y);
       if (cd < 24) damage();
-      // Crazy Taxi "CLOSE CALL" — passing within 30px of a zombie at >150
-      // speed (and not actually colliding) awards 25. Per-obstacle cooldown
-      // via nearMissBank so a single zombie pass only fires once.
-      else if (o.type === 'zombie' && cd < 30 && spd > 150) {
+      // Crazy Taxi "CLOSE CALL" — V3-4 reward feedback. Skimming past a
+      // zombie OR mutant cat within 32px at >150 speed (without colliding)
+      // pays out, with a chain bonus for back-to-back clean dodges. Per-
+      // obstacle cooldown via nearMissBank so a single pass only fires once.
+      else if ((o.type === 'zombie' || o.type === 'cat') && cd < 32 && spd > 150) {
         const cd2 = nearMissBank.get(o) || 0;
         if (cd2 <= 0) {
-          addPopup(pug.x, pug.y - 18, `CLOSE CALL +25`, '#ff3aa1');
-          addBurst((pug.x + o.x) / 2, (pug.y + o.y) / 2, '#ff3aa1', 6);
-          sfx.tone(880, 'triangle', 0.05, 0.16);
-          bumpStunt(25);
-          try { __deliveryFeed.push(`★ CLOSE CALL +25`, '#ff3aa1'); } catch (e) { /* */ }
+          // Chain: each near-miss inside a 2.5s window stacks +1, scaling the
+          // reward (25, 35, 45...) so a daring dodge-streak feels rewarding.
+          nearMissChain = Math.min(9, nearMissChain + 1);
+          nearMissChainT = 2.5;
+          const award = 25 + (nearMissChain - 1) * 10;
+          const chainTag = nearMissChain > 1 ? ` ×${nearMissChain}` : '';
+          addPopup(pug.x, pug.y - 18, `CLOSE CALL +${award}${chainTag}`, '#ff3aa1');
+          addBurst((pug.x + o.x) / 2, (pug.y + o.y) / 2, '#ff3aa1', 6 + nearMissChain);
+          sfx.tone(880 + nearMissChain * 60, 'triangle', 0.05, 0.16);
+          bumpStunt(award);
+          // V3-4: brief world-zoom-ish flash + tiny shake to sell the brush-by.
+          nearMissFlashT = 0.28;
+          addShake(2.5, 0.12);
+          try { __deliveryFeed.push(`★ CLOSE CALL +${award}${chainTag}`, '#ff3aa1'); } catch (e) { /* */ }
           nearMissBank.set(o, 1.2);
         }
       }
@@ -1242,6 +1319,8 @@ function damage() {
   invuln = 1.0;
   // Polish R2: damage breaks drift streak
   driftStreak = 0;
+  // V3-4: taking a hit also resets the clean-dodge near-miss chain.
+  nearMissChain = 0; nearMissChainT = 0;
   sfx.sweep(220, 110, 'sawtooth', 0.15, 0.22);
   // Round 2C: bigger shake + lower bass thump for impact weight
   sfx.tone(110, 'square', 0.12, 0.22);
@@ -1850,13 +1929,35 @@ function render() {
   ctx.fillStyle = beam;
   ctx.fillRect(marker.x - 30, marker.y - 900, 60, 900);
   ctx.restore();
+  // ARRIVAL GLOW — as you near the drop (_markerProx), a brightening halo +
+  // expanding "lock-on" pulse rings fire so the arrival reads clearly and the
+  // last stretch feels rewarding rather than ambiguous.
+  if (_markerProx > 0.02) {
+    ctx.save();
+    const halo = ctx.createRadialGradient(marker.x, marker.y, 10, marker.x, marker.y, 90);
+    halo.addColorStop(0, mc);
+    halo.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.globalAlpha = 0.22 * _markerProx;
+    ctx.fillStyle = halo;
+    ctx.beginPath(); ctx.arc(marker.x, marker.y, 90, 0, Math.PI * 2); ctx.fill();
+    // Two staggered lock-on rings closing inward
+    ctx.globalAlpha = 0.5 * _markerProx;
+    ctx.strokeStyle = mc; ctx.lineWidth = 2;
+    for (let r = 0; r < 2; r++) {
+      const phase = (performance.now() / 700 + r * 0.5) % 1;
+      const rr = 90 - phase * 56;
+      ctx.globalAlpha = (1 - phase) * 0.5 * _markerProx;
+      ctx.beginPath(); ctx.arc(marker.x, marker.y, rr, 0, Math.PI * 2); ctx.stroke();
+    }
+    ctx.restore();
+  }
   // Ground glow ring under the marker
   ctx.save();
-  ctx.globalAlpha = 0.30;
+  ctx.globalAlpha = 0.30 + 0.25 * _markerProx;
   ctx.fillStyle = mc;
   ctx.beginPath(); ctx.ellipse(marker.x, marker.y + 6, 56, 18, 0, 0, Math.PI * 2); ctx.fill();
   ctx.restore();
-  ctx.shadowColor = mc; ctx.shadowBlur = 26;
+  ctx.shadowColor = mc; ctx.shadowBlur = 26 + 18 * _markerProx;
   ctx.strokeStyle = mc; ctx.lineWidth = 7;
   ctx.beginPath(); ctx.arc(marker.x, marker.y, 56 + Math.sin(performance.now() / 200) * 6, 0, Math.PI * 2); ctx.stroke();
   ctx.fillStyle = mc; ctx.font = "30px serif";
@@ -1905,6 +2006,23 @@ function render() {
       ctx.fillRect(p.x - 6, p.y - 2, 12, 4);
       ctx.fillRect(p.x - 2, p.y - 6, 4, 12);
     }
+  }
+  // V3-5: COMET TRAIL — world-space speed streak behind the vehicle, drawn
+  // under it so the pug rides the leading edge. Width + opacity scale with
+  // speedRush so it visibly stretches the faster you go (nitro = hottest).
+  if (cometTrail.length > 1 && speedRush > 0.15) {
+    const hot = nitroT > 0;
+    for (let i = 0; i < cometTrail.length; i++) {
+      const c = cometTrail[i];
+      const k = i / cometTrail.length;            // 0 (oldest) .. 1 (newest)
+      const fade = (1 - c.t / 0.4) * k;           // older + time-faded = dimmer
+      if (fade <= 0) continue;
+      const r = (3 + k * 9) * (0.4 + speedRush);
+      ctx.globalAlpha = fade * 0.5 * speedRush;
+      ctx.fillStyle = hot ? '#ffd23f' : (vehicle.color || '#4cc9f0');
+      ctx.beginPath(); ctx.arc(c.x, c.y, r, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.globalAlpha = 1;
   }
   // depth3D drop shadow under the pug-vehicle — keeps the world axis aligned.
   _depthShadow(ctx, pug.x, pug.y + 14, 22, { alpha: 0.45 });
@@ -1997,6 +2115,17 @@ function render() {
     ctx.fillStyle = phc;
     ctx.fillRect(px, py, 24 * petPassengerHp / 100, 3);
   }
+  // Delivery payoff shock rings (world space) — expand + fade at the drop.
+  for (const f of deliveryFx) {
+    if (f.t < 0) continue;
+    const k = f.t / f.life;
+    const rr = 30 + k * 110;
+    ctx.globalAlpha = (1 - k) * 0.85;
+    ctx.strokeStyle = f.color;
+    ctx.lineWidth = 5 * (1 - k) + 1;
+    ctx.beginPath(); ctx.arc(f.x, f.y, rr, 0, Math.PI * 2); ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
   // Burst particles (world space)
   for (const p of burst) {
     const a = Math.max(0, 1 - p.t / p.life);
@@ -2016,6 +2145,61 @@ function render() {
     ctx.globalAlpha = 1;
   }
   ctx.restore();
+  // V3-5/V3-6: SPEED LINES + edge-zoom vignette (screen space) — ramp in with
+  // speedRush so they only show when genuinely hauling. Lines radiate from
+  // center outward (anime "warp" feel); the dark edge vignette tightens to
+  // fake a speed-zoom. Skipped under reduced-motion.
+  if (speedRush > 0.32 && !_depthReduced()) {
+    const cx = W / 2, cy = H / 2;
+    const k = Math.min(1, (speedRush - 0.32) / 0.68);
+    // Edge-zoom darkening
+    const zg = ctx.createRadialGradient(cx, cy, Math.min(W, H) * (0.46 - 0.12 * k), cx, cy, Math.max(W, H) * 0.72);
+    zg.addColorStop(0, 'rgba(0,0,0,0)');
+    zg.addColorStop(1, `rgba(0,0,0,${0.18 * k})`);
+    ctx.fillStyle = zg; ctx.fillRect(0, 0, W, H);
+    // Streaks — deterministic angles (time-jittered) so they shimmer, not crawl.
+    const n = Math.floor(10 + k * 16);
+    const reach = Math.max(W, H) * 0.62;
+    const inner = reach * (0.5 - 0.12 * k);
+    ctx.save();
+    ctx.strokeStyle = nitroT > 0 ? `rgba(255,210,63,${0.10 + 0.22 * k})` : `rgba(220,235,255,${0.08 + 0.16 * k})`;
+    ctx.lineWidth = 2;
+    const t = performance.now() / 90;
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2 + Math.sin(i * 12.9 + t * 0.2) * 0.05;
+      const j = (Math.sin(i * 53.7 + t) * 0.5 + 0.5);
+      const i0 = inner * (0.85 + j * 0.3);
+      ctx.beginPath();
+      ctx.moveTo(cx + Math.cos(a) * i0, cy + Math.sin(a) * i0);
+      ctx.lineTo(cx + Math.cos(a) * reach, cy + Math.sin(a) * reach);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+  // V3-4: near-miss flash — quick magenta edge-pulse on a clean dodge.
+  if (nearMissFlashT > 0) {
+    const a = nearMissFlashT / 0.28;
+    const ng = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.42, W / 2, H / 2, Math.max(W, H) * 0.7);
+    ng.addColorStop(0, 'rgba(255,58,161,0)');
+    ng.addColorStop(1, `rgba(255,58,161,${0.32 * a})`);
+    ctx.fillStyle = ng; ctx.fillRect(0, 0, W, H);
+  }
+  // V3-11: LOW-TIME urgency — pulsing red vignette + "TIME!" warning under 8s.
+  if (time < 8 && running) {
+    const beat = 0.5 + 0.5 * Math.sin(lowTimePulseT * (time < 4 ? 12 : 7));
+    const intensity = (1 - time / 8) * (0.28 + 0.18 * beat);
+    const lg = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.34, W / 2, H / 2, Math.max(W, H) * 0.72);
+    lg.addColorStop(0, 'rgba(255,40,40,0)');
+    lg.addColorStop(1, `rgba(255,30,30,${intensity})`);
+    ctx.fillStyle = lg; ctx.fillRect(0, 0, W, H);
+    ctx.save();
+    ctx.globalAlpha = 0.55 + 0.45 * beat;
+    ctx.fillStyle = time < 4 ? '#ff3a3a' : '#ffd23f';
+    ctx.font = "bold 16px 'Press Start 2P', monospace";
+    ctx.textAlign = 'center';
+    ctx.fillText('⚠ TIME ' + Math.ceil(time) + 's', W / 2, 70);
+    ctx.restore();
+  }
   // Hit flash (full screen)
   if (hitFlashT > 0) {
     ctx.fillStyle = `rgba(255,58,58,${Math.min(0.45, hitFlashT * 2.2)})`;

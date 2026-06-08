@@ -211,6 +211,19 @@ export class Game {
     } else if (this._bossFlashEl && this._bossFlashEl.style.opacity !== '0') {
       this._bossFlashEl.style.opacity = '0';
     }
+    // Player hurt-vignette decay (raw frame dt so it fades during hit-pause).
+    // Honour reduced-motion via the shared shake multiplier — 0 = skip flash.
+    if (this._hurtFlashT && this._hurtFlashT > 0 && _pf_shakeMul() > 0) {
+      this._hurtFlashT -= Math.min(ticker.deltaMS / 1000, 1 / 30);
+      this._ensureHurtFlashEl();
+      if (this._hurtFlashEl) {
+        const k = Math.max(0, this._hurtFlashT) / 0.5;
+        this._hurtFlashEl.style.opacity = (k * 0.85).toFixed(3);
+      }
+    } else if (this._hurtFlashEl && this._hurtFlashEl.style.opacity !== '0') {
+      this._hurtFlashEl.style.opacity = '0';
+      this._hurtFlashT = 0;
+    }
     // Visual ninja-dash poof — Game owns scene access; zombies set flag.
     for (const z of this.zombies) {
       if (z.wantsToDashPoof) {
@@ -260,6 +273,11 @@ export class Game {
       this.phaseTotal = TRANSITION_DURATION;
       this.phaseT = 0;
       this.hud.toastMessage(`🌅 Survived night ${this.nightIdx} / ${TOTAL_NIGHTS}`, 'good');
+      // WAVE-CLEAR PAYOFF — surviving a night is the core win beat, so make it
+      // read as an EVENT: gold banner, fountain burst at the generator, a punchy
+      // shake + tiny celebratory hitstop, a survival-reward stipend, and a win
+      // sting. (V3-4 milestone fanfare / win-wash; V3-5 reward fountain.)
+      this._waveClearPayoff();
     } else if (this.phase === 'dawn') {
       this.phase = 'day';
       // nightsSurvived has incremented at end of night; helper uses that count
@@ -389,7 +407,13 @@ export class Game {
       if (this.nightSpawnTimer <= 0) {
         this._spawnZombie();
         this.nightTotalSpawned += 1;
-        this.nightSpawnTimer = (NIGHT_DURATION * 0.75) / this.nightSpawnTarget;
+        let gap = (NIGHT_DURATION * 0.75) / this.nightSpawnTarget;
+        // FTUE — Night 1 trickles its first few walkers in slowly so a brand-new
+        // player gets a gentle, readable intro before the wall of dogs builds up
+        // (V3-3 "first 30s a guaranteed-win zone"; V3-7 "first spawns alone and
+        // slow"). Only affects the opening of Night 1; later nights are unchanged.
+        if (this.nightIdx === 1 && this.nightTotalSpawned <= 4) gap = Math.max(gap, 2.2);
+        this.nightSpawnTimer = gap;
       }
     }
     // BOSS spawn: night 3, halfway through. Only spawns once.
@@ -626,6 +650,19 @@ export class Game {
     this._bossFlashEl = el;
   }
 
+  // Red edge-vignette overlay for player damage. Edge-only gradient (centre
+  // stays clear) so it never obscures the action — just rims the screen red.
+  _ensureHurtFlashEl() {
+    if (this._hurtFlashEl) return;
+    const el = document.createElement('div');
+    el.id = 'pugfort-hurt-flash';
+    el.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:49;'
+      + 'background:radial-gradient(ellipse at center,rgba(0,0,0,0.0) 45%,rgba(200,20,40,0.0) 70%,rgba(220,30,50,0.6) 100%);'
+      + 'opacity:0;';
+    document.body.appendChild(el);
+    this._hurtFlashEl = el;
+  }
+
   _bossStomp(x, y) {
     Sfx.explosion();
     this._screenShake(8, 0.32);
@@ -704,6 +741,41 @@ export class Game {
       else ring.destroy();
     };
     requestAnimationFrame(animate);
+  }
+
+  // Celebratory "you survived the night" payoff. Pure feedback — the small
+  // material stipend is the only gameplay effect (scales with night so later,
+  // costlier nights pay out more). Safe: guards on generator presence.
+  _waveClearPayoff() {
+    const won = !this._endless && this.nightsSurvived >= TOTAL_NIGHTS;
+    // Big gold banner + punchy-but-brief shake + a beat of hitstop so the
+    // moment lands. Lighter than the death/boss shake so it reads as JOY.
+    this.hud.showWaveBanner(won ? '★ ALL NIGHTS SURVIVED ★' : `NIGHT ${this.nightIdx} CLEARED`);
+    this._screenShake(5, 0.3);
+    this._hitstopT = Math.max(this._hitstopT || 0, 0.08);
+    // Survival stipend — a small reward rise paired with the difficulty rise
+    // (V3-3 "pair every difficulty rise with a reward rise"). Endless keeps it
+    // flowing; the final win night is handled by the boss/end payoff already.
+    if (!won) {
+      const scrap = 4 + this.nightIdx * 2;
+      const elec = this.nightIdx;
+      this.resources.scrap = (this.resources.scrap || 0) + scrap;
+      if (elec > 0) this.resources.electronics = (this.resources.electronics || 0) + elec;
+      const parts = [`+${scrap} ${MATERIALS.scrap.icon}`];
+      if (elec > 0) parts.push(`+${elec} ${MATERIALS.electronics.icon}`);
+      this.hud.toastMessage(`🏅 NIGHT BONUS ${parts.join(' ')}`, 'good');
+    }
+    // Gold ring fountain centred on the generator (the thing you defended).
+    const cx = this.generator ? this.generator.x : this.world.width / 2;
+    const cy = this.generator ? this.generator.y : this.world.height / 2;
+    this._spawnRing(cx, cy, 200, COLORS.neonYellow);
+    setTimeout(() => this._spawnRing(cx, cy, 320, 0xffd23f), 120);
+    // Upward sparkle fountain — reuse the build-sparkle look at a few points
+    // around the generator so it feels like a celebration spray.
+    this._spawnBuildSparkle(cx, cy);
+    setTimeout(() => { try { this._spawnBuildSparkle(cx - 50, cy - 10); } catch {} }, 90);
+    setTimeout(() => { try { this._spawnBuildSparkle(cx + 50, cy - 10); } catch {} }, 180);
+    try { Sfx.win?.(); } catch {}
   }
 
   // ---------- Explosions ----------
@@ -1509,7 +1581,13 @@ export class Game {
     // Player damage shake — detect HP drop frame-over-frame
     if (this.player && this.player.alive) {
       const drop = this._lastPlayerHp - this.player.hp;
-      if (drop > 0.5) this._screenShake(Math.min(6, 3 + drop * 0.1), 0.2);
+      if (drop > 0.5) {
+        this._screenShake(Math.min(6, 3 + drop * 0.1), 0.2);
+        // Red hit-vignette flash so taking damage reads instantly even off the
+        // shake (V3-5 "hit-flash red vignette"). Intensity scales with the hit;
+        // photosensitivity-safe (single short fade, capped by reduced-motion).
+        this._hurtFlashT = Math.min(0.5, 0.28 + drop * 0.004);
+      }
       this._lastPlayerHp = this.player.hp;
     }
     // Generator hit shake — detect HP drop

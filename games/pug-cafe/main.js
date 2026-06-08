@@ -1232,6 +1232,11 @@ const STAFF_EVENTS = [
 
 let orders, bench, money, served, lives, spawnT, eventT, running;
 let comboT = 0, comboCount = 0; // serve combo within window
+// V3-11 timer urgency: heartbeat tick that accelerates as the *most* urgent
+// order runs out of patience. _urgentTickT counts down to the next audible
+// tick; interval shrinks with remaining time so it reads as a real "hurry!"
+// pulse. Reset per run so a fresh shift starts calm.
+let _urgentTickT = 0;
 // Shop upgrades — purchased flags reset per run. autoCookT counts down to next autocook trigger.
 const SHOP_DEFS = [
   { id: 'autoCook',  name: 'AUTO-COOK',         cost: 250, icon: '🤖', desc: 'Auto-completes 1 ingredient in oldest order every 5s' },
@@ -1279,6 +1284,7 @@ function reset() {
   orders = []; bench = []; money = 0; served = 0; lives = 4;
   spawnT = 1.5; eventT = 5;
   comboT = 0; comboCount = 0;
+  _urgentTickT = 0;
   upgrades = {}; autoCookT = 5;
   hireGrabT = 4; karenFightCheckT = 1.5;
   shiftStats = { bestTip: 0, longestChain: 0, specialsServed: 0, vipsServed: 0, karensCalmed: 0, criticsServed: 0, familiesServed: 0, burnt: 0, mostChaotic: '', startedAt: performance.now() };
@@ -1846,7 +1852,11 @@ function serve(idx, alreadyConsumed) {
       delete _familyServes[o.familyId];
     }
   }
-  sfx.arp([523, 659, 784], 'triangle', 0.07, 0.22, 0.2);
+  // V3-4: combo hit-sound pitches up a semitone per link so back-to-back
+  // serves feel like a rising musical run (caps after ~1 octave to stay tasteful).
+  const _comboSemis = Math.min(12, Math.max(0, comboCount - 1));
+  const _comboPitch = Math.pow(2, _comboSemis / 12);
+  sfx.arp([523 * _comboPitch, 659 * _comboPitch, 784 * _comboPitch], 'triangle', 0.07, 0.22, 0.2);
   // Popup near the served order's button (approx center of orders bar)
   const ordersEl = document.getElementById('orders');
   const rect = ordersEl ? ordersEl.getBoundingClientRect() : { left: window.innerWidth / 2, top: 100, width: 0, height: 0 };
@@ -1989,6 +1999,35 @@ function tick(dt) {
       updateHud();
       updateChalkboard();
     }
+  }
+  // V3-11 / V3-4: escalating timer-urgency heartbeat. Find the most urgent
+  // un-plated order (lowest patience fraction). When it crosses into the
+  // critical zone (<25% patience), tick a short pulse whose interval shrinks
+  // — and whose pitch rises — the closer it gets to ANGRY. Plated orders are
+  // excluded (their freshness clock already has its own cues). Silent when no
+  // order is critical, so the soundscape stays calm most of the shift.
+  let _minK = 1;
+  for (let i = 0; i < orders.length; i++) {
+    const o = orders[i];
+    if (o.freshnessT != null) continue; // plated — handled by freshness cues
+    const k = o.time / o.maxTime;
+    if (k < _minK) _minK = k;
+  }
+  if (_minK < 0.25) {
+    _urgentTickT -= dt;
+    if (_urgentTickT <= 0) {
+      // Interval ramps 0.62s (just-critical) -> 0.16s (about to expire).
+      const u = Math.max(0, Math.min(1, _minK / 0.25)); // 1=just hit zone, 0=expiring
+      _urgentTickT = 0.16 + u * 0.46;
+      // Pitch rises as it gets more urgent; two-layer click reads as a clock tick.
+      const pitch = 760 + (1 - u) * 520;
+      try {
+        sfx.tone(pitch, 'square', 0.04, 0.10);
+        if (u < 0.45) sfx.tone(pitch * 0.5, 'triangle', 0.05, 0.08);
+      } catch (e) { /* */ }
+    }
+  } else {
+    _urgentTickT = 0; // reset so the next critical order tick fires immediately
   }
   // Combo decay
   if (comboT > 0) { comboT -= dt; if (comboT <= 0) comboCount = 0; }

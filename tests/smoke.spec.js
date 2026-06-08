@@ -27,6 +27,31 @@ function isIgnorable(text) {
   return IGNORE.some((re) => re.test(text));
 }
 
+// Drive a game's start flow with generic inputs. The v2.10 Pug Heist black
+// screen happened AFTER clicking start (the render loop died on the first
+// post-start frame) — a boot-only check would miss it entirely. We click a
+// plausible start button (never HUB/back/settings, which would navigate away),
+// then press Enter/Space and click the canvas to cover the common start
+// patterns. Best-effort: failures to find a control are fine; the point is to
+// get past the title screen so the play loop runs and any throw surfaces.
+async function startGame(page) {
+  // All inputs are fully bounded (force + short timeouts) so a game's start
+  // behavior can never hang the suite — we only want to drive past the title
+  // screen so the play loop runs and any throw surfaces in `errors`.
+  await page.keyboard.press('Enter').catch(() => {});
+  await page.keyboard.press('Space').catch(() => {});
+  const startBtn = page
+    .getByRole('button', { name: /play|start|sneak|begin|go|cook|fight|dig|climb|deliver|defend|enter|rampage/i })
+    .first();
+  if (await startBtn.count().catch(() => 0)) {
+    await startBtn.click({ timeout: 1000, force: true }).catch(() => {});
+  }
+  const canvas = page.locator('canvas').first();
+  if (await canvas.count().catch(() => 0)) {
+    await canvas.click({ position: { x: 60, y: 60 }, timeout: 1000, force: true }).catch(() => {});
+  }
+}
+
 // Attach error collectors to a page and return an array that fills with real
 // problems (uncaught exceptions + console.error lines that aren't noise).
 function collectErrors(page) {
@@ -90,6 +115,15 @@ for (const game of GAMES) {
     const hasContent = hasCanvas || bodyText.trim().length > 0;
     expect(hasContent, `${game.id} rendered nothing (likely a crash)`).toBeTruthy();
 
-    expect(errors, `${game.id} boot errors:\n${errors.join('\n')}`).toEqual([]);
+    // Boot was clean — now drive the start flow and watch the play loop. This
+    // is the part that would have caught the v2.10 post-start black screen.
+    // The Three.js FPS game grabs pointer-lock + runs a heavy WebGL loop that
+    // doesn't tear down cleanly headless, so it stays boot-only (still verified).
+    if (game.engine !== 'three') {
+      await startGame(page);
+      await page.waitForTimeout(2000);
+    }
+
+    expect(errors, `${game.id} boot+start errors:\n${errors.join('\n')}`).toEqual([]);
   });
 }

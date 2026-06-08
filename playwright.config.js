@@ -13,11 +13,15 @@ const PORT = 4173;
 
 export default defineConfig({
   testDir: './tests',
-  timeout: 30_000,
+  // Driving each game's live loop (audio + particles) for a couple seconds is
+  // CPU-heavy, so cap parallelism to avoid context-creation contention and give
+  // each test generous headroom. Boot+start of one game is well under this.
+  timeout: 45_000,
   expect: { timeout: 10_000 },
   fullyParallel: true,
+  workers: 2,
   forbidOnly: !!process.env.CI,
-  retries: 0,
+  retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI ? [['list'], ['github']] : 'list',
   use: {
     baseURL: `http://localhost:${PORT}`,

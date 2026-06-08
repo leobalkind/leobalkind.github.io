@@ -13,6 +13,7 @@ import { showGradeCard } from '../../src/shared/gradeCard.js';
 import { createSettingsMenu } from '../../src/shared/settingsMenu.js';
 import { getShakeMul as _shakeMul } from '../../src/shared/screenShake.js';
 import { drawShadow as _depthShadow } from '../../src/shared/depth3D.js';
+import { burst as _burst } from '../../src/shared/particleBurst.js';
 
 // Pug shopper disguise per map: corner=cap+coat, super=scarf+shades, warehouse=biz shirt.
 function _shopperDisguiseForMap(mapId) {
@@ -536,6 +537,14 @@ function reset() {
     objectives.push({ ...pool.splice(k, 1)[0], done: false });
   }
   everSpotted = false;
+  // Grab/escape juice + FTUE per-run reset
+  particles = [];
+  grabChain = 0; lastGrabChainT = 0;
+  haulBumpT = 0; grabPopT = 0; greedPulseT = 0;
+  firstGrabDone = false;
+  let _seenFirstGrab = false;
+  try { _seenFirstGrab = !!localStorage.getItem(FTUE_KEY); } catch {}
+  ftueActive = !_seenFirstGrab;
   renderObjectivesPanel();
   renderBribeChips();
 }
@@ -643,8 +652,35 @@ function grabNear() {
           comboChain = 0;
         }
         haul += val;
-        popup(it.x, it.y - 10, '+$' + val, it.item.expensive ? '#b055ff' : '#5ef38c');
-        sfx.tone(880, 'triangle', 0.07, 0.18);
+        // === PICKUP JUICE (V3-10) + COUNTER BUMP (V3-4) ===
+        // Pop-and-pitch CHIME LADDER: each grab inside a 1.2s window climbs the
+        // scale, then resets — a satisfying "ramp" when looting fast. Capped so
+        // it stays musical instead of shrill.
+        const nowG = performance.now();
+        if (nowG - lastGrabChainT < 1200) grabChain = Math.min(grabChain + 1, 11);
+        else grabChain = 0;
+        lastGrabChainT = nowG;
+        const ladder = [523, 587, 659, 698, 784, 880, 988, 1047, 1175, 1319, 1397, 1568];
+        sfx.tone(ladder[grabChain] || 1568, 'triangle', 0.06, 0.2);
+        // Sparkle burst at the item, tinted by value tier (expensive=purple).
+        const tier = it.item.expensive ? '#b055ff' : (val >= 30 ? '#ffd23f' : '#5ef38c');
+        for (const pt of _burst(it.x, it.y, { count: 12, color: tier, kind: 'sparkle' })) particles.push(pt);
+        haulBumpT = 0.25;  // HUD haul number pops on every gain
+        grabPopT = 0.18;   // pug squashes happily
+        popup(it.x, it.y - 10, '+$' + val, tier);
+        // === FIRST-GRAB CELEBRATION (V3-1 FTUE) — over-the-top, one time ===
+        if (!firstGrabDone) {
+          firstGrabDone = true;
+          if (ftueActive) {
+            ftueActive = false;
+            try { localStorage.setItem(FTUE_KEY, '1'); } catch {}
+            shake(5, 0.25);
+            sfx.arp([523, 659, 784, 1047, 1319], 'triangle', 0.06, 0.24, 0.2);
+            for (const pt of _burst(pug.x, pug.y - 6, { count: 22, color: '#ffd23f', kind: 'sparkle' })) particles.push(pt);
+            popup(pug.x, pug.y - 34, 'FIRST LOOT!', '#ffd23f');
+            popup(pug.x, pug.y - 20, 'NOW REACH THE EXIT →', '#5ef38c');
+          }
+        }
         checkObjectives();
         return;
       } else {
@@ -753,6 +789,18 @@ function toggleCart() {
 // v4 polish: cart-entry trail timer — read by render to draw a brief glide
 // streak behind the pug, signaling the speed shift from foot → cart.
 let _cartEntryT = 0;
+// === GRAB/ESCAPE JUICE STATE (V3-10 pickup juice, V3-4 reward feedback) ===
+let particles = [];        // shared particleBurst pool — sparkle on grab, confetti on escape
+let grabChain = 0;         // consecutive grabs within window — drives the chime ladder pitch
+let lastGrabChainT = 0;    // ms of last grab for the chain window
+let haulBumpT = 0;         // 0..0.25s — scales the HUD haul number on each grab (counter bump)
+let grabPopT = 0;          // 0..0.2s — quick scale-pop on the pug when a grab lands
+let greedPulseT = 0;       // 0..1 — climbs as bag fills, glows the pug to nudge a cash-out
+// FTUE: first-ever run gets a "grab me" telegraph on the nearest item + a big
+// first-grab celebration. One-time, gated on localStorage so veterans never see it.
+const FTUE_KEY = 'supermarket-pug:firstgrab';
+let ftueActive = false;    // true only during a player's first-ever run, until first grab
+let firstGrabDone = false; // run-scoped: has the player grabbed anything yet
 
 function tick(dt) {
   if (!running) return;
@@ -951,6 +999,15 @@ function tick(dt) {
     const sightRange = g.kind === 'chaser' ? 240 : (g.kind === 'manager' ? 180 : 200);
     const sightFov = g.kind === 'manager' ? 0.4 : 0.5;
     const sees = d < sightRange && Math.abs(diff) < sightFov;
+    // DETECTION TELEGRAPH (V3-7): a visible "notice" meter ramps up while the
+    // guard has LOS but BEFORE it commits to a chase, and decays when it loses
+    // sight. Purely a fairness/feedback layer — the existing alertT logic still
+    // governs the actual chase. Gives the player a beat to break LOS.
+    if (sees && cameraBlinkT <= 0 && guardFreezeT <= 0) {
+      g.noticeT = Math.min(1, (g.noticeT || 0) + dt * 2.2);
+    } else {
+      g.noticeT = Math.max(0, (g.noticeT || 0) - dt * 1.4);
+    }
     // CAMERA BLINK suppresses sight-based heat gain too
     if (sees) {
       // Rising-edge: guard newly spots player → bark + speech bubble (1.2s) +
@@ -1019,6 +1076,14 @@ function tick(dt) {
       }
       popup(exitZ.x, exitZ.y - 30, alarm.escaped ? 'CLOSE CALL!' : 'CLEAN ESCAPE!', '#ffd23f');
       sfx.arp([523, 659, 784, 1047, 1319], 'triangle', 0.06, 0.22, 0.18);
+      // ESCAPE PAYOFF (V3-10 jackpot juice): a big multi-colour confetti burst
+      // from the exit + a celebratory thump so reaching the door feels earned.
+      const _confCols = ['#ff3aa1', '#4cc9f0', '#ffd23f', '#5ef38c', '#b055ff', '#ff8e3c'];
+      for (let ci = 0; ci < _confCols.length; ci++) {
+        for (const pt of _burst(exitZ.x, exitZ.y, { count: 9, color: _confCols[ci], kind: 'death', speed: 240 })) particles.push(pt);
+      }
+      shake(8, 0.4);
+      sfx.tone(196, 'sine', 0.3, 0.4);
       end(true);
     }
   }
@@ -1040,6 +1105,28 @@ function tick(dt) {
   shakeT = Math.max(0, shakeT - dt); if (shakeT === 0) shakeAmp = 0;
   if (pug.jiggleT > 0) pug.jiggleT = Math.max(0, pug.jiggleT - dt);
   if (spotFlashT > 0) spotFlashT = Math.max(0, spotFlashT - dt);
+  // Juice timers + particle pool (grab sparkles, escape confetti).
+  if (haulBumpT > 0) haulBumpT = Math.max(0, haulBumpT - dt);
+  if (grabPopT > 0) grabPopT = Math.max(0, grabPopT - dt);
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
+    p.x += p.vx * dt; p.y += p.vy * dt;
+    if (p.gravity) p.vy += p.gravity * dt;
+    p.life -= dt; if (p.life <= 0) particles.splice(i, 1);
+  }
+  // === GREED / RISK-REWARD FEEDBACK (V3-4) ===
+  // The more you carry (bag fullness) the louder the "cash out" nudge: a glow
+  // pulse on the pug climbs toward 1 as the bag fills, and a one-shot whisper
+  // fires the moment the bag is full so big-haul runs feel tense, not safe.
+  const greedTarget = maxBag ? Math.min(1, bag / maxBag) : 0;
+  greedPulseT += (greedTarget - greedPulseT) * Math.min(1, dt * 4);
+  if (bag >= maxBag && !pug._greedWarned) {
+    pug._greedWarned = true;
+    popup(pug.x, pug.y - 30, 'BAG FULL — CASH OUT!', '#ffd23f');
+    sfx.tone(330, 'sine', 0.18, 0.22);
+  } else if (bag < maxBag) {
+    pug._greedWarned = false;
+  }
   updateHud();
 }
 
@@ -1617,9 +1704,34 @@ function render() {
     ctx.fillStyle = 'rgba(0,0,0,0.18)';
     ctx.fillRect(s.x + 2, s.y + s.h, s.w - 4, 4);
   }
+  // FTUE (V3-1): on a player's first-ever run, point a pulsing ring at the
+  // single nearest item until they grab something. Teach-by-doing, no text wall.
+  let _ftueTarget = null;
+  if (ftueActive && !firstGrabDone && items) {
+    let best = Infinity;
+    for (const it of items) {
+      if (it.taken) continue;
+      const dd = Math.hypot(it.x - pug.x, it.y - pug.y);
+      if (dd < best) { best = dd; _ftueTarget = it; }
+    }
+  }
   // Items
   for (const it of items) {
     if (it.taken) continue;
+    // FTUE beacon on the nearest item — pulsing green ring + bobbing arrow.
+    if (it === _ftueTarget) {
+      const fp = 0.5 + 0.5 * Math.sin(performance.now() / 160);
+      ctx.save();
+      ctx.strokeStyle = `rgba(94,243,140,${0.5 + 0.5 * fp})`;
+      ctx.lineWidth = 2.5;
+      ctx.beginPath(); ctx.arc(it.x, it.y, 16 + 4 * fp, 0, Math.PI * 2); ctx.stroke();
+      const ay = it.y - 26 - 3 * fp;
+      ctx.fillStyle = '#5ef38c';
+      ctx.beginPath(); ctx.moveTo(it.x - 6, ay - 6); ctx.lineTo(it.x + 6, ay - 6); ctx.lineTo(it.x, ay + 2); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#5ef38c'; ctx.font = "6px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
+      ctx.fillText(_isTouch ? 'GRAB!' : 'GRAB [E]', it.x, ay - 10);
+      ctx.restore();
+    }
     // TIP-OFF halo on highlighted item
     if (highlightedItem === it) {
       const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 150);
@@ -1772,6 +1884,18 @@ function render() {
     } else if (g.alertT > 0) {
       ctx.fillStyle = '#ff3a3a'; ctx.font = "16px sans-serif"; ctx.textAlign = 'center';
       ctx.fillText('!', g.x, g.y - 28);
+    } else if ((g.noticeT || 0) > 0.04) {
+      // DETECTION TELEGRAPH (V3-7): a "?" + filling arc above the guard while it
+      // is noticing you — colour ramps yellow→red as the meter approaches full.
+      const nt = g.noticeT;
+      const rg = Math.floor(255), gg = Math.floor(210 - nt * 170);
+      const col = `rgb(${rg},${gg},58)`;
+      ctx.strokeStyle = 'rgba(0,0,0,0.4)'; ctx.lineWidth = 4;
+      ctx.beginPath(); ctx.arc(g.x, g.y - 30, 8, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * nt); ctx.stroke();
+      ctx.strokeStyle = col; ctx.lineWidth = 2.5;
+      ctx.beginPath(); ctx.arc(g.x, g.y - 30, 8, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * nt); ctx.stroke();
+      ctx.fillStyle = col; ctx.font = "bold 9px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
+      ctx.fillText('?', g.x, g.y - 26);
     }
     // Speech bubble bark — white rounded rect with red text above the guard.
     // Use real elapsed time (now - lastT) so frame-rate variation doesn't desync
@@ -1872,13 +1996,48 @@ function render() {
     }
     ctx.restore();
   }
+  // GREED GLOW (V3-4): a golden halo around the pug that intensifies as the bag
+  // fills — a constant "you're carrying a lot, cash out" risk-reward cue.
+  if (greedPulseT > 0.08) {
+    const gp = 0.6 + 0.4 * Math.sin(performance.now() / 180);
+    const py0 = pug.y - (inCart ? 6 : 0) + wobbleY;
+    ctx.save();
+    ctx.fillStyle = `rgba(255,210,63,${0.10 * greedPulseT * gp})`;
+    ctx.beginPath(); ctx.arc(pug.x, py0, 24 + 8 * greedPulseT, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = `rgba(255,210,63,${0.5 * greedPulseT * gp})`;
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(pug.x, py0, 20 + 4 * greedPulseT, 0, Math.PI * 2); ctx.stroke();
+    ctx.restore();
+  }
   if (inCart) drawCart(pug.x, pug.y + 4 + wobbleY, 0);
   // Pug shopper with rotating disguise — cycles by map for a "different store
   // different cover" feel. Stays cosmetic (does not change gameplay).
+  // GRAB POP (V3-10): a brief squash-and-stretch on the pug each time loot lands.
   const _shopperDisguise = _shopperDisguiseForMap(currentMap.id);
-  drawPug(ctx, pug.x, pug.y - (inCart ? 6 : 0) + wobbleY, { size: 28, ..._shopperDisguise });
-  _drawShopperAccessory(ctx, pug.x, pug.y - (inCart ? 6 : 0) + wobbleY, currentMap.id, 28);
+  const _pugDy = pug.y - (inCart ? 6 : 0) + wobbleY;
+  let _popped = false;
+  if (grabPopT > 0) {
+    const pk = grabPopT / 0.18;            // 1..0
+    const sc = 1 + 0.22 * Math.sin(pk * Math.PI); // pop up then back
+    ctx.save();
+    ctx.translate(pug.x, _pugDy);
+    ctx.scale(sc, 2 - sc);                  // squash: wider when shorter
+    ctx.translate(-pug.x, -_pugDy);
+    _popped = true;
+  }
+  drawPug(ctx, pug.x, _pugDy, { size: 28, ..._shopperDisguise });
+  _drawShopperAccessory(ctx, pug.x, _pugDy, currentMap.id, 28);
+  if (_popped) ctx.restore();
   if (totalAng !== 0) ctx.restore();
+  // Grab sparkles / escape confetti (shared particleBurst pool)
+  for (const p of particles) {
+    const a = Math.max(0, Math.min(1, p.life / p.max));
+    ctx.globalAlpha = a;
+    ctx.fillStyle = p.color;
+    const ps = p.size * (0.4 + a * 0.6);
+    ctx.fillRect(p.x - ps / 2, p.y - ps / 2, ps, ps);
+  }
+  ctx.globalAlpha = 1;
   // Score popups
   for (const p of popups) {
     const a = 1 - p.t / p.life;
@@ -2081,6 +2240,22 @@ let _smHudPrev = { haul: -1, bag: '', heat: -1, shelves: -1, pulse: false, best:
 let _smBestCache = null, _smBestCacheT = 0;
 function updateHud() {
   if (haul !== _smHudPrev.haul) { _smHud.haul.textContent = '$' + haul; _smHudPrev.haul = haul; }
+  // COUNTER BUMP (V3-4): scale-pulse the haul readout on each gain so the
+  // number feels alive. Cleared once the bump timer expires.
+  if (_smHud.haul) {
+    if (haulBumpT > 0) {
+      const bk = haulBumpT / 0.25; // 1..0
+      const sc = 1 + 0.35 * bk;
+      _smHud.haul.style.display = 'inline-block';
+      _smHud.haul.style.transform = `scale(${sc.toFixed(3)})`;
+      _smHud.haul.style.color = '#ffd23f';
+      _smHud.haulBumped = true;
+    } else if (_smHud.haulBumped) {
+      _smHud.haul.style.transform = '';
+      _smHud.haul.style.color = '';
+      _smHud.haulBumped = false;
+    }
+  }
   const bg = `${bag}/${maxBag}`;
   if (bg !== _smHudPrev.bag) { _smHud.bag.textContent = bg; _smHudPrev.bag = bg; }
   const ht = Math.floor(heat * 100);
@@ -2600,9 +2775,17 @@ const _startOv = document.getElementById('overlay');
 if (_startOv) {
   const _showOnHide = () => {
     if (_startOv.classList.contains('is-hidden') || _startOv.hidden) {
-      const firstTip = _isTouch
-        ? 'JOYSTICK move · GRAB / RAM / CART buttons · 💰 BRIBE top-right · 🚪 EXIT bottom-right'
-        : 'WASD move · E grab · SPACE ram · C cart · 💰 BRIBE top-right (B) · 🚪 EXIT bottom-right';
+      // FTUE: a player's very first run leads with the goal (the pulsing in-world
+      // beacon does the rest); veterans get the full controls reminder.
+      let _firstEver = false;
+      try { _firstEver = !localStorage.getItem(FTUE_KEY); } catch {}
+      const firstTip = _firstEver
+        ? (_isTouch
+            ? 'Walk to the GLOWING item · tap GRAB · then reach the 🚪 EXIT!'
+            : 'Walk to the GLOWING item · press E to GRAB · then reach the 🚪 EXIT!')
+        : (_isTouch
+            ? 'JOYSTICK move · GRAB / RAM / CART buttons · 💰 BRIBE top-right · 🚪 EXIT bottom-right'
+            : 'WASD move · E grab · SPACE ram · C cart · 💰 BRIBE top-right (B) · 🚪 EXIT bottom-right');
       showTip(firstTip, 7000);
       // Follow-up bubble after 7.5s — explains the SECTIONS + GUARD types.
       // Only fires once per session (sessionStorage flag).

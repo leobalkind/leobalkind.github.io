@@ -831,6 +831,59 @@ body.lab-theme-cosmic .lab-bg{background:radial-gradient(ellipse at 50% 0%,rgba(
 .lab-assistant__hat{position:absolute;top:-10px;left:50%;transform:translateX(-50%);font-size:20px;line-height:1;pointer-events:none;text-shadow:0 2px 4px rgba(0,0,0,.8);opacity:0;transition:opacity .3s}
 .lab-assistant__hat.is-show{opacity:1}
 
+/* === V3 FUSION JUICE: anticipation build → pop reveal === */
+/* Beaker rumbles/charges for a beat before the species pops out. */
+.lab-beaker.is-fusing{animation:lab-fuse-charge .62s cubic-bezier(.36,.07,.19,.97) both}
+@keyframes lab-fuse-charge{
+  0%{transform:translate(0,0) scale(1);filter:brightness(1)}
+  15%{transform:translate(-2px,1px) scale(1.01)}
+  30%{transform:translate(2px,-1px) scale(1.02);filter:brightness(1.25)}
+  45%{transform:translate(-3px,1px) scale(1.03)}
+  60%{transform:translate(3px,-1px) scale(1.04);filter:brightness(1.6)}
+  78%{transform:translate(-2px,0) scale(1.05);filter:brightness(2.2)}
+  100%{transform:translate(0,0) scale(1);filter:brightness(1)}
+}
+/* White flash that swells out of the beaker at the moment of the pop. */
+.lab-fuse-flash{position:fixed;pointer-events:none;z-index:247;border-radius:50%;
+  width:40px;height:40px;transform:translate(-50%,-50%) scale(.2);
+  background:radial-gradient(circle,#fff 0%,rgba(255,255,255,.6) 35%,transparent 72%);
+  mix-blend-mode:screen;animation:lab-fuse-flash .42s ease-out forwards}
+@keyframes lab-fuse-flash{0%{opacity:0;transform:translate(-50%,-50%) scale(.2)}
+  18%{opacity:1}100%{opacity:0;transform:translate(-50%,-50%) scale(7)}}
+/* Result card pops in (overshoot) when a species is revealed. */
+.lab-result.is-revealing{animation:lab-result-pop .5s cubic-bezier(.34,1.56,.64,1) both}
+@keyframes lab-result-pop{0%{transform:scale(.4) translateY(10px);opacity:0}
+  60%{transform:scale(1.08) translateY(0);opacity:1}100%{transform:scale(1)}}
+/* "★ NEW" stamp that thumps onto a fresh discovery. */
+.lab-new-stamp{display:inline-block;margin-left:6px;font-family:var(--font-display);
+  font-size:.4rem;letter-spacing:.08em;color:#0a0716;background:var(--neon-yellow);
+  padding:1px 5px;border-radius:4px;box-shadow:0 0 8px var(--neon-yellow);
+  transform:rotate(-6deg) scale(0);animation:lab-stamp-thump .42s cubic-bezier(.34,1.8,.5,1) .18s forwards}
+@keyframes lab-stamp-thump{0%{transform:rotate(-18deg) scale(2.4);opacity:0}
+  55%{transform:rotate(-6deg) scale(.9);opacity:1}100%{transform:rotate(-6deg) scale(1)}}
+/* NEW-only flavour blurb line under the caption. */
+.lab-result__blurb{font-size:.42rem;color:var(--neon-cyan);margin-top:6px;
+  letter-spacing:.03em;font-style:italic;opacity:0;animation:lab-blurb-in .4s ease-out .3s forwards}
+@keyframes lab-blurb-in{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
+/* Gentle one-time FTUE coach bubble pinned near the FUSE button. */
+.lab-ftue-coach{position:fixed;z-index:150;pointer-events:none;max-width:200px;
+  font-family:var(--font-display);font-size:.46rem;line-height:1.5;letter-spacing:.04em;
+  color:#0a0716;background:var(--neon-cyan);border:2px solid #fff;border-radius:8px;
+  padding:8px 12px;box-shadow:0 4px 14px rgba(0,0,0,.6),0 0 18px rgba(76,201,240,.6);
+  opacity:0;transform:translateY(6px);transition:opacity .3s,transform .3s}
+.lab-ftue-coach.is-show{opacity:1;transform:translateY(0);animation:lab-ftue-bob 1.8s ease-in-out infinite}
+@keyframes lab-ftue-bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-4px)}}
+.lab-ftue-coach::after{content:'';position:absolute;width:0;height:0;
+  border:7px solid transparent}
+.lab-ftue-coach--down::after{bottom:-13px;left:24px;border-top-color:var(--neon-cyan)}
+.lab-ftue-coach--up::after{top:-13px;left:24px;border-bottom-color:var(--neon-cyan)}
+body.reduced-motion .lab-beaker.is-fusing,
+body.reduced-motion .lab-result.is-revealing,
+body.reduced-motion .lab-new-stamp,
+body.reduced-motion .lab-result__blurb,
+body.reduced-motion .lab-fuse-flash{animation:none!important;opacity:1;transform:none!important}
+body.reduced-motion .lab-ftue-coach.is-show{animation:none}
+
 `;
 const _lstyle = document.createElement('style'); _lstyle.textContent = LAB_CSS; document.head.appendChild(_lstyle);
 // depth3D: vignette + subtle 3D tilt on ingredient hover (CSS-only, GPU-cheap).
@@ -1360,6 +1413,8 @@ function addToBeaker(ing, fromX, fromY) {
   syncBeaker();
   // Wave 1F: refresh ALMOST DISCOVERED hint pulses for any 1-swap-away combos
   applyAlmostHints();
+  // V3 FTUE: re-point the coach (e.g. towards FUSE once 3 are loaded).
+  updateFtue();
 }
 
 function syncBeaker() {
@@ -1462,7 +1517,7 @@ function syncBeaker() {
 }
 
 document.querySelectorAll('.lab-slot').forEach((el, i) => {
-  el.addEventListener('click', () => { beaker[i] = null; syncBeaker(); applyAlmostHints(); });
+  el.addEventListener('click', () => { beaker[i] = null; syncBeaker(); applyAlmostHints(); updateFtue(); });
   // Drag-and-drop target — accept ingredient ids from the shelf
   el.addEventListener('dragover', (ev) => {
     if (ev.dataTransfer.types.includes('text/lab-ingredient')) {
@@ -1719,7 +1774,10 @@ function fuse() {
       }
     }
   }
-  showResult(result, isNew);
+  // V3: anticipation build → pop. The card + its starburst appear after a
+  // short charge beat on the beaker so the reveal feels earned. Everything
+  // else (scoring, banners, persistence below) stays synchronous.
+  playFusionReveal(() => showResult(result, isNew));
   // Round 2C: SHEET-ENTRY style "ENTRY UNLOCKED" banner for every new combo.
   // Fires on isNew (fresh species discovery), not on combo repeats — the
   // existing handleAlreadyDiscovered() path already returns before fuse runs.
@@ -1736,8 +1794,14 @@ function fuse() {
     recomputeScore();
     const beakerR = document.querySelector('.lab-beaker')?.getBoundingClientRect();
     if (beakerR) popScore(beakerR.left + beakerR.width / 2, beakerR.top + 10, earned, ELEMENTS[tier]?.color);
+    // V3 FTUE: first-ever fuse retires the coach for good.
+    endFtue();
     // Milestone accomplishments
     const total = Object.keys(discoveries).length;
+    // V3: celebrate the very first discovery so new players feel the payoff
+    // of the core loop immediately (earlier than the old 10-pug milestone).
+    if (total === 1) showAccomplishment('★ FIRST PUG! ★', 'The codex begins — keep fusing!', '#5ef38c');
+    if (total === 5) showAccomplishment('★ 5 PUGS! ★', 'You\'re getting the hang of it', '#4cc9f0');
     if (total === 10) showAccomplishment('★ 10 PUGS! ★', 'You\'re officially a breeder', '#5ef38c');
     if (total === 25) showAccomplishment('★ 25 PUGS! ★', 'Quarter of the codex done', '#4cc9f0');
     if (total === 50) showAccomplishment('★ 50 PUGS! ★', 'Almost there — keep fusing', '#b055ff');
@@ -1823,6 +1887,53 @@ function showColorExplosion(x, y, tier) {
   }
 }
 
+// V3: tier-reactive funny one-liner shown ONLY on a brand-new discovery. This
+// is layered ON TOP of the creature's own `desc` caption — desc describes the
+// creature, the blurb reacts to YOU finding it. Deterministic by combo key so
+// the same species always greets you the same way (no jarring reshuffle if it
+// ever re-renders).
+const NEW_BLURBS = {
+  LEGENDARY: ['A LEGEND joins the codex!', 'The crowd goes wild. (The crowd is one pug.)',
+    'Frame it. Sell prints. Retire.', 'Scientists are baffled. You are not.', 'Top-shelf bork material.'],
+  EPIC: ['An EPIC specimen — nice work!', 'Now THAT is a pug.', 'The beaker is impressed.',
+    'Filed under "very good boy".', 'Worth at least three treats.'],
+  RARE: ['Ooh, a RARE one!', 'Not bad! The ledger approves.', 'A keeper.', 'Slightly cursed, mostly cute.'],
+  CURSED: ['It... should not exist. You made it anyway.', 'Do NOT make eye contact.',
+    'The lab grows colder.', 'Containment recommended.', 'We will pretend this is fine.'],
+  COMMON: ['A new pug! Every codex needs them.', 'Welcome to the family, little guy.',
+    'Common, but loved.', 'Squishy. Acceptable.', 'One more for the shelf.'],
+};
+function _newBlurbFor(tier, key) {
+  const list = NEW_BLURBS[tier] || NEW_BLURBS.COMMON;
+  return list[_hashKey(key || tier) % list.length];
+}
+
+// V3: brief anticipation beat on the beaker, then run the reveal. Keeps the
+// existing fuse() pipeline intact — we only DELAY the visible payoff slightly
+// so the pop feels earned. Reduced-motion users skip straight to the reveal.
+function playFusionReveal(onReveal) {
+  const beakerEl = document.querySelector('.lab-beaker');
+  const reduced = document.body.classList.contains('reduced-motion');
+  if (!beakerEl || reduced) { onReveal(); return; }
+  beakerEl.classList.remove('is-fusing'); void beakerEl.offsetWidth;
+  beakerEl.classList.add('is-fusing');
+  setCoilCharging(true);
+  // rising-pitch "charge" tone leading into the pop
+  try { sfx.sweep(180, 520, 'sawtooth', 0.5, 0.1); } catch {}
+  setTimeout(() => {
+    beakerEl.classList.remove('is-fusing');
+    // White flash swelling out of the beaker at the moment of the pop
+    const r = beakerEl.getBoundingClientRect();
+    const fl = document.createElement('div');
+    fl.className = 'lab-fuse-flash';
+    fl.style.left = (r.left + r.width / 2) + 'px';
+    fl.style.top = (r.top + r.height / 2) + 'px';
+    document.body.appendChild(fl);
+    setTimeout(() => fl.remove(), 460);
+    onReveal();
+  }, 560);
+}
+
 function showResult(r, isNew) {
   resEl.innerHTML = '';
   const div = document.createElement('div');
@@ -1839,11 +1950,32 @@ function showResult(r, isNew) {
   const nameDiv = document.createElement('div'); nameDiv.className = 'lab-result__name'; nameDiv.textContent = r.name;
   div.appendChild(nameDiv);
   const badgeRow = document.createElement('div');
-  badgeRow.innerHTML = `<span class="lab-rarity-badge ${r.tier}">${r.tier}${isNew ? ' · ★ NEW' : ''}</span>`;
+  // V3: NEW gets a thumping stamp instead of plain "· ★ NEW" text.
+  badgeRow.innerHTML = `<span class="lab-rarity-badge ${r.tier}">${r.tier}</span>${isNew ? '<span class="lab-new-stamp">★ NEW</span>' : ''}`;
   div.appendChild(badgeRow);
   const cap = document.createElement('div'); cap.className = 'lab-result__caption'; cap.textContent = r.desc;
   div.appendChild(cap);
+  // V3: tier-reactive funny one-liner — NEW discoveries only.
+  if (isNew) {
+    const blurb = document.createElement('div');
+    blurb.className = 'lab-result__blurb';
+    blurb.textContent = _newBlurbFor(_tier, r.key);
+    div.appendChild(blurb);
+  }
   resEl.appendChild(div);
+  // V3: reveal pop-in on the whole card (overshoot bounce).
+  div.classList.add('is-revealing');
+  setTimeout(() => div.classList.remove('is-revealing'), 520);
+  // V3: rarity-tiered sparkle burst centred ON the result card — denser/richer
+  // for higher tiers so rarity reads instantly. (Beaker bursts still fire in
+  // fuse(); this adds a focused pop right where the player is looking.)
+  try {
+    const rr = div.getBoundingClientRect();
+    const cx = rr.left + rr.width / 2, cy = rr.top + rr.height / 2;
+    const density = { COMMON: 8, RARE: 14, EPIC: 22, LEGENDARY: 34, CURSED: 18 };
+    const col = { COMMON: '#c8c8d8', RARE: '#4cc9f0', EPIC: '#b055ff', LEGENDARY: '#ffd23f', CURSED: '#ff3a3a' };
+    sparkleBurst(cx, cy, density[_tier] || 8, col[_tier] || '#c8c8d8');
+  } catch {}
   if (r.legendary) {
     sfx.arp([523, 659, 784, 1047, 1319], 'triangle', 0.1, 0.25, 0.3);
   } else if (r.cursed) {
@@ -2311,6 +2443,71 @@ function load() {
     }
   } catch {
     discoveredCombos = new Set();
+  }
+}
+
+// ===== V3 GENTLE FTUE — one-time first-fuse coach (per profile) =====
+// A calm, low-flash pointer that guides a brand-new player through the single
+// core loop: pick 3 ingredients → tap FUSE. It only ever appears for a player
+// with ZERO discoveries who hasn't seen it, repositions to the FUSE button
+// once 3 ingredients are loaded, and retires permanently after the first fuse.
+// Respects reduced-motion (no bob). Never blocks input (pointer-events:none).
+const FTUE_KEY = () => profileKey('mutation-lab:ftueSeen');
+let _ftueEl = null;
+let _ftueActive = false;
+function _ftueSeen() { try { return localStorage.getItem(FTUE_KEY()) === '1'; } catch { return true; } }
+function _markFtueSeen() { try { localStorage.setItem(FTUE_KEY(), '1'); } catch {} }
+function maybeStartFtue() {
+  if (_ftueActive || _ftueSeen()) return;
+  // Only coach genuinely new players (no discoveries yet).
+  if (Object.keys(discoveries).length > 0) { _markFtueSeen(); return; }
+  _ftueActive = true;
+  _ftueEl = document.createElement('div');
+  _ftueEl.className = 'lab-ftue-coach';
+  document.body.appendChild(_ftueEl);
+  // Slight delay so the lab has laid out before we position the bubble.
+  setTimeout(updateFtue, 400);
+  window.addEventListener('resize', updateFtue);
+}
+function updateFtue() {
+  if (!_ftueActive || !_ftueEl) return;
+  const loaded = beaker.filter((b) => b != null).length;
+  let anchor, msg, dir;
+  if (loaded >= 3) {
+    anchor = fuseBtn; dir = 'down';
+    msg = 'Now tap ⚗ FUSE to discover your pug!';
+  } else if (loaded === 0) {
+    anchor = ingEl; dir = 'up';
+    msg = 'Tap any 3 ingredients to load the beaker →';
+  } else {
+    anchor = ingEl; dir = 'up';
+    msg = `Nice! Add ${3 - loaded} more ingredient${3 - loaded === 1 ? '' : 's'}…`;
+  }
+  const r = anchor && anchor.getBoundingClientRect();
+  if (!r) return;
+  _ftueEl.className = `lab-ftue-coach lab-ftue-coach--${dir}`;
+  _ftueEl.textContent = msg;
+  // Position above (pointer down) or below (pointer up) the anchor.
+  const bw = 200;
+  let left = Math.min(Math.max(8, r.left), window.innerWidth - bw - 8);
+  if (dir === 'down') {
+    _ftueEl.style.left = Math.min(Math.max(8, r.left + r.width / 2 - 30), window.innerWidth - bw - 8) + 'px';
+    _ftueEl.style.top = Math.max(8, r.top - 56) + 'px';
+  } else {
+    _ftueEl.style.left = left + 'px';
+    _ftueEl.style.top = (r.bottom + 14) + 'px';
+  }
+  requestAnimationFrame(() => _ftueEl && _ftueEl.classList.add('is-show'));
+}
+function endFtue() {
+  if (!_ftueActive) return;
+  _ftueActive = false;
+  _markFtueSeen();
+  window.removeEventListener('resize', updateFtue);
+  if (_ftueEl) {
+    _ftueEl.classList.remove('is-show');
+    const el = _ftueEl; _ftueEl = null;
+    setTimeout(() => el.remove(), 320);
   }
 }
 
@@ -2969,6 +3166,8 @@ document.getElementById('start-btn').addEventListener('click', () => {
   }
   sfx.resume();
   try { music.setIntensity(0.3); music.play(); } catch {}
+  // V3: gentle one-time first-fuse coach for brand-new players.
+  maybeStartFtue();
 });
 
 // Tutorial tip — shows briefly when the game starts (every match).

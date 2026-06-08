@@ -992,6 +992,7 @@ function reset() {
   shakeT = 0; shakeMag = 0; waveBannerT = 0; vaultFlashT = 0; _tdHitstopT = 0;
   endlessMode = false;
   _placeMode = false;
+  _invalidFlash = null; _vaultThreat = 0; _hoverCell = { c: -1, r: -1 };
   waveHistory = []; _totalKills = 0;
   _waveStartStats = { money: 100, lives: 10, kills: 0 };
   _updateWaveHistoryDom();
@@ -1199,18 +1200,29 @@ function showTowerPopup(t) {
 }
 
 canvas.addEventListener('mousedown', (e) => handleClick(e.clientX, e.clientY));
-canvas.addEventListener('touchstart', (e) => { const t = e.touches[0]; handleClick(t.clientX, t.clientY); e.preventDefault(); }, { passive: false });
+canvas.addEventListener('touchstart', (e) => {
+  const t = e.touches[0];
+  // Touch has no hover, so seed the placement preview from the tapped cell —
+  // a tap on a buildable cell shows range/validity before the placement lands.
+  _hoverCell = { c: Math.floor((t.clientX - gridOffsetX()) / TILE), r: Math.floor((t.clientY - gridOffsetY()) / TILE) };
+  handleClick(t.clientX, t.clientY);
+  e.preventDefault();
+}, { passive: false });
 // Desktop hover preview — while the user hasn't selected a tower for upgrade,
 // hovering an existing tower opens the upgrade-preview popup. Leaves the
 // click-to-select model intact; clicking simply pins the popup (it was already
 // pinned before this hover was added). On touch devices, mouseover doesn't
 // fire so this is a no-op.
 let _hoverTower = null;
+// PLACEMENT PREVIEW: last hovered/tapped grid cell, used to draw a range
+// circle + valid/invalid tile highlight while a tower type is armed. (-1 = none)
+let _hoverCell = { c: -1, r: -1 };
 canvas.addEventListener('mousemove', (e) => {
   if (!running) return;
   const x = e.clientX, y = e.clientY;
   const c = Math.floor((x - gridOffsetX()) / TILE);
   const r = Math.floor((y - gridOffsetY()) / TILE);
+  _hoverCell = { c, r };
   const found = towers.find((t) => t.col === c && t.row === r) || null;
   if (found === _hoverTower) return;
   _hoverTower = found;
@@ -1220,6 +1232,7 @@ canvas.addEventListener('mousemove', (e) => {
 });
 canvas.addEventListener('mouseleave', () => {
   _hoverTower = null;
+  _hoverCell = { c: -1, r: -1 };
   if (!selectedTower) hidePopup();
 });
 function gridOffsetX() { return Math.floor((W - GRID_W * TILE) / 2); }
@@ -1241,7 +1254,12 @@ function handleClick(x, y) {
   // If a tower type is selected and cell is buildable, place
   if (selectedTowerType && !isPath(c, r)) {
     const t = TOWERS[selectedTowerType];
-    if (money < t.cost) return;
+    if (money < t.cost) {
+      // Can't afford — short "denied" buzz + red flash on the cell.
+      sfx.tone(160, 'sawtooth', 0.04, 0.12);
+      _invalidFlash = { c, r, t: 0, reason: 'NO $' };
+      return;
+    }
     money -= t.cost;
     // `placeT` drives a quick squash → settle scale ramp inside drawTower.
     towers.push({
@@ -1269,10 +1287,17 @@ function handleClick(x, y) {
     }
     if (!_placeMode) selectedTowerType = null;
     buildBar(); updateHud();
+  } else if (selectedTowerType && isPath(c, r)) {
+    // Armed but tapped the path — illegal placement. Buzz + red cell flash so
+    // the player learns towers go on GROUND, not the creep lane.
+    sfx.tone(160, 'sawtooth', 0.04, 0.12);
+    _invalidFlash = { c, r, t: 0, reason: 'PATH' };
   } else {
     hidePopup(); selectedTower = null;
   }
 }
+// Short-lived red flash on an illegal placement target (path / unaffordable).
+let _invalidFlash = null;
 
 // =============================================================================
 // WAVE MODIFIER — picked each wave (waves 2+) for strategic depth.
@@ -1593,15 +1618,20 @@ function tick(dt) {
     }
     const target = currentMap.path[e.pathIdx + 1];
     if (!target) {
-      // Reached end
+      // Reached end — a BREACH. Loud, readable feedback so leaks never feel
+      // like the life count "just dropped" with no explanation.
       e.alive = false;
       lives--;
-      // Vault hit: flash + shake + popup
-      vaultFlashT = 0.35;
-      screenShake(7, 0.28);
+      vaultFlashT = 0.5;
+      screenShake(9, 0.32);
       const vlast = currentMap.path[currentMap.path.length - 1];
-      spawnPopup(vlast[0] * TILE + gridOffsetX() + TILE / 2, vlast[1] * TILE + gridOffsetY() - 6, '-1 LIFE', '#ff3a3a');
-      sfx.sweep(220, 110, 'sawtooth', 0.2, 0.2);
+      const bvx = vlast[0] * TILE + gridOffsetX() + TILE / 2;
+      const bvy = vlast[1] * TILE + gridOffsetY() - 6;
+      spawnPopup(bvx, bvy, 'BREACH! -1 LIFE', '#ff3a3a');
+      // Red shockwave ring at the vault to mark the leak point.
+      particles.push({ x: bvx, y: bvy + 6, t: 0, life: 0.5, ring: true, maxR: 48, color: '#ff3a3a' });
+      sfx.sweep(260, 90, 'sawtooth', 0.28, 0.26);
+      sfx.tone(80, 'square', 0.18, 0.3);
       if (lives <= 0) return end(false);
       continue;
     }
@@ -1935,8 +1965,24 @@ function tick(dt) {
   if (shakeT > 0) shakeT = Math.max(0, shakeT - dt);
   if (waveBannerT > 0) waveBannerT = Math.max(0, waveBannerT - dt);
   if (vaultFlashT > 0) vaultFlashT = Math.max(0, vaultFlashT - dt);
+  if (_invalidFlash) { _invalidFlash.t += dt; if (_invalidFlash.t > 0.5) _invalidFlash = null; }
+  // VAULT-UNDER-ATTACK telegraph: ramp a warning level based on how close the
+  // nearest live enemy is to the vault (last few path nodes). Drives a pulsing
+  // banner + red edge vignette in render. (V3-7 edge warning / V3-11 alert)
+  {
+    let nearest = 0; // 0 = safe, 1 = at the gate
+    const lastIdx = currentMap.path.length - 1;
+    for (const e of enemies) {
+      if (!e.alive) continue;
+      const fromEnd = lastIdx - e.pathIdx;
+      if (fromEnd <= 5) nearest = Math.max(nearest, 1 - fromEnd / 5);
+    }
+    _vaultThreat = nearest;
+  }
   updateHud();
 }
+// 0..1 — how imminent a vault breach is (set in tick, read in render).
+let _vaultThreat = 0;
 
 function render() {
   const biome = getBiome();
@@ -2315,16 +2361,93 @@ function render() {
     }
     ctx.globalAlpha = 1;
   }
-  // Placement preview (if a tower is selected & mouse hovers a buildable cell)
+  // Placement preview (if a tower is selected & mouse hovers a buildable cell).
+  // Shows a range circle + valid(green)/invalid(red) tile highlight + a ghost
+  // pug at the target cell so the player can read coverage BEFORE committing.
   if (selectedTowerType) {
     const def = TOWERS[selectedTowerType];
-    ctx.fillStyle = 'rgba(255,210,63,0.08)';
+    const oxp = gridOffsetX(), oyp = gridOffsetY();
+    ctx.fillStyle = 'rgba(255,210,63,0.06)';
     ctx.fillRect(0, 0, W, H);
+    const { c, r } = _hoverCell;
+    const onGrid = c >= 0 && r >= 0 && c < GRID_W && r < GRID_H;
+    if (onGrid) {
+      const occupied = towers.some((t) => t.col === c && t.row === r);
+      const onPath = isPath(c, r);
+      const canAfford = money >= def.cost;
+      const valid = !occupied && !onPath && canAfford;
+      const cx = oxp + (c + 0.5) * TILE;
+      const cy = oyp + (r + 0.5) * TILE;
+      // Range circle (base range — level 0)
+      ctx.fillStyle = valid ? 'rgba(94,243,140,0.10)' : 'rgba(255,58,58,0.10)';
+      ctx.beginPath(); ctx.arc(cx, cy, def.range * TILE, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = valid ? 'rgba(94,243,140,0.55)' : 'rgba(255,58,58,0.55)';
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(cx, cy, def.range * TILE, 0, Math.PI * 2); ctx.stroke();
+      // Tile highlight
+      ctx.fillStyle = valid ? 'rgba(94,243,140,0.28)' : 'rgba(255,58,58,0.30)';
+      ctx.fillRect(oxp + c * TILE, oyp + r * TILE, TILE, TILE);
+      ctx.strokeStyle = valid ? '#5ef38c' : '#ff3a3a';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(oxp + c * TILE + 1, oyp + r * TILE + 1, TILE - 2, TILE - 2);
+      // Ghost tower body (semi-transparent) on valid cells
+      if (valid) {
+        ctx.globalAlpha = 0.55;
+        drawPug(ctx, cx, cy + 4, { size: 30, body: def.color || '#c8854a' });
+        ctx.globalAlpha = 1;
+      } else {
+        // Big red "no" cross for invalid cells
+        ctx.strokeStyle = '#ff3a3a'; ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(oxp + c * TILE + 6, oyp + r * TILE + 6);
+        ctx.lineTo(oxp + (c + 1) * TILE - 6, oyp + (r + 1) * TILE - 6);
+        ctx.moveTo(oxp + (c + 1) * TILE - 6, oyp + r * TILE + 6);
+        ctx.lineTo(oxp + c * TILE + 6, oyp + (r + 1) * TILE - 6);
+        ctx.stroke();
+      }
+    }
     ctx.fillStyle = `rgba(0,0,0,0.7)`;
-    ctx.fillRect(8, 32, 240, 28);
+    ctx.fillRect(8, 32, 250, 28);
     ctx.fillStyle = '#ffd23f';
-    ctx.font = "12px 'Press Start 2P', monospace"; ctx.textAlign = 'left';
-    ctx.fillText(`tap a green cell to place ${def.name}`, 14, 50);
+    ctx.font = "11px 'Press Start 2P', monospace"; ctx.textAlign = 'left';
+    ctx.fillText(`place ${def.name} on a green cell`, 14, 50);
+  }
+  // Illegal-placement flash — a quick red pulse + label on the rejected cell.
+  if (_invalidFlash) {
+    const k = 1 - _invalidFlash.t / 0.5;
+    const oxp = gridOffsetX(), oyp = gridOffsetY();
+    const fx = oxp + _invalidFlash.c * TILE, fy = oyp + _invalidFlash.r * TILE;
+    ctx.fillStyle = `rgba(255,58,58,${0.4 * k})`;
+    ctx.fillRect(fx, fy, TILE, TILE);
+    ctx.strokeStyle = `rgba(255,90,90,${k})`; ctx.lineWidth = 3;
+    ctx.strokeRect(fx + 1, fy + 1, TILE - 2, TILE - 2);
+    ctx.globalAlpha = k;
+    ctx.fillStyle = '#ff5a5a';
+    ctx.font = "7px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
+    ctx.fillText(_invalidFlash.reason, fx + TILE / 2, fy - 4);
+    ctx.globalAlpha = 1;
+  }
+  // VAULT-UNDER-ATTACK warning — escalating red edge vignette + pulsing banner
+  // whenever a live enemy is within the final stretch of path. Gives the player
+  // a clear "defend NOW" telegraph instead of only learning on a leak.
+  if (_vaultThreat > 0.01 && lives > 0) {
+    const thr = _vaultThreat;
+    const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 120);
+    // Red edge vignette (stronger as the enemy nears the gate)
+    const eg = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.32, W / 2, H / 2, Math.max(W, H) * 0.62);
+    eg.addColorStop(0, 'rgba(0,0,0,0)');
+    eg.addColorStop(1, `rgba(255,40,40,${0.30 * thr * (0.7 + pulse * 0.3)})`);
+    ctx.fillStyle = eg; ctx.fillRect(0, 0, W, H);
+    // Banner near the top (below the wave progress bar) — only when imminent.
+    if (thr > 0.45) {
+      ctx.globalAlpha = 0.7 + pulse * 0.3;
+      ctx.font = "12px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
+      ctx.fillStyle = 'rgba(0,0,0,0.85)';
+      ctx.fillText('⚠ VAULT UNDER ATTACK ⚠', W / 2 + 1, 28 + 1);
+      ctx.fillStyle = pulse > 0.5 ? '#ff5a5a' : '#ffd23f';
+      ctx.fillText('⚠ VAULT UNDER ATTACK ⚠', W / 2, 28);
+      ctx.globalAlpha = 1;
+    }
   }
 }
 

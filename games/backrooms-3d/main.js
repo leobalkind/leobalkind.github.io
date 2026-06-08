@@ -84,6 +84,9 @@ const playRockClack = (vol, pan) => { try { audio?.playRockClack?.(vol, pan); } 
 const playStalkerStep = (pan) => { try { audio?.playStalkerStep?.(pan); } catch {} };
 const playCrouchRustle = () => { try { audio?.playCrouchRustle?.(); } catch {} };
 const playObjectiveDing = () => { try { audio?.playObjectiveDing?.(); } catch {} };
+// v2.11 — player breathing (paranoia/out-of-breath tell). audio.js already
+// exports this but it was never wired; we drive it from low sanity / stamina.
+const playBreathing = (i) => { try { audio?.playBreathing?.(i); } catch {} };
 
 // ---------------------------------------------------------------------------
 // SETTINGS MENU — wired the same way every other game does. The gear button
@@ -1314,6 +1317,8 @@ const player = {
   sanity: 100,
   walkTime: 0,
   walkBob: 0,
+  walkSway: 0,   // v2.11 — lateral head-bob offset (figure-8)
+  walkRoll: 0,   // v2.11 — camera roll tied to gait
   lastFootstep: 0,
   visitedCells: new Set(['0,0']),
   deepestCell: 0,
@@ -1534,6 +1539,9 @@ const hudEl = document.getElementById('hud');
 const flashEl = document.getElementById('flash');
 const flashElLevel = document.getElementById('flash-level');
 const flashElWin = document.getElementById('flash-win');
+// Horror-feel polish (v2.11): vignette is reused as the "spotted" + low-breath
+// dread layer via CSS classes. Grabbed once here.
+const vignetteEl = document.getElementById('vignette');
 const sanityFill = document.getElementById('hud-sanity');
 const sanityBar = sanityFill.parentElement;
 const depthOut = document.getElementById('hud-depth');
@@ -1586,6 +1594,8 @@ function startGame() {
     flashElWin.style.opacity = '0';
     flashElWin.style.background = '#fff';
   }
+  // v2.11 — clear dread-vignette classes so a fresh run starts calm.
+  if (vignetteEl) vignetteEl.classList.remove('is-spotted', 'is-breathless');
   // Reset player.
   player.pos.set(CELL / 2, PLAYER_H, CELL / 2);
   player.yaw = 0; player.pitch = 0;
@@ -1648,6 +1658,8 @@ function startGame() {
   // it pulled-in. Otherwise restarting after a death keeps the zoom.
   camera.fov = _tunnelZoomBaseFov;
   camera.updateProjectionMatrix();
+  camera.up.set(0, 1, 0);
+  player.walkSway = 0; player.walkRoll = 0;
   _tunnelZoomT = 0;
   if (!_isTouch) {
     renderer.domElement.requestPointerLock();
@@ -1662,6 +1674,7 @@ function pauseGame() {
   if (gameState !== 'play') return;
   gameState = 'paused';
   document.body.classList.remove('is-playing');
+  if (vignetteEl) vignetteEl.classList.remove('is-spotted', 'is-breathless');
   pauseOverlay.hidden = false;
   document.exitPointerLock?.();
   playAmbience(0);
@@ -1697,6 +1710,7 @@ function endGame(reason) {
   if (gameState === 'dead' || gameState === 'win') return;
   gameState = 'dead';
   document.body.classList.remove('is-playing');
+  if (vignetteEl) vignetteEl.classList.remove('is-spotted', 'is-breathless');
   document.exitPointerLock?.();
   // v3 BUG FIX: clean up ALL monster visuals so end-card isn't covered by a
   // half-faded shadow or whisper, and the stalker outline disappears.
@@ -1756,6 +1770,7 @@ function winGame() {
   if (gameState === 'win' || gameState === 'dead') return;
   gameState = 'win';
   document.body.classList.remove('is-playing');
+  if (vignetteEl) vignetteEl.classList.remove('is-spotted', 'is-breathless');
   document.exitPointerLock?.();
   // v3 BUG FIX: clean up all monster visuals — same as endGame. Otherwise
   // the win overlay shows with a faded shadow/whisper visible behind it.
@@ -2112,6 +2127,11 @@ function tickPlay(dt) {
   if (moved > 0.001) {
     player.walkTime += dt * (player.sprinting ? 11 : player.crouching ? 5 : 8);
     player.walkBob = Math.sin(player.walkTime) * (player.sprinting ? 0.06 : player.crouching ? 0.02 : 0.04);
+    // v2.11 — figure-8 head-bob (V3-6 camera dynamics): lateral sway at half the
+    // vertical cadence + a tiny matching camera roll. Sells "weight" to the walk
+    // without disorienting. Amplitude scales with gait; recovers toward 0 below.
+    player.walkSway = Math.sin(player.walkTime * 0.5) * (player.sprinting ? 0.05 : player.crouching ? 0.015 : 0.03);
+    player.walkRoll = Math.sin(player.walkTime * 0.5) * (player.sprinting ? 0.012 : player.crouching ? 0.004 : 0.008);
     const stepInterval = player.sprinting ? 0.22 : player.crouching ? 0.52 : 0.35;
     if (now() - player.lastFootstep > stepInterval) {
       const vol = (moved / dt / WALK_SPEED) * (player.crouching ? CROUCH_FOOTSTEP_VOL : 1);
@@ -2124,13 +2144,20 @@ function tickPlay(dt) {
     }
   } else {
     player.walkBob *= 0.85;
+    player.walkSway *= 0.85;
+    player.walkRoll *= 0.85;
   }
   // v3 — eye height accounts for crouch.
   const eyeY = PLAYER_H - (player.crouching ? CROUCH_HEIGHT_DROP : 0);
-  camera.position.set(player.pos.x, eyeY + player.walkBob, player.pos.z);
+  // v2.11 — apply lateral head-bob sway perpendicular to facing (strafe axis).
+  const swayX = Math.cos(player.yaw) * player.walkSway;
+  const swayZ = -Math.sin(player.yaw) * player.walkSway;
+  camera.position.set(player.pos.x + swayX, eyeY + player.walkBob, player.pos.z + swayZ);
   const lookX = Math.cos(player.pitch) * -Math.sin(player.yaw);
   const lookY = Math.sin(player.pitch);
   const lookZ = Math.cos(player.pitch) * -Math.cos(player.yaw);
+  // v2.11 — tilt the camera's up-vector slightly for a matching walk roll.
+  camera.up.set(Math.sin(player.walkRoll), Math.cos(player.walkRoll), 0);
   camera.lookAt(camera.position.x + lookX, camera.position.y + lookY, camera.position.z + lookZ);
   // Flashlight follows the camera (used on Level 4).
   if (flashlight.intensity > 0) {
@@ -2178,6 +2205,11 @@ function tickLights(dt, pcx, pcy) {
   let buzzAccum = 0, buzzCount = 0;
   // Buzz baseline scales down on darker levels (warehouse + below).
   const buzzScale = (currentLevel === 0) ? 1.0 : (currentLevel === 1) ? 0.6 : (currentLevel === 2) ? 0.4 : 0.15;
+  // v2.11 — DREAD FLICKER (V3-7 "lights flicker before it appears"). When the
+  // chaser is close, nearby fixtures spike their flicker chance — a directional
+  // tell that something is approaching even before you see it. 0 at >18m → 1 at 0m.
+  const monD = Math.hypot(monsterState.pos.x - player.pos.x, monsterState.pos.z - player.pos.z);
+  const dread = monD < 18 ? (1 - monD / 18) : 0;
   for (let dy = -RENDER_RADIUS; dy <= RENDER_RADIUS; dy++) {
     for (let dx = -RENDER_RADIUS; dx <= RENDER_RADIUS; dx++) {
       const cell = grid.get(cellKey(pcx + dx, pcy + dy));
@@ -2200,7 +2232,9 @@ function tickLights(dt, pcx, pcy) {
       const sinVal = Math.sin(totalElapsed * (8 + cell.fixturePhase) + cell.fixturePhase);
       intensity *= 0.85 + 0.15 * sinVal;
       const r = Math.random();
-      if (r < dt / cell.fixtureFlickerRate) { intensity *= 0.2; playFlicker(); }
+      // Dread boosts the per-frame flicker probability up to ~5x near the monster.
+      const flickerChance = (dt / cell.fixtureFlickerRate) * (1 + dread * 4);
+      if (r < flickerChance) { intensity *= 0.2; playFlicker(); }
       if (cell.fixtureDying) {
         intensity *= (Math.sin(totalElapsed * 1.4 + cell.fixturePhase * 3) > 0) ? 1.0 : 0.15;
       }
@@ -2238,7 +2272,20 @@ function tickMonster(dt) {
   if (sees && dist < MONSTER_DETECT_DIST * 1.5) {
     monsterState.lastSeenAt = now();
   }
+  const wasHunting = monsterState.isHunting;
   monsterState.isHunting = dist < MONSTER_DETECT_DIST && sees;
+  // v2.11 — SPOTTED tell (V3-7 "alert meter / one-beat reaction"). The instant
+  // the chaser ACQUIRES line-of-sight, snap a red dread vignette on, throw a
+  // distant cry, and a short FOV punch toward the threat so the player feels
+  // "it just saw me" rather than silently switching to chase.
+  if (monsterState.isHunting && !wasHunting && !jumpscaring) {
+    if (vignetteEl) vignetteEl.classList.add('is-spotted');
+    playDistantCry();
+    // Reuse the level-change tunnel-zoom punch for a brief lurch.
+    if (_tunnelZoomT <= 0) { _tunnelZoomBaseFov = camera.fov; _tunnelZoomT = 0.55; }
+  } else if (!monsterState.isHunting && wasHunting) {
+    if (vignetteEl) vignetteEl.classList.remove('is-spotted');
+  }
   // Level scaling — chaserBonus boosts hunt speed on higher levels.
   let speed = monsterState.isHunting
     ? (MONSTER_HUNT_SPEED + L.chaserBonus)
@@ -2546,6 +2593,10 @@ function triggerJumpscare() {
   jumpscaring = true;
   jumpscarePhase = 'slowmo';
   jumpscareT = 0;
+  // v2.11 — straighten the camera roll so the catch cinematic isn't tilted.
+  camera.up.set(0, 1, 0);
+  player.walkRoll = 0; player.walkSway = 0;
+  if (vignetteEl) vignetteEl.classList.remove('is-spotted', 'is-breathless');
   jumpscareEnd = now() + 1.2;
   // Flash setup happens during the phases.
   // Snap mouse to monster face — set look direction toward monster.
@@ -2651,7 +2702,32 @@ function tickSanity(dt) {
   if (monClose && !player.isHidden) drain += SANITY_DRAIN_MONSTER * (1 - monDist / 25);
   player.sanity = Math.max(0, Math.min(100, player.sanity - drain * dt));
   if (player.sanity <= 0) endGame('sanity');
+
+  // v2.11 — OUT-OF-BREATH / DREAD breathing tell (V3-6 low-health breathing
+  // vignette + the previously-unused playBreathing audio). Fires faster + harder
+  // when stamina is bottomed out or sanity is critical. A dark breathing
+  // vignette pulses while the player is panting — but never overrides the red
+  // SPOTTED state (which is the more urgent read).
+  const lowStamina = player.stamina < 22;
+  const lowSanity = player.sanity < 30;
+  const panting = (lowStamina || lowSanity) && !player.isHidden;
+  if (vignetteEl && !vignetteEl.classList.contains('is-spotted')) {
+    vignetteEl.classList.toggle('is-breathless', panting);
+  } else if (vignetteEl && vignetteEl.classList.contains('is-spotted')) {
+    vignetteEl.classList.remove('is-breathless');
+  }
+  _breathTimer -= dt;
+  if (panting && _breathTimer <= 0) {
+    // Intensity rises as stamina/sanity fall; cadence quickens too.
+    const sx = lowStamina ? (1 - player.stamina / 22) : 0;
+    const sn = lowSanity ? (1 - player.sanity / 30) : 0;
+    const intensity = 0.35 + 0.5 * Math.max(sx, sn);
+    playBreathing(intensity);
+    _breathTimer = 1.4 - 0.5 * Math.max(sx, sn); // ~1.4s calm → ~0.9s frantic
+  }
 }
+// Cadence timer for the breathing tell.
+let _breathTimer = 0;
 
 // =============================================================================
 // v3 — OBJECTIVES, NOTES, MAP OVERLAY

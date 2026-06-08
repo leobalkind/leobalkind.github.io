@@ -184,6 +184,12 @@ let _alarmAt = 0;                 // gate: throttles alarm sirens to ≥1/2s
 let _stealthPop = 0;              // last "+10 STEALTH" popup time
 let _stealthEstT = 0;             // seconds spent in shadow (resets on any suspicion)
 let _stealthBadgeT = 0;           // fade timer for "STEALTH ESTABLISHED" badge
+// DETECTION TELEGRAPH (V3-7 "always show a detection meter before alarm").
+// Highest per-guard spot-progress (0..1) seen this frame — drives a screen-edge
+// tension pulse + a near-detection heartbeat so a spot is a readable RISING
+// beat, not a binary flip. Reset+recomputed each tick.
+let _peakSpot = 0;
+let _heartT = 0;                  // heartbeat ping throttle (s)
 // GUIDED TUTORIAL (P3) — a scripted coach on floor 1 (first run only). Each step
 // advances when the player actually performs the action, teaching by doing.
 let tutActive = false;
@@ -475,10 +481,23 @@ function genFloor(level) {
       if (!isWallNear(x, y, 30) && Math.hypot(x - pug.x, y - pug.y) > 200) {
         const type = _pickType(i);
         const st = GUARD_STATS[type];
-        const ang0 = Math.random() * Math.PI * 2;
+        let ang0 = Math.random() * Math.PI * 2;
+        // FTUE (V3-1/V3-2 "teach by doing") — the first-ever floor-1 guard is
+        // angled to FACE AWAY from the spawn pug and patrols away from the
+        // spawn corner, so the opening beat silently teaches "sneak behind
+        // their back". Only applies on the tutorial floor's lone patrol.
+        let _ftuePatrol = null;
+        if (level === 1 && i === 0) {
+          const awayAng = Math.atan2(y - pug.y, x - pug.x); // points away from pug
+          ang0 = awayAng;
+          _ftuePatrol = [
+            { x: x + Math.cos(awayAng) * 160, y: y + Math.sin(awayAng) * 160 },
+            { x: x + Math.cos(awayAng + 0.6) * 160, y: y + Math.sin(awayAng + 0.6) * 160 },
+          ];
+        }
         humans.push({
           x, y, ang: ang0, baseAng: ang0, lookT: 0,
-          patrol: [
+          patrol: _ftuePatrol || [
             { x: x + (Math.random() - 0.5) * 200, y: y + (Math.random() - 0.5) * 200 },
             { x: x + (Math.random() - 0.5) * 200, y: y + (Math.random() - 0.5) * 200 },
           ],
@@ -1309,6 +1328,18 @@ function tick(dt) {
           try { sfx.tone(140, 'square', 0.1, 0.18); } catch {}
         }
       } else {
+      // EXTRACT PAYOFF (V3-10 telegraphed reward) — a punchy burst at the exit on
+      // EVERY clear so even a messy escape feels earned. The bigger perfect /
+      // getaway moments below stack on top of this base celebration.
+      addShake(4, 0.22);
+      try { sfx.arp([659, 988, 1319], 'triangle', 0.06, 0.16, 0.18); } catch {}
+      for (let i = 0; i < 16; i++) {
+        const a = Math.random() * Math.PI * 2, s = 60 + Math.random() * 90;
+        particles.push({ x: exitZ.x, y: exitZ.y, vx: Math.cos(a) * s, vy: Math.sin(a) * s - 24,
+          color: perfectFloor ? '#ffd23f' : '#5ef38c', life: 0.7, t: 0, size: 3 });
+      }
+      particles.push({ x: exitZ.x, y: exitZ.y, vx: 0, vy: 0, color: '#5ef38c', life: 0.5, t: 0, size: 10, halo: true });
+      addPopup(exitZ.x, exitZ.y - 18, 'EXTRACTED! +$' + Math.round(lootValueThisFloor), '#5ef38c');
       // PERFECT STEALTH combo: floor cleared with no detection AT ALL → 2x value bonus
       if (perfectFloor) {
         const bonus = Math.round(lootValueThisFloor);
@@ -1370,6 +1401,7 @@ function tick(dt) {
     return true;
   };
   let _chasersThisFrame = 0;
+  _peakSpot = 0; // reset detection-telegraph peak; recomputed below
   for (const h of humans) {
     if (h.lookT > 0) h.lookT -= dt;
     if (h.alertT > 0) h.alertT -= dt;
@@ -1480,6 +1512,8 @@ function tick(dt) {
       }
       // Lock-on window varies by type: heavy is sluggish, sniffer snappy.
       const lockTime = h.type === 'heavy' ? 0.75 : (h.type === 'sniffer' ? 0.5 : 0.55);
+      h._lockTime = lockTime; // remembered for the detection meter in render()
+      if (h.state !== 'chase') _peakSpot = Math.max(_peakSpot, Math.min(1, h._spotT / lockTime));
       if (h._spotT >= lockTime && h.state !== 'chase') {
         perfectFloor = false; alertedThisFloor = true;
         if (isWatcher) {
@@ -1515,6 +1549,17 @@ function tick(dt) {
       h.state = 'distracted';
       h.distractTarget = { x: pug.x, y: pug.y };
       h.alertT = 1.5;
+    }
+  }
+  if (_chasersThisFrame > 0) _peakSpot = 1; // active chase = pegged detection
+  // NEAR-DETECTION HEARTBEAT (V3-7 audio telegraph) — a soft, quickening thump
+  // while a guard is actively spotting you (meter rising) but not yet locked on.
+  // Cosmetic only; does NOT feed pug.sound, so it never alerts guards.
+  _heartT = Math.max(0, _heartT - dt);
+  if (_peakSpot > 0.18 && _peakSpot < 1 && _chasersThisFrame === 0) {
+    if (_heartT <= 0) {
+      _heartT = 0.62 - _peakSpot * 0.34; // 0.62s → ~0.28s as the meter fills
+      try { sfx.tone(70 + _peakSpot * 30, 'sine', 0.07, 0.05 + _peakSpot * 0.06); } catch {}
     }
   }
   // Alarm de-escalation: with nobody chasing, the alarm cools one tier / 4s.
@@ -1558,6 +1603,7 @@ function tick(dt) {
         addPopup(pug.x, pug.y - 16, '! CAMERA', '#ff8a3a');
         try { sfx.tone(320, 'square', 0.12, 0.14); } catch (e) { /* */ }
       }
+      _peakSpot = Math.max(_peakSpot, Math.min(1, cam._spotT / 0.55));
       if (cam._spotT >= 0.55) {
         alertedThisFloor = true; perfectFloor = false;
         _raiseAlarm(2);
@@ -2204,7 +2250,11 @@ function render() {
     else if (searching) { cr = 255; cg = 176; cb = 48; }
     else { const sus = Math.min(1, (h._closeT || 0) / 1.5); cr = 255; cg = Math.floor(210 - sus * 150); cb = Math.floor(70 - sus * 8); }
     const reach = h.coneReach || 180;
-    const fov = h.coneFov || 0.6;
+    // CONE WIDENS WHEN ALERTED (V3-7) — a chasing guard's cone visibly flares
+    // wider + a searching guard a touch wider, so an aroused guard reads as
+    // more dangerous at a glance. Purely visual: detection still uses h.coneFov.
+    const fovBase = h.coneFov || 0.6;
+    const fov = fovBase * (chasing ? 1.35 : (searching ? 1.15 : 1));
     // GHOST CONE — faint preview of facing in ~1.5s (only while calm/patrolling).
     if (!chasing && !searching) {
       const ghostAng = predictGuardAngle(h);
@@ -2244,10 +2294,32 @@ function render() {
       ctx.font = "7px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
       ctx.fillText(badge, h.x, h.y + (h.type === 'watcher' ? 20 : 26));
     }
+    // DETECTION METER (V3-7 "alert meter fills visibly before chase") — while a
+    // guard is actively spotting the pug (spot timer rising, not yet locked on),
+    // draw a filling ring above its head so the player gets a clear beat to break
+    // line-of-sight BEFORE the chase triggers. Reads green→amber→red as it fills.
+    const _sr = (!chasing && (h._spotT || 0) > 0.02 && h._lockTime)
+      ? Math.min(1, (h._spotT || 0) / h._lockTime) : 0;
+    if (_sr > 0) {
+      const mr = 13, my = h.y - 24;
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+      ctx.beginPath(); ctx.arc(h.x, my, mr, 0, Math.PI * 2); ctx.stroke();
+      const mc = _sr > 0.75 ? '#ff3a3a' : (_sr > 0.4 ? '#ff8e3c' : '#ffd23f');
+      ctx.strokeStyle = mc;
+      ctx.beginPath();
+      ctx.arc(h.x, my, mr, -Math.PI / 2, -Math.PI / 2 + _sr * Math.PI * 2);
+      ctx.stroke();
+    }
     // State indicator above the head.
     if (chasing) {
       ctx.fillStyle = '#ff3a3a'; ctx.font = "bold 14px sans-serif"; ctx.textAlign = 'center';
       ctx.fillText('!!', h.x, h.y - 24);
+    } else if (_sr > 0.02) {
+      // Actively eyeing you: a bold "?" that snaps to "!" as the meter tops out.
+      ctx.fillStyle = _sr > 0.75 ? '#ff3a3a' : '#ffd23f';
+      ctx.font = "bold 13px sans-serif"; ctx.textAlign = 'center';
+      ctx.fillText(_sr > 0.75 ? '!' : '?', h.x, h.y - 40);
     } else if (searching) {
       ctx.fillStyle = '#ffb030'; ctx.font = "12px sans-serif"; ctx.textAlign = 'center';
       ctx.fillText('?', h.x, h.y - 22);
@@ -2566,6 +2638,20 @@ function render() {
     }
   }
   ctx.restore(); // closes the shake-translate save (and camera transform)
+  // DETECTION EDGE-PULSE (V3-7 "detection meter before alarm") — a screen-edge
+  // amber→red glow whose intensity tracks the highest guard spot-progress this
+  // frame. Gives a rising peripheral warning a beat BEFORE a chase starts, and
+  // is suppressed once the hit-flash (caught) takes over. Screen-space.
+  if (_peakSpot > 0.05 && hitFlashT <= 0) {
+    const pulse = 0.65 + 0.35 * Math.sin(performance.now() / (140 - _peakSpot * 80));
+    const a = Math.min(0.5, _peakSpot * 0.5) * pulse;
+    // shift amber → red as detection climbs
+    const g = Math.round(140 - _peakSpot * 110);
+    const eg = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.34, W / 2, H / 2, Math.max(W, H) * 0.72);
+    eg.addColorStop(0, `rgba(255,${g},40,0)`);
+    eg.addColorStop(1, `rgba(255,${g},40,${a})`);
+    ctx.fillStyle = eg; ctx.fillRect(0, 0, W, H);
+  }
   // Hit flash overlay (screen space, after shake). Edge-only radial gradient
   // so the action stays visible while the rim "alarm"-pulses red.
   if (hitFlashT > 0) {

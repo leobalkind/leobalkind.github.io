@@ -191,6 +191,23 @@ let paused = false;
 let resumeCountdownT = 0;
 // === Round 2: Pug visual animation state ===
 let pugBobT = 0, pugSquashT = 0, pugStretchT = 0, lastWasOnGround = false;
+// === Platformer forgiveness (V3-3 anti-frustration) ===
+// coyoteT: seconds since leaving ground during which a ground-jump is still
+//   allowed (so a jump pressed JUST after walking off an edge still fires).
+// jumpBufferT: if JUMP is pressed in the air just BEFORE landing, buffer it so
+//   it auto-fires on touchdown instead of being eaten. Both are tiny windows
+//   that only make fair-feeling jumps possible — they never grant extra jumps
+//   beyond jumpsLeft.
+let coyoteT = 0;        // counts DOWN from COYOTE_WINDOW after leaving ground
+let jumpBufferT = 0;    // counts DOWN from JUMP_BUFFER after an unfulfilled press
+const COYOTE_WINDOW = 0.10;
+const JUMP_BUFFER = 0.12;
+// === Near-burn telegraph (V3-3 fair-failure / V3-6 camera) ===
+// nearBurn: 0..1 proximity heat as lava closes on the pug; drives a rising
+//   heat-shimmer vignette, escalating low rumble shake, and a danger pulse so
+//   death-by-lava is always telegraphed on-screen before it lands.
+let nearBurn = 0;
+let nearBurnSfxT = 0;   // throttles the warning beep so it doesn't machine-gun
 let biomeIdx = 0;            // currently fully-applied biome index
 let nextBiomeAtHeight = 500; // height in m at which the next shift starts
 let biomeShiftT = 0;         // seconds remaining in active 2s shift transition
@@ -244,6 +261,7 @@ function reset() {
   windCurrents = []; windSpawnT = 5; teleportCooldownT = 0;
   paused = false; resumeCountdownT = 0;
   pugBobT = 0; pugSquashT = 0; pugStretchT = 0; lastWasOnGround = false;
+  coyoteT = 0; jumpBufferT = 0; nearBurn = 0; nearBurnSfxT = 0;
   runStartT = performance.now(); runPowerupsGrabbed = 0; biomeStartDamage = false;
   lastPlat = null; comboJumps = 0; comboRestT = 0; maxComboThisRun = 0;
   biomeIdx = 0; nextBiomeAtHeight = 500; biomeShiftT = 0; biomeShiftTarget = 0;
@@ -477,13 +495,25 @@ document.getElementById('jump-btn').style.display = 'none';
 createMobileControls({ layout: 'platformer', keys });
 
 function jump() {
-  if (!running || pug.jumpsLeft <= 0) return;
+  if (!running) return;
+  if (paused) return;
+  // Coyote-time: if we just walked off an edge (not yet used the ground jump),
+  // restore the ground jump so the press still counts as a fair grounded leap.
+  const maxJumps = wingsT > 0 ? 3 : 2;
+  const fromGround = pug.onGround || (coyoteT > 0 && pug.jumpsLeft === maxJumps);
+  if (pug.jumpsLeft <= 0) {
+    // No jumps left right now — buffer the press so it auto-fires on landing.
+    jumpBufferT = JUMP_BUFFER;
+    return;
+  }
   pug.vy = JUMP_V * (wingsT > 0 ? 1.1 : 1);
   // Round 2C: jump dust puff only when launching from the ground (looks weird
-  // exploding mid-air on double-jump). Heuristic: pug.onGround was true.
-  if (pug.onGround) spawnJumpDust(pug.x, pug.y);
+  // exploding mid-air on double-jump). Now also fires on a coyote jump.
+  if (fromGround) spawnJumpDust(pug.x, pug.y);
   pug.jumpsLeft--;
   pug.onGround = false;
+  coyoteT = 0;       // consume the coyote window once a jump is taken
+  jumpBufferT = 0;   // press fulfilled
   sfx.tone(wingsT > 0 ? 990 : (pug.jumpsLeft === 1 ? 660 : 880), 'triangle', 0.08, 0.18);
 }
 function refillJumps() { pug.jumpsLeft = wingsT > 0 ? 3 : 2; }
@@ -715,6 +745,20 @@ function tick(dt) {
         }
       }
     }
+  }
+  // Platformer forgiveness: maintain coyote-time + jump buffer. Coyote refreshes
+  // while grounded and bleeds down once airborne; the buffer auto-fires a jump
+  // the instant the pug lands (or is within its coyote window) so an early press
+  // before touchdown isn't swallowed.
+  if (pug.onGround) {
+    coyoteT = COYOTE_WINDOW;
+  } else {
+    coyoteT = Math.max(0, coyoteT - dt);
+  }
+  if (jumpBufferT > 0) {
+    jumpBufferT = Math.max(0, jumpBufferT - dt);
+    // Fire the buffered jump the moment one becomes available (landed / coyote).
+    if (jumpBufferT > 0 && pug.jumpsLeft > 0) jump();
   }
   // Powerup pickup (DEATH_RUN bans powerups)
   for (let i = powerups.length - 1; i >= 0; i--) {
@@ -1112,6 +1156,26 @@ function tick(dt) {
   // Background parallax: scroll with platforms but slower
   caveOffset += 12 * dt;
 
+  // Near-burn telegraph: as the lava surface closes within ~180px of the pug,
+  // ramp a 0..1 danger value that drives a heat-shimmer vignette (render), an
+  // escalating low rumble, and a throttled warning beep. Fair-failure: the
+  // player always FEELS the lava coming before it touches.
+  {
+    const gap = lavaY - (pug.y + pug.h / 2);
+    const DANGER = 180;
+    const target = gap < DANGER ? Math.max(0, 1 - gap / DANGER) : 0;
+    // Ease toward target so the effect breathes instead of snapping on/off.
+    nearBurn += (target - nearBurn) * Math.min(1, dt * 6);
+    if (nearBurn > 0.35) {
+      // Low rumble that grows with proximity (kept small so it layers, not jolts).
+      shake(nearBurn * 4.5, 0.12);
+      nearBurnSfxT -= dt;
+      if (nearBurnSfxT <= 0) {
+        nearBurnSfxT = 0.5 - nearBurn * 0.25; // beeps speed up as it gets worse
+        try { sfx.tone(180 + nearBurn * 120, 'sawtooth', 0.05, 0.10 * nearBurn); } catch {}
+      }
+    }
+  }
   // Lava death
   if (pug.y + pug.h / 2 >= lavaY) { hitFlashT = 0.3; shake(8, 0.4); return die(); }
   // Fall too far below
@@ -1962,6 +2026,25 @@ function render() {
     ctx.textAlign = 'center';
     ctx.fillText(banner.text, W / 2, H * 0.25 + 6);
     ctx.globalAlpha = 1;
+  }
+  // Near-burn heat telegraph: a pulsing bottom-up red vignette + thin warning
+  // band that intensifies as lava closes on the pug. Pure overlay (no gameplay
+  // cost) so the player reads the danger before it's lethal. Skipped when its
+  // value is negligible to avoid a constant full-screen fill.
+  if (nearBurn > 0.02) {
+    const pulse = 0.75 + 0.25 * Math.sin(performance.now() * 0.012);
+    const a = Math.min(0.5, nearBurn * 0.5 * pulse);
+    const vg = ctx.createLinearGradient(0, H, 0, H * 0.45);
+    vg.addColorStop(0, `rgba(255,60,30,${a})`);
+    vg.addColorStop(1, 'rgba(255,60,30,0)');
+    ctx.fillStyle = vg;
+    ctx.fillRect(0, 0, W, H);
+    // Edge warning band — flashes harder the closer the lava gets.
+    if (nearBurn > 0.55) {
+      ctx.fillStyle = `rgba(255,210,63,${(nearBurn - 0.55) * pulse})`;
+      ctx.fillRect(0, 0, W, 3);
+      ctx.fillRect(0, H - 3, W, 3);
+    }
   }
   // Hit flash overlay (red tint)
   if (hitFlashT > 0) {

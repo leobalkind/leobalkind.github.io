@@ -590,6 +590,17 @@ let wallStains = [];
 let monsterWiggle = 0;
 let firstSeenScreamed = false;
 let heartBeatT = 0;           // accumulator for heart-beat sfx
+// ---------------------------------------------------------------------------
+// FAIR HORROR TELEGRAPHS (additive — proximity dread, lock-on tell, safe-beat)
+//   lockOnTellT : one-shot light-flicker burst fired the instant the monster
+//                 locks on (idle/hunt -> chase) so a chase is NEVER a surprise.
+//   safeBeatT   : one-shot "you escaped" exhale cue when the monster gives up.
+//   proxTier    : 0..3 escalating-dread tier driven by monster distance; a
+//                 rising tier plays a short sting so the player feels it close.
+// ---------------------------------------------------------------------------
+let lockOnTellT = 0;          // seconds remaining of the pre-chase flicker tell
+let safeBeatT = 0;            // seconds remaining of the safe-beat calm glow
+let proxTier = 0;             // current escalating-dread tier (0 far .. 3 close)
 let humOsc = null;            // persistent fluorescent buzz (web audio)
 let humGain = null;
 let humSilenceUntil = 0;      // time (performance.now/1000) until which hum is muted
@@ -2963,6 +2974,7 @@ function tick(dt) {
 
   // ----- 3-STATE TRANSITION LOGIC ------------------------------------------
   if (!monster.aiState) monster.aiState = 'idle';
+  const prevAiState = monster.aiState; // capture for fair lock-on/give-up tells
   if (sees || hears) {
     monster.lastSeenX = pug.x; monster.lastSeenY = pug.y;
     monsterLostContactT = 0;
@@ -2989,6 +3001,33 @@ function tick(dt) {
     sfx.sweep(900, 180, 'sawtooth', 0.6, 0.32);
     silenceHum(0.45);
   }
+  // FAIR LOCK-ON TELL — the instant the monster commits to a chase from a
+  // calmer state, slam the lights into a sharp flicker burst + low warning
+  // sting. This telegraphs "it has you" a beat before the jumpscare so the
+  // chase is readable, not a cheap-shot. (V3-3 fair telegraphs.)
+  if (monster.aiState === 'chase' && prevAiState !== 'chase') {
+    lockOnTellT = 0.6;
+    lightFlicker += 30;                  // kick the existing flicker math hard
+    try {
+      sfx.tone(70, 'sawtooth', 0.22, 0.12);
+      sfx.sweep(420, 90, 'sine', 0.18, 0.3);
+    } catch {}
+  }
+  // FAIR SAFE-BEAT — when the monster gives up and slips back to idle, give the
+  // player an unmistakable "you lost it" exhale cue + a brief calm glow so the
+  // dread has a release valve and the loop reads as fair. (V3-7 perception.)
+  if (monster.aiState === 'idle' && (prevAiState === 'chase' || prevAiState === 'hunting')) {
+    safeBeatT = 1.4;
+    silenceHum(0.3);
+    try {
+      // soft descending "all clear" — relief, not a scare
+      sfx.tone(330, 'sine', 0.12, 0.22);
+      setTimeout(() => running && sfx.tone(247, 'sine', 0.10, 0.32), 140);
+    } catch {}
+  }
+  if (lockOnTellT > 0) lockOnTellT = Math.max(0, lockOnTellT - dt);
+  if (safeBeatT > 0) safeBeatT = Math.max(0, safeBeatT - dt);
+
   if (monster.chase && !prevChase && distToPug < 280) jumpScare('monster');
   else if (monster.chase && distToPug < 70 && jumpScareCooldown <= 0) jumpScare('monster');
 
@@ -3183,6 +3222,25 @@ function tick(dt) {
       setTimeout(() => running && sfx.tone(70, 'sine', sub, 0.06), 35); // 70Hz subtone
     }
   } else { heartBeatT = 0; }
+  // ESCALATING-DREAD TIERS — quantise monster distance into 4 dread tiers and
+  // fire a short rising sting the moment the player crosses INTO a closer tier.
+  // The continuous heartbeat is the fine-grained distance meter; this is the
+  // coarse "it just got worse" punctuation so escalation is felt, not just
+  // heard. Only stings on getting CLOSER (rising tier) — backing off is silent
+  // so retreating feels like relief. (V3-7 horror AI / proximity perception.)
+  {
+    let tier = 0;
+    if (distToPug < 120) tier = 3;
+    else if (distToPug < 240) tier = 2;
+    else if (distToPug < 420) tier = 1;
+    if (tier > proxTier && !sfx.isMuted()) {
+      // higher tier = higher, sharper sting
+      const base = 180 + tier * 90;
+      try { sfx.sweep(base, base * 1.6, 'sine', 0.10 + tier * 0.03, 0.18); } catch {}
+      if (tier >= 2) silenceHum(0.15);
+    }
+    proxTier = tier;
+  }
   // FOOTSTEPS YOU DIDN'T MAKE — purely psychological footstep when standing
   // still long enough. Tracks `stillT` (seconds player has been stationary).
   if (mx === 0 && my === 0) {
@@ -4221,11 +4279,30 @@ function render() {
   }
   // Agent #5: replay ghost trail (drawn in world coords).
   if (replayActive) renderReplayGhosts();
-  // Sound waves
+  // Sound waves — READABLE NOISE METER for sprint vs sneak. The ring shows how
+  // far you can be heard: it stays small + cool-green while sneaking/quiet, and
+  // flares wide + amber→red once you cross the 0.5 threshold where the monster
+  // can actually hear you (matches the `hears` test in tick). This teaches the
+  // stealth contract — silence is safety — without a tutorial. (V3-3 telegraph.)
   if (soundLevel > 0.05) {
-    ctx.strokeStyle = `rgba(255,210,63,${soundLevel * 0.5})`;
-    ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.arc(pug.x, pug.y, 14 + soundLevel * 40, 0, Math.PI * 2); ctx.stroke();
+    const loud = soundLevel > 0.5;          // past the audible threshold
+    // Expanding pulse ring: radius grows with noise toward the ~hearing range.
+    const baseR = 14 + soundLevel * 64;
+    const pulse = (performance.now() / 600) % 1; // 0..1 outward ripple
+    const aMain = soundLevel * (loud ? 0.6 : 0.4);
+    const col = loud
+      ? (soundLevel > 0.85 ? '255,80,60' : '255,180,40')  // amber -> red
+      : '94,243,140';                                       // calm green
+    ctx.lineWidth = loud ? 3 : 2;
+    ctx.strokeStyle = `rgba(${col},${aMain})`;
+    ctx.beginPath(); ctx.arc(pug.x, pug.y, baseR, 0, Math.PI * 2); ctx.stroke();
+    // Outer ripple — only when loud enough to matter; sells "this is reaching out".
+    if (loud) {
+      ctx.strokeStyle = `rgba(${col},${aMain * (1 - pulse) * 0.7})`;
+      ctx.beginPath();
+      ctx.arc(pug.x, pug.y, baseR + pulse * 60, 0, Math.PI * 2);
+      ctx.stroke();
+    }
   }
   // Popups
   ctx.textAlign = 'center';
@@ -4268,6 +4345,35 @@ function render() {
     rgrd.addColorStop(0, 'rgba(255,58,58,0)');
     rgrd.addColorStop(1, `rgba(255,58,58,${0.35 * chaseVignetteT * (0.6 + 0.4 * pulse)})`);
     ctx.fillStyle = rgrd; ctx.fillRect(0, 0, W, H);
+  }
+  // LOCK-ON TELL — sharp full-screen light-stutter the instant the monster
+  // commits to a chase. Hard strobe to white (gated off under reduced motion,
+  // which gets a steady dim flash instead) so the chase is telegraphed. Pairs
+  // with the audio sting fired in tick().
+  if (lockOnTellT > 0) {
+    const k = lockOnTellT / 0.6;            // 1 -> 0
+    if (isReducedMotion()) {
+      ctx.fillStyle = `rgba(255,245,210,${0.16 * k})`;
+      ctx.fillRect(0, 0, W, H);
+    } else {
+      // strobe ~16Hz between bright stutter and dark
+      const on = Math.floor(performance.now() / 60) % 2 === 0;
+      ctx.fillStyle = on
+        ? `rgba(255,248,225,${0.30 * k})`
+        : `rgba(0,0,0,${0.28 * k})`;
+      ctx.fillRect(0, 0, W, H);
+    }
+  }
+  // SAFE-BEAT — gentle cyan/green relief glow when the monster has just given
+  // up. A calm vignette that breathes once and fades — the loop's release
+  // valve so dread reads as fair, not relentless.
+  if (safeBeatT > 0) {
+    const k = safeBeatT / 1.4;              // 1 -> 0
+    const breath = 0.5 + Math.sin((1 - k) * Math.PI) * 0.5; // ease in/out
+    const sgrd = ctx.createRadialGradient(W / 2, H / 2, viewR * 0.4, W / 2, H / 2, viewR * 1.25);
+    sgrd.addColorStop(0, 'rgba(94,243,140,0)');
+    sgrd.addColorStop(1, `rgba(94,243,140,${0.16 * k * breath})`);
+    ctx.fillStyle = sgrd; ctx.fillRect(0, 0, W, H);
   }
   // Round 2C: SANITY-DROP IRIS PULSE — subtle dark ring contracts inward when
   // a big sanity hit just landed (telegraphs "you got mentally smacked").
@@ -4580,15 +4686,26 @@ function render() {
   }
 
   // -------------------------------------------------------------------------
-  // BLACKOUT OVERLAY — total darkness when all lights are OUT.
+  // BLACKOUT OVERLAY — near-total darkness when all lights are OUT.
+  // Capped at 0.86 (was 0.92) and topped with a faint emergency-light floor so
+  // the screen is NEVER fully black: the player can always read silhouettes and
+  // their own position — dread without unfair blindness.
   // -------------------------------------------------------------------------
   if (blackoutT > 0) {
     const t = blackoutLife - blackoutT;
-    let aBlack = 0.92;
-    if (t < 0.2) aBlack = 0.92 * (t / 0.2);
-    else if (blackoutT < 0.3) aBlack = 0.92 * (blackoutT / 0.3);
+    const AMAX = 0.86;
+    let aBlack = AMAX;
+    if (t < 0.2) aBlack = AMAX * (t / 0.2);
+    else if (blackoutT < 0.3) aBlack = AMAX * (blackoutT / 0.3);
     ctx.fillStyle = `rgba(0,0,0,${aBlack})`;
     ctx.fillRect(0, 0, W, H);
+    // Faint flickering emergency-glow around the pug (centre of screen) — keeps
+    // a sliver of the world readable so the blackout is tense, not blinding.
+    const eg = 0.06 + Math.random() * 0.03;
+    const ggrd = ctx.createRadialGradient(W / 2, H / 2, 0, W / 2, H / 2, viewR * 0.7);
+    ggrd.addColorStop(0, `rgba(120,40,40,${eg})`);
+    ggrd.addColorStop(1, 'rgba(120,40,40,0)');
+    ctx.fillStyle = ggrd; ctx.fillRect(0, 0, W, H);
   }
 
   // -------------------------------------------------------------------------
@@ -6503,6 +6620,7 @@ function startRun(opts) {
   // (held keys carrying over auto-walked the pug into a wall).
   keys.clear(); touchSneak = false;
   monsterWiggle = 0; lightFlicker = 0; heartBeatT = 0; breathT = 0;
+  lockOnTellT = 0; safeBeatT = 0; proxTier = 0;
   firstSeenScreamed = false; lastSanityTick = 0;
   // Agent D — monster AI accumulators
   monsterFootstepT = 0; monsterGrowlT = 5; monsterSniffT = 0; monsterBreathT = 0;

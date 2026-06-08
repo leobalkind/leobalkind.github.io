@@ -63,6 +63,37 @@ body.is-playing #crosshair { display: block; }
 }
 body.is-playing #vignette { display: block; }
 
+/* SPOTTED — a hard red breathing vignette that snaps on the instant the chaser
+   acquires line-of-sight (V3-7 "alert moment" tell). JS toggles .is-spotted;
+   we layer a red radial over the base darkness via a pseudo-element so the base
+   vignette gradient is untouched. Pulses while engaged. */
+#vignette::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(ellipse at center,
+              rgba(180,0,0,0) 30%,
+              rgba(180,0,0,0.20) 72%,
+              rgba(140,0,0,0.55) 100%);
+  opacity: 0;
+  transition: opacity 0.18s ease-out;
+}
+#vignette.is-spotted::after { opacity: 1; animation: spottedPulse 0.9s ease-in-out infinite; }
+@keyframes spottedPulse { 50% { opacity: 0.55; } }
+
+/* LOW-SANITY / out-of-breath — a slow dark breathing vignette (V3-6 low-health
+   breathing vignette). Distinct from spotted (no red). */
+#vignette.is-breathless::after {
+  background: radial-gradient(ellipse at center,
+              rgba(0,0,0,0) 24%,
+              rgba(0,0,0,0.35) 70%,
+              rgba(0,0,0,0.7) 100%);
+  opacity: 1;
+  animation: breathlessPulse 2.4s ease-in-out infinite;
+}
+@keyframes breathlessPulse { 50% { opacity: 0.45; } }
+
 /* =============================================================================
    FLASH — full-screen color burst (jumpscare + death). Driven by JS toggling
    classes; uses opacity transitions so we don't repaint the whole layer on

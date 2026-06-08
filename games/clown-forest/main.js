@@ -4011,6 +4011,7 @@ let beaconLight = null;
 let beaconPos = null;
 function spawnBeacon() {
   if (beacon) return;
+  _nearEscapeFired = false; // re-arm the near-escape beat for this beacon run
   // Choose a far edge so the player has to traverse some forest to reach it.
   const side = Math.floor(Math.random() * 4);
   const edge = WORLD_SIZE * 0.42;
@@ -4286,6 +4287,11 @@ const clownState = {
   searchInterest: 0,        // 0..1 raised by crouching / flashlight off
   // Lightning reveal hint set by triggerLightning().
   lightningRevealUntil: 0,
+  // ---- Chase-readability additions (V3-7 fair telegraphs) ----
+  preChaseUntil: 0,         // ts: clown is in a readable wind-up before chase erupts
+  preChasePanX: 0,          // cached pan for the wind-up laugh
+  safeBeatUntil: 0,         // ts: brief "you lost him" exhale beat after a chase
+  reAggroBlockUntil: 0,     // ts: grace window where chase can't re-trigger (fair breather)
 };
 
 // =============================================================================
@@ -4633,6 +4639,9 @@ const heartLine    = document.getElementById('hud-heart-line');
 const crosshairEl  = document.getElementById('hud-crosshair');
 const compassEl    = document.getElementById('hud-compass');
 const compassArrow = document.getElementById('hud-compass-arrow');
+const compassLabel = compassEl ? compassEl.querySelector('.hud-compass__label') : null;
+// Near-escape beat: fires once per beacon-run when the player first gets close.
+let _nearEscapeFired = false;
 const stealthEl    = document.getElementById('hud-stealth');
 const stealthFill  = document.getElementById('hud-stealth-fill');
 const stealthN     = document.getElementById('hud-stealth-n');
@@ -5628,6 +5637,23 @@ function tickCompass() {
   if (deg > 180)  deg -= 360;
   if (deg < -180) deg += 360;
   compassArrow.style.transform = `rotate(${deg.toFixed(1)}deg)`;
+
+  // ---- Near-escape readout + beat (V3-11 edge-clamped objective arrow with a
+  // live distance; the closer you get to safety, the louder the HUD reads it). --
+  const dist = Math.hypot(dx, dz);
+  if (compassLabel) {
+    const near = dist < 18;
+    compassLabel.textContent = near ? 'ALMOST OUT' : `BEACON · ${Math.round(dist)}m`;
+    compassEl.classList.toggle('is-near', near);
+  }
+  // One-shot near-escape feedback as you cross into the home stretch: a rising
+  // beacon siren swell + an urgent on-screen beat. Re-armed each new beacon run.
+  if (!_nearEscapeFired && dist < 22) {
+    _nearEscapeFired = true;
+    try { playBeaconRising?.(); } catch {}
+    showSubtitle('The clearing is close. Don’t stop.', 4);
+    try { wgCaption?.('ALMOST OUT', 1500); } catch {}
+  }
 }
 
 // ---- Crosshair: show subtle dot only when looking at an interactable ------
@@ -5870,6 +5896,10 @@ function startGame() {
   clownState.circleEndAt = 0;
   clownState.circlePhase = 0;
   clownState.lightningRevealUntil = 0;
+  clownState.preChaseUntil = 0;
+  clownState.preChasePanX = 0;
+  clownState.safeBeatUntil = 0;
+  clownState.reAggroBlockUntil = 0;
   clownState.lastPlayerCheckPos = null;
   clownState.visibleStartedAt = 0;
   nextRandomEventAt = now() + 60 + Math.random() * 60;
@@ -7625,18 +7655,46 @@ function tickClown(dt) {
     showSubtitle('Something is following you.', 5);
   }
   const chaseTrigger = CLOWN_CHASE_TRIGGER * ((diffCfg && diffCfg.chaseTriggerMul) || 1);
-  if (clownState.phase !== 'chase' && chaseAllowed &&
-      dist < chaseTrigger && sees && clownState.isVisible) {
-    clownState.phase = 'chase';
-    playChaseMusic();
-    // Point-blank laugh jolt the instant the chase erupts — adrenaline spike.
-    try { playClownLaugh(panX, 3); } catch (e) { /* */ }
-    showSubtitle('RUN.', 3);
+  // ---- PRE-CHASE TELL (V3-7: investigate-before-chase, audio+visual tell) ----
+  // Instead of snapping straight into a chase, insert a short readable wind-up:
+  // the clown holds for ~0.7s, his eye-glow flares, and a rising laugh fires so
+  // the aggression is telegraphed and the player gets one beat to react.
+  // Skipped during the post-chase grace window so we never re-aggro instantly.
+  const canStartChase = clownState.phase !== 'chase' && chaseAllowed &&
+      dist < chaseTrigger && sees && clownState.isVisible &&
+      now() > clownState.reAggroBlockUntil;
+  if (canStartChase && clownState.preChaseUntil === 0) {
+    // Begin the wind-up. preChaseUntil acts as both "active" flag and deadline.
+    clownState.preChaseUntil = now() + 0.7;
+    clownState.preChasePanX = panX;
+    clownState.safeBeatUntil = 0;
+    try { playClownLaugh(panX, Math.max(3, dist)); } catch (e) { /* */ }
+    try { wgCaption?.('HE SEES YOU', 900); } catch {}
+    showWarning('!', 0.7);
+  }
+  if (clownState.preChaseUntil > 0) {
+    if (!canStartChase && clownState.phase !== 'chase') {
+      // Player broke line-of-sight / fled during the wind-up — fair reprieve.
+      clownState.preChaseUntil = 0;
+    } else if (now() >= clownState.preChaseUntil) {
+      clownState.phase = 'chase';
+      clownState.preChaseUntil = 0;
+      playChaseMusic();
+      try { playClownLaugh(clownState.preChasePanX, 3); } catch (e) { /* */ }
+      showSubtitle('RUN.', 3);
+    }
   }
   if (clownState.phase === 'chase' && dist > chaseTrigger * 2.5 && !sees) {
-    // Lost the player — back to hunt.
+    // Lost the player — back to hunt, with a fair "safe-beat" exhale (V3-7
+    // leash/give-up + guaranteed breather). Brief grace where the chase can't
+    // re-trigger, plus a calming audio/HUD cue so the relief is readable.
     clownState.phase = playerHuntStart ? 'hunt' : 'stalk';
     if (clownState.phase === 'hunt') playHuntMusic(); else playStalkMusic();
+    clownState.safeBeatUntil = now() + 3;
+    clownState.reAggroBlockUntil = now() + 4;
+    clownState.preChaseUntil = 0;
+    showSubtitle('You lost him... for now.', 3.5);
+    try { playGasp?.(); } catch {}
   }
 
   // ---- KILL ---- (wide jumpscare radius: caught from JUMPSCARE_DIST when the
@@ -7645,6 +7703,17 @@ function tickClown(dt) {
   if ((dist < JUMPSCARE_DIST && clownState.isVisible) || dist < DIE_DIST) {
     player.takenWhileCrouching = player.isCrouching || player.isListening;
     triggerKillCinematic();
+    return;
+  }
+
+  // ---- PRE-CHASE WIND-UP: hold position so the tell reads (no advance). ----
+  if (clownState.preChaseUntil > 0 && clownState.phase !== 'chase') {
+    clownState.isVisible = true;
+    clownSprite.visible = true;
+    const gy0 = groundY(clownState.pos.x, clownState.pos.z);
+    clownSprite.position.set(clownState.pos.x, CLOWN_HEIGHT / 2 + gy0, clownState.pos.z);
+    // Tense fast bob during the wind-up so the frozen pose still feels alive.
+    clownSprite.position.y += Math.sin(totalElapsed * 9) * 0.05;
     return;
   }
 
@@ -8254,6 +8323,9 @@ function tickHUD(dt) {
     if (isHunting && clownState.isVisible && distC < 8) {
       throb = Math.max(0, Math.min(0.9, (8 - distC) / 6.5));
     }
+    // Safe-beat: force the danger throb off during the post-chase exhale so the
+    // relief reads visually (a fair breather after losing the clown).
+    if (t < clownState.safeBeatUntil) throb = 0;
     vfxThrob.style.setProperty('--throb-alpha', throb.toFixed(3));
   }
 

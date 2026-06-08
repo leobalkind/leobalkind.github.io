@@ -194,6 +194,13 @@ let maxComboThisRun = 0; // surfaced on end-screen (Round-2 polish)
 let comboBannerT = 0;   // big banner pop on milestone
 let comboBannerText = '';
 const COMBO_MILESTONES = new Set([5, 10, 20]);
+// Depth-milestone fanfare — celebrates the player's primary progress metric
+// every DEPTH_MILESTONE metres. Separate, cyan-tinted banner so it reads
+// distinctly from combo/biome banners. (IDEA_BANK V3-4: milestone reward feel.)
+const DEPTH_MILESTONE = 25;
+let lastDepthMilestone = 0;
+let depthBannerT = 0;
+let depthBannerText = '';
 function resetCombo() { combo = 0; comboTimer = 0; }
 function bumpCombo(worldX, worldY) {
   // If too long since last dig, restart at 1; else increment
@@ -215,6 +222,16 @@ function bumpCombo(worldX, worldY) {
   }
 }
 function shake(amp, dur) { const k = _shakeMul(); shakeAmp = Math.max(shakeAmp, amp * k); shakeT = Math.max(shakeT, dur); }
+// FTUE — fires a single encouraging tip the first time ANY player ever digs.
+// Persisted so veterans never see it again. Reassures "you did it" + the goal.
+let _firstDigDone = false;
+try { _firstDigDone = localStorage.getItem('diggers:firstDig') === '1'; } catch {}
+function maybeFirstDigTip() {
+  if (_firstDigDone) return;
+  _firstDigDone = true;
+  try { localStorage.setItem('diggers:firstDig', '1'); } catch {}
+  showTip('Nice! Keep DIGGING down ▼ — grab treasure, then return to the surface to spend $.', 6000);
+}
 function popup(x, y, text, color) {
   if (popups.length > 24) popups.shift();
   // Round 2C: lateral spawn velocity so popups don't stack & feel snappier
@@ -343,6 +360,7 @@ function reset() {
     else if (r > 30 && Math.random() < 1 / 120) wallDecor[r][c] = 'skull';
   }
   resetCombo(); comboBannerT = 0; comboBannerText = '';
+  lastDepthMilestone = 0; depthBannerT = 0; depthBannerText = '';
   maxComboThisRun = 0;
   lanternT = 0; amuletCharges = 0;
   for (let r = 5; r < rows; r += 5) { supports.push({ row: r, col: 0 }); supports.push({ row: r, col: cols - 1 }); }
@@ -977,8 +995,23 @@ function tryMove(dc, dr) {
     // Downwell combo: any successful dig (loot picked OR wall broken) counts.
     // Walking through pre-existing air does NOT.
     bumpCombo(pug.x, pug.y);
+    // FTUE — celebrate a brand-new player's very first dig, once ever, then
+    // point them deeper. (IDEA_BANK V3-1: gentle first-action onboarding.)
+    maybeFirstDigTip();
   }
-  if (pug.row > depth) depth = pug.row;
+  if (pug.row > depth) {
+    depth = pug.row;
+    // Depth-milestone fanfare every DEPTH_MILESTONE metres — banner + rising
+    // chime + particle pop + small shake. Skipped at 0; fires once per band.
+    if (depth >= lastDepthMilestone + DEPTH_MILESTONE) {
+      lastDepthMilestone = Math.floor(depth / DEPTH_MILESTONE) * DEPTH_MILESTONE;
+      depthBannerText = '▼ ' + lastDepthMilestone + 'm DEEP ▼';
+      depthBannerT = 1.8;
+      shake(5, 0.3);
+      sfx.arp([392, 523, 659, 784], 'triangle', 0.06, 0.18, 0.12);
+      spawnDust(pug.x, pug.y, '#4cc9f0', 14);
+    }
+  }
   // Wave 1D: biome-entry banner on every new band
   const curBiome = biomeAt(pug.row);
   if (curBiome !== _lastBiome) {
@@ -1022,6 +1055,10 @@ function tryMove(dc, dr) {
       surfaceCelebT = 1.6;
       popup(pug.x, pug.y - 30, 'DEPOSIT +$' + lastPickup, '#ffd23f');
       lastPickup = 0;
+      // If the fresh deposit makes any upgrade affordable, nudge the player with
+      // a small coin chime so they notice the shop is worth a look.
+      const canBuy = UPGRADES.some((u) => upgrades[u.id] < u.max && money >= u.cost * (upgrades[u.id] + 1));
+      if (canBuy) sfx.playUI('coin');
     }
     bag = 0;
     stam = maxStam;
@@ -1037,6 +1074,16 @@ function tryMove(dc, dr) {
 let _lastUpgradesVisible = null;
 let _lastBiome = 'stone';
 
+// One-time CSS for the "you can afford this" cue — a gentle gold pulse + glow
+// so the player's eye is drawn to upgrades they can actually buy.
+(function _injectUpgCue() {
+  if (document.getElementById('dd-upg-cue-style')) return;
+  const s = document.createElement('style');
+  s.id = 'dd-upg-cue-style';
+  s.textContent = '@keyframes ddUpgAfford{0%,100%{box-shadow:0 0 6px rgba(255,210,63,0.45);border-color:#ffd23f}50%{box-shadow:0 0 16px rgba(255,210,63,0.9);border-color:#fff0a0}}'
+    + '.dd-upg-afford{animation:ddUpgAfford 1.2s ease-in-out infinite;border-color:#ffd23f!important;color:#ffe98a!important}';
+  document.head.appendChild(s);
+})();
 function renderUpgrades() {
   const e = document.getElementById('upg-buttons');
   e.innerHTML = '';
@@ -1048,6 +1095,7 @@ function renderUpgrades() {
     btn.innerHTML = `${u.name}<br>Lv ${lvl}/${u.max} — $${next}`;
     if (lvl >= u.max) { btn.disabled = true; btn.style.opacity = 0.4; btn.innerHTML = `${u.name}<br>MAX`; }
     else if (money < next) { btn.disabled = true; btn.style.opacity = 0.5; }
+    else { btn.classList.add('dd-upg-afford'); } // affordable → pulsing gold cue
     btn.addEventListener('click', () => {
       if (money < next || lvl >= u.max) return;
       money -= next;
@@ -1318,6 +1366,7 @@ function tick(dt) {
   shakeT = Math.max(0, shakeT - dt); if (shakeT === 0) shakeAmp = 0;
   surfaceCelebT = Math.max(0, surfaceCelebT - dt);
   biomeBannerT = Math.max(0, biomeBannerT - dt);
+  depthBannerT = Math.max(0, depthBannerT - dt);
   // ambient dust falling near the player
   spawnAmbient(pug.y - H / 2);
   // Supervisor pug pacing on surface
@@ -2431,6 +2480,22 @@ function render() {
     ctx.shadowColor = '#ffd23f'; ctx.shadowBlur = 16;
     ctx.fillStyle = '#ffd23f';
     ctx.fillText(comboBannerText, W / 2, H * 0.42);
+    ctx.shadowBlur = 0;
+    ctx.restore();
+  }
+  // Depth-milestone banner — cyan, sits above the combo banner. Pops in then
+  // drifts up slightly as it fades for a satisfying "achievement" read.
+  if (depthBannerT > 0) {
+    const a = Math.min(1, depthBannerT / 0.4);
+    const rise = (1.8 - depthBannerT) * 10;
+    ctx.save();
+    ctx.globalAlpha = a;
+    ctx.font = "bold 22px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
+    ctx.lineWidth = 5; ctx.strokeStyle = '#0a1a24';
+    ctx.strokeText(depthBannerText, W / 2, H * 0.32 - rise);
+    ctx.shadowColor = '#4cc9f0'; ctx.shadowBlur = 16;
+    ctx.fillStyle = '#7fe0ff';
+    ctx.fillText(depthBannerText, W / 2, H * 0.32 - rise);
     ctx.shadowBlur = 0;
     ctx.restore();
   }

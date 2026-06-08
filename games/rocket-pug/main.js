@@ -264,6 +264,21 @@ let shockwaves = []; // {x, y, r, maxR, life, t, color}
 // draws the giant PWNED banner over the victim with slight zoom-in.
 let pwnedT = 0;     // seconds remaining of freeze (0.6 total)
 let pwnedVictim = null; // pug ref — banner anchor + camera zoom center
+// V3-6 camera kick: a decaying directional offset applied on top of shake. Fire
+// recoil kicks opposite to aim; taking a hit kicks toward the damage. Springs
+// back toward 0 each frame. Honors the shake intensity user setting.
+let camKickX = 0, camKickY = 0;
+function camKick(dx, dy) {
+  const k = _shakeMul();
+  if (k <= 0) return;
+  camKickX += dx * k; camKickY += dy * k;
+  // clamp so stacked kicks can't fling the view
+  camKickX = Math.max(-14, Math.min(14, camKickX));
+  camKickY = Math.max(-14, Math.min(14, camKickY));
+}
+// V3-4/V3-5 round-win payoff: a brief golden screen wash + confetti the instant
+// a DM round is won (fires before the end overlay slides in).
+let winWashT = 0;
 let crowd = [];
 let weaponPickups = []; // {x, y, weapon, t, bob}
 let weaponSpawnT = 0;   // seconds until next spawn
@@ -501,6 +516,8 @@ function reset() {
   // Reset PWNED freeze so a fresh match doesn't inherit a stuck freeze if the
   // previous match ended while the cam was still up.
   pwnedT = 0; pwnedVictim = null;
+  camKickX = 0; camKickY = 0;
+  winWashT = 0; winFreezeT = 0;
   lastHitT = 0;
   // Wave 1D: reset stats + spectator
   shotsFired = 0; shotsHit = 0; longestStreak = 0;
@@ -626,6 +643,9 @@ function fire(shooter, ang) {
   if (w.recoil) {
     shooter.vx -= Math.cos(ang) * 60 * w.recoil * masteryKbMul;
     shooter.vy -= Math.sin(ang) * 60 * w.recoil * masteryKbMul;
+    // V3-6 recoil camera kick (player only): nudge the view opposite to the
+    // shot so heavier weapons (toast/BFG) feel like they have real punch.
+    if (shooter === pug) camKick(-Math.cos(ang) * 26 * w.recoil, -Math.sin(ang) * 26 * w.recoil);
   }
   projectiles.push({
     x: shooter.x + Math.cos(ang) * 22, y: shooter.y + Math.sin(ang) * 22,
@@ -640,6 +660,21 @@ function fire(shooter, ang) {
 
 function tick(dt) {
   if (!running) return;
+  // V3-4 win-freeze: hold the world during the round-win wash, advancing only
+  // cosmetics (particles/sparks/shockwaves/wash + camera kick decay), then drop
+  // into end() once the celebration beat is over.
+  if (winFreezeT > 0) {
+    winFreezeT = Math.max(0, winFreezeT - dt);
+    winWashT = Math.max(0, winWashT - dt);
+    shakeT = Math.max(0, shakeT - dt); if (shakeT === 0) shakeAmp = 0;
+    for (let i = particles.length - 1; i >= 0; i--) {
+      const p = particles[i];
+      p.t += dt; p.x += p.vx * dt; p.y += p.vy * dt; p.vx *= 0.92; p.vy *= 0.92;
+      if (p.t >= p.life) particles.splice(i, 1);
+    }
+    if (winFreezeT === 0) end(true);
+    return;
+  }
   // PWNED freeze: pause world for 0.6s after a kill (Rocket League goal cam).
   // Only the freeze timer + render flow advance during this window.
   if (pwnedT > 0) {
@@ -719,6 +754,13 @@ function tick(dt) {
       const sp = baseSp * (activePerkId === 'sprint' ? 1.20 : 1.0);
       pug.vx += (mx / l) * sp * dt * 3;
       pug.vy += (my / l) * sp * dt * 3;
+      // V3-5 thrust exhaust: emit out the back while moving (denser during a
+      // jet burst). Throttled by frame chance so it scales with framerate, not
+      // particle spam. Skipped while slipping (no control = no thrust).
+      const thrustI = pug.jetT > 0 ? 1.0 : 0.45;
+      if (Math.random() < dt * (pug.jetT > 0 ? 90 : 45)) {
+        spawnThrust(pug.x, pug.y, mx / l, my / l, thrustI);
+      }
     }
     pug.jetT = Math.max(0, pug.jetT - dt);
     pug.jetCd = Math.max(0, pug.jetCd - dt);
@@ -1004,7 +1046,12 @@ function tick(dt) {
         sfx.tone(220, 'square', 0.05, 0.18);
         // Round 2C: brief hit-pause on heavier impacts (not bubbles) — 0.05s
         if (pr.dmg >= 20) hitPauseT = Math.max(hitPauseT, 0.05);
-        if (target === pug) { lastHitT = 0.25; shake(4, 0.18); }
+        if (target === pug) {
+          lastHitT = 0.25; shake(4, 0.18);
+          // V3-6 directional kick toward the incoming shot — sells the impact.
+          const vlk = Math.hypot(pr.vx, pr.vy) || 1;
+          camKick((pr.vx / vlk) * 9, (pr.vy / vlk) * 9);
+        }
         if (target.hp <= 0) {
           if (pr.owner === pug && target !== pug) {
             kills++;
@@ -1207,6 +1254,14 @@ function tick(dt) {
   comboT = Math.max(0, comboT - dt); if (comboT === 0) comboN = 0;
   comboBannerT = Math.max(0, comboBannerT - dt);
   lastHitT = Math.max(0, lastHitT - dt);
+  // V3-6 camera-kick spring-return — critically-damped decay toward 0.
+  if (camKickX !== 0 || camKickY !== 0) {
+    const decay = Math.pow(0.0009, dt); // ~fast settle (~0.25s)
+    camKickX *= decay; camKickY *= decay;
+    if (Math.abs(camKickX) < 0.05) camKickX = 0;
+    if (Math.abs(camKickY) < 0.05) camKickY = 0;
+  }
+  if (winWashT > 0) winWashT = Math.max(0, winWashT - dt);
   if (_masteryFlashT > 0) _masteryFlashT = Math.max(0, _masteryFlashT - dt);
   for (const p of _fighters()) p.hitFlashT = Math.max(0, p.hitFlashT - dt);
   // crowd ambient sway uses real-time, no state to update
@@ -1268,7 +1323,7 @@ function tick(dt) {
         }
       }
     }
-    if (teamScore >= 3) return end(true);
+    if (teamScore >= 3) return triggerWin(true);
     if (botScore >= 3) return end(false);
   } else if (activeMode === 'koth') {
     let teamIn = pug.hp > 0 && Math.hypot(pug.x - kothZone.x, pug.y - kothZone.y) < kothZone.r;
@@ -1276,14 +1331,14 @@ function tick(dt) {
     for (const b of bots) if (b.hp > 0 && Math.hypot(b.x - kothZone.x, b.y - kothZone.y) < kothZone.r) { botsIn = true; break; }
     if (teamIn && !botsIn) kothMeter.team = Math.min(10, kothMeter.team + dt);
     else if (botsIn && !teamIn) kothMeter.bots = Math.min(10, kothMeter.bots + dt);
-    if (kothMeter.team >= 10) return end(true);
+    if (kothMeter.team >= 10) return triggerWin(true);
     if (kothMeter.bots >= 10) return end(false);
   }
   if (activeMode === 'dm') {
     if (pug.hp <= 0) return end(false);
-    if (bots.every((b) => b.hp <= 0)) return end(true);
+    if (bots.every((b) => b.hp <= 0)) return triggerWin(true);
     // Polish R2: optional kill-score limit
-    if (mSettingsScoreLimit > 0 && kills >= mSettingsScoreLimit) return end(true);
+    if (mSettingsScoreLimit > 0 && kills >= mSettingsScoreLimit) return triggerWin(true);
   } else if (pug.hp <= 0 && spectatorIdx === -1) {
     spectatorIdx = bots.findIndex((b) => b.hp > 0);
   }
@@ -1293,7 +1348,7 @@ function tick(dt) {
     const elapsed = (performance.now() - matchStartT) / 1000;
     if (elapsed >= mSettingsTimeLimit) {
       const botKills = bots.reduce((acc, b) => acc + (b.kills || 0), 0);
-      return end(kills >= botKills);
+      return kills >= botKills ? triggerWin(true) : end(false);
     }
   }
   updateHud();
@@ -1367,6 +1422,27 @@ function spawnSpark(x, y) {
     sparks.push({ x, y, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp, life: 0.25, t: 0 });
   }
 }
+// V3-5 continuous thrust exhaust — small directional puffs out the BACK of the
+// pug whenever it's actively moving (not just the jet burst). `dirX/dirY` is the
+// movement direction; intensity 0..1 scales count + reach. Keeps the jetpack
+// reading "always firing" instead of a static slide.
+function spawnThrust(x, y, dirX, dirY, intensity) {
+  if (particles.length > 200) return;
+  const back = Math.atan2(-dirY, -dirX); // exhaust shoots opposite to travel
+  const n = intensity > 0.6 ? 2 : 1;
+  for (let i = 0; i < n; i++) {
+    const a = back + (Math.random() - 0.5) * 0.7;
+    const sp = (60 + Math.random() * 90) * (0.5 + intensity);
+    const cols = ['#ffd23f', '#ff8e3c', '#fff1b0', 'rgba(200,200,210,0.35)'];
+    particles.push({
+      x: x - dirX * 12 + (Math.random() - 0.5) * 6,
+      y: y - dirY * 12 + (Math.random() - 0.5) * 6,
+      vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
+      color: cols[Math.floor(Math.random() * cols.length)],
+      life: 0.22 + Math.random() * 0.12, t: 0, size: 2 + Math.random() * 2,
+    });
+  }
+}
 function spawnJet(x, y) {
   if (particles.length > 220) return;
   // v1.8 — richer flame trail: a white-hot core ember plus warm outer puffs.
@@ -1407,7 +1483,8 @@ function render() {
   const sx = shakeAmp > 0 ? (Math.random() - 0.5) * shakeAmp * 2 : 0;
   const sy = shakeAmp > 0 ? (Math.random() - 0.5) * shakeAmp * 2 : 0;
   ctx.save();
-  ctx.translate(sx, sy);
+  // V3-6: shake jitter + decaying directional camera kick (recoil / hit punch).
+  ctx.translate(sx + camKickX, sy + camKickY);
   // PWNED slow zoom — ramps from 1.0 → 1.18 over the 0.6s freeze, centered
   // on victim. Applied as scale+translate inside the existing shake save block
   // so the matching ctx.restore() at the bottom of render() unwinds both.
@@ -1811,6 +1888,30 @@ function render() {
     _depthShadow(ctx, p.x, p.y + 16, 18, { alpha: 0.4 });
     // jetpack thruster particles (player only)
     if (p === pug && pug.jetT > 0) spawnJet(p.x, p.y);
+    // V3-5 speed-lines: streak the player when travelling fast (jet/slip/
+    // treadmill launches). Lines trail opposite the velocity for a sense of
+    // velocity-stretch without a real motion blur.
+    if (p === pug) {
+      const spd = Math.hypot(p.vx, p.vy);
+      if (spd > 300 && _shakeMul() > 0) {
+        const vlen = spd || 1;
+        const ux = p.vx / vlen, uy = p.vy / vlen;
+        const k = Math.min(1, (spd - 300) / 360);
+        ctx.save();
+        ctx.strokeStyle = `rgba(255,241,176,${0.18 + k * 0.32})`;
+        ctx.lineWidth = 2;
+        for (let s = 0; s < 3; s++) {
+          const off = (s - 1) * 9;
+          const px = p.x - uy * off, py = p.y + ux * off;
+          const len = 14 + k * 24 + (s === 1 ? 8 : 0);
+          ctx.beginPath();
+          ctx.moveTo(px - ux * 8, py - uy * 8);
+          ctx.lineTo(px - ux * (8 + len), py - uy * (8 + len));
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
+    }
     // buff aura
     const buff = activeBuffs.get(p);
     if (buff) {
@@ -2169,6 +2270,27 @@ function render() {
     ctx.fillStyle = grad; ctx.fillRect(0, 0, W, H);
   }
 
+  // V3-5 low-health breathing vignette — a slow red pulse hugging the screen
+  // edges while the player is critical. Distinct from the sharp hit vignette:
+  // this is a calm, continuous "danger" read. Photosensitivity-safe (~0.4Hz).
+  if (pug && pug.hp > 0 && pug.hp <= 25 && _shakeMul() > 0) {
+    const breathe = 0.5 + 0.5 * Math.sin(performance.now() * 0.0045);
+    const lowK = (1 - pug.hp / 25); // stronger nearer death
+    const a = (0.16 + 0.18 * breathe) * (0.5 + lowK * 0.5);
+    const grad = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.32, W / 2, H / 2, Math.max(W, H) * 0.62);
+    grad.addColorStop(0, 'rgba(180,20,20,0)');
+    grad.addColorStop(1, `rgba(180,20,20,${a})`);
+    ctx.fillStyle = grad; ctx.fillRect(0, 0, W, H);
+  }
+
+  // V3-4/V3-5 round-win wash — a golden flash that blooms then fades the moment
+  // the round is won, giving a beat of payoff before the end overlay appears.
+  if (winWashT > 0) {
+    const k = winWashT / 0.7; // 1 → 0
+    ctx.fillStyle = `rgba(255,210,63,${0.45 * k})`;
+    ctx.fillRect(0, 0, W, H);
+  }
+
   // Combo banner
   if (comboBannerT > 0 && comboN >= 2) {
     const a = Math.min(1, comboBannerT / 0.4);
@@ -2277,6 +2399,35 @@ function updateHud() {
   }
 }
 
+// V3-4 round-win payoff: on a WIN we hold the world for ~0.7s and play a golden
+// wash + confetti spray + ascending fanfare BEFORE the end overlay slides in
+// (otherwise the kill→overlay cut is instant and the win has no beat). Losses
+// go straight to end(). The freeze is handled at the top of tick(); `running`
+// stays true throughout the freeze (end() is only called when it expires), so
+// the render loop keeps drawing the wash/confetti the whole time.
+let winFreezeT = 0;
+function triggerWin(won) {
+  if (!won) return end(false);
+  if (winFreezeT > 0) return; // already celebrating
+  winFreezeT = 0.7;
+  winWashT = 0.7;
+  shake(8, 0.4);
+  try {
+    const cx = pug && pug.hp > 0 ? pug.x : W / 2;
+    const cy = pug && pug.hp > 0 ? pug.y : H / 2;
+    const conf = ['#ffd23f', '#ff8e3c', '#5ef38c', '#4cc9f0', '#fff1b0'];
+    for (let i = 0; i < 40 && particles && particles.length < 240; i++) {
+      const a = -Math.PI / 2 + (Math.random() - 0.5) * 2.2;
+      const sp = 180 + Math.random() * 320;
+      particles.push({
+        x: cx, y: cy, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
+        color: conf[i % conf.length], life: 0.9 + Math.random() * 0.5, t: 0,
+        size: 3 + Math.random() * 3,
+      });
+    }
+    if (sfx && typeof sfx.arp === 'function') sfx.arp([523, 659, 784, 1047, 1319], 'triangle', 0.07, 0.22, 0.1);
+  } catch {}
+}
 function end(won) {
   running = false;
   if (won) seriesTeam++; else seriesBots++;

@@ -102,13 +102,17 @@ export const Sfx = {
     src.start(); src.stop(c.currentTime + 0.06);
   },
 
-  // Pug death — descending splat + noise
-  kill() {
+  // Pug death — descending splat + noise.
+  // `pitch` (default 1) shifts the splat up a fraction per combo link so a
+  // chain of kills climbs in pitch (V3-4 escalating combo audio). Clamped so
+  // long streaks stay musical rather than shrill.
+  kill(pitch = 1) {
     const c = ensureCtx(); if (!c || muted) return;
+    const pm = Math.max(1, Math.min(1.9, pitch));
     const osc = c.createOscillator();
     osc.type = 'square';
-    osc.frequency.setValueAtTime(260, c.currentTime);
-    osc.frequency.exponentialRampToValueAtTime(40, c.currentTime + 0.22);
+    osc.frequency.setValueAtTime(260 * pm, c.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(40 * pm, c.currentTime + 0.22);
     const g = c.createGain();
     env(g, 0.001, 0.24, 0.32);
     osc.connect(g).connect(masterGain);
