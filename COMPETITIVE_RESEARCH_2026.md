@@ -63,10 +63,30 @@ no-backend site, in priority order of **felt impact ÷ effort**):
 - **P6-7** — hero now leads with the differentiator ("no ads · no tracking ·
   instant"; chips "FREE · NO ADS" / "NO TRACKING").
 
-**🟡 Already existed in code (don't rebuild):** daily-login **streak**
-(`wg:streak`, DAY-N / "Welcome back!" toasts) → P2-3/P2-9 partly done; a
-daily-seed footer chip; `wg:lastPlayed` tracking; a hidden `#hub-featured`
-banner (now visible since the gate is gone).
+**🟡 Already existed in code (the research agents couldn't see the repo, so they
+over-estimated the gaps — DON'T rebuild these):**
+- **Hover PLAY pill** (`.card__play` / `.card__play-btn`, injected DOM) → P0-8 / A4 done.
+- **Card status badges** — NEW / 3D / HORROR / REALISTIC tag chips (`.card__tag`),
+  plus per-card **BEST: N** high-score badges → most of P1-5 done.
+- **Recently-played** "RECENT:" pill below the search (`wg:recent`) → P1-1 (lite) done.
+- **Daily-login streak** (`wg:streak`, DAY-N / "Welcome back!" toasts) → P2-3/P2-9 partly.
+- **Featured game of the day** — deterministic UTC-date pick (`#hub-featured`,
+  now visible since the gate's gone) → P2-1 (foundation) done.
+- **Most-played sort** (`wg:plays:*`), search, category tabs, count toolbar.
+- **Achievements + stats** (`wg:ach:*`, stats modal: "PLAYED N / 🏆 N ACHIEVEMENTS")
+  → P2-6 (foundation) done.
+- **Full share modal** — copy-link / native Web Share / tweet, per-game → P2-2
+  (foundation) done; missing only the Wordle-style *daily result* card.
+- **Shared juice modules** in `src/shared/`: `screenShake.js`, `particleBurst.js`,
+  `animations.js`, `visualPolish.js`, `gradeCard.js`, `killFeed.js`,
+  `wavePreview.js`, `tutorialTip.js` → P5 *infrastructure* exists; the work is an
+  audit that each game USES them, not building from scratch.
+
+**So the genuine remaining net-new work is narrower than P1–P6 implied:** (a) a real
+*scored* Daily Challenge + Wordle-style shareable result; (b) a single cross-game
+**profile LEVEL** aggregating the existing achievements/plays; (c) per-game SEO
+landing pages; (d) a per-game **juice audit** (use the existing shared modules
+everywhere). These are design-sensitive / large / multi-session.
 
 **▶️ Next up (not yet done):** P0-8 hover PLAY pill · P1 discovery rails
 (recently-played / most-played / recommended) + facet chips + badges · P2-1/P2-2
