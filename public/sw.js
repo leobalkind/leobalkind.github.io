@@ -1,7 +1,7 @@
 // Minimal service worker — cache-first for static assets, network for HTML.
 // Lets the hub + games load offline after first visit.
 // Version bump on every release so the activate handler purges stale caches.
-const CACHE = 'wg-v2';
+const CACHE = 'wg-v3';
 const STATIC = [
   './',
   './manifest.webmanifest',
@@ -29,7 +29,7 @@ const OFFLINE_HTML = `<!doctype html><html lang="en"><head><meta charset="UTF-8"
 </style></head><body><div class="box">
 <h1>OFFLINE</h1>
 <p>You're offline and this page hasn't been cached yet.</p>
-<p>Visit the hub once while online — then every game works offline forever.</p>
+<p>Each game caches itself the first time you play it online — open this one once with a connection and it'll work offline after that.</p>
 <button onclick="location.reload()">RETRY</button>
 </div></body></html>`;
 
