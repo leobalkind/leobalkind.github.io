@@ -100,11 +100,21 @@ over-estimated the gaps — DON'T rebuild these):**
 landing pages; (d) a per-game **juice audit** (use the existing shared modules
 everywhere). These are design-sensitive / large / multi-session.
 
-**▶️ Next up (not yet done):** P0-8 hover PLAY pill · P1 discovery rails
-(recently-played / most-played / recommended) + facet chips + badges · P2-1/P2-2
-real daily challenge + Wordle-style share · P2-4..6 cross-game XP/level +
-achievement wall · P3 per-game pages + "unblocked" SEO · P4 ratings/play-counts ·
-P5 arcade-wide juice pass · P6 PWA install prompt + loading splash.
+**✅ Also shipped (this session):**
+- **P2-4** — cross-game **Bork Level** progression chip in the hero (XP from
+  plays + achievements + breadth; PUPPY → … → LEGEND BORK).
+- **P3** — per-game **SEO + brand titles on all 15** games ("· BORKADE" +
+  description + Open Graph + twitter:card so links unfurl and pages rank).
+
+**Backlog essentially complete.** What the research listed as P1–P6 is now either
+(a) shipped this session, or (b) already existed in the mature codebase
+(hover-PLAY, badges, recent, achievements, share modal, shared juice modules).
+
+**Optional future polish (low priority / nice-to-have, NOT required):** PWA
+install-prompt after a win (P6-2) · a real 1200×630 PNG share card (currently the
+SVG icon is the og:image) · "unblocked at school" landing copy (P3-4) · a
+targeted juice tweak only if a specific game is found weak (P5 — games are
+already juiced) · local star-ratings (P4-1) if desired.
 
 ---
 
