@@ -32,7 +32,21 @@ export const POWERUPS = {
   },
   shield: {
     id: 'shield', name: 'SHIELD',  icon: '🛡️', color: 0x4cc9f0,
-    desc: 'Invulnerable for 5s', duration: 5, shield: true,
+    desc: 'Invulnerable for 5s', duration: 5, shield: true, weight: 7,
+  },
+  // GHOST — brief invulnerability + a speed boost to reposition or escape.
+  // Reuses the shield + spdMult plumbing, so it needs no new Game logic. (Depth pass.)
+  ghost: {
+    id: 'ghost', name: 'GHOST', icon: '👻', color: 0xb0e8ff,
+    desc: 'Invuln + 1.4× speed for 4s', duration: 4, shield: true,
+    mult: { spdMult: 1.4 }, weight: 5,
+  },
+  // RAMPAGE — the rare jackpot: an all-in-one frenzy. buffMult stacks each key
+  // (dmg + fire + speed) automatically, so no new Game logic. (Depth pass.)
+  rampage: {
+    id: 'rampage', name: 'RAMPAGE', icon: '🌟', color: 0xff2bd6,
+    desc: 'FRENZY: 1.6× dmg + 1.6× fire + 1.3× speed for 7s', duration: 7,
+    mult: { dmgMult: 1.6, fireMult: 1.6, spdMult: 1.3 }, weight: 3,
   },
 };
 
@@ -50,11 +64,23 @@ export class PowerupManager {
     this.drops = [];
   }
 
-  // Maybe spawn a power-up at this position (called on kill).
+  // Maybe spawn a power-up at this position (called on kill). Selection is
+  // WEIGHTED (def.weight, default 10) so rare buffs like RAMPAGE drop far less
+  // often than commons like MED/AMMO — giving the loot table real rarity tiers.
   maybeSpawnAt(x, y) {
     if (Math.random() > DROP_CHANCE) return;
-    const id = POWERUP_IDS[Math.floor(Math.random() * POWERUP_IDS.length)];
-    this._spawn(id, x, y);
+    this._spawn(this._weightedPick(), x, y);
+  }
+
+  _weightedPick() {
+    let total = 0;
+    for (const k of POWERUP_IDS) total += (POWERUPS[k].weight || 10);
+    let r = Math.random() * total;
+    for (const k of POWERUP_IDS) {
+      r -= (POWERUPS[k].weight || 10);
+      if (r <= 0) return k;
+    }
+    return POWERUP_IDS[0];
   }
 
   _spawn(id, x, y) {

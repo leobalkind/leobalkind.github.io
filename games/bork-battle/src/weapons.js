@@ -76,6 +76,24 @@ export const WEAPONS = {
     projSpeedMult: 1.9,  // was 1.7
     desc: 'Slow. DEADLY. One shot one bork.',
   },
+  // Minigun — a bullet hose: tiny per-shot damage, absurd fire rate, a huge mag,
+  // wide spread, and a long reload. Reward is sustained suppression; the risk is
+  // dumping the whole mag and reloading forever. Uses the generic fire path, so
+  // it's fully plumbed (loadout + bots + drops) with no extra wiring. (Depth pass.)
+  minigun: {
+    id: 'minigun',
+    name: 'MINIGUN',
+    icon: '🌀',
+    iconName: 'nitro',
+    dmgMult: 0.32,
+    fireRateMult: 3.2,
+    magSize: 55,
+    reloadTime: 2.6,
+    pellets: 1,
+    spread: 0.17,
+    projSpeedMult: 1.0,
+    desc: 'Bullet hose. Hold it down and pray.',
+  },
 };
 
 // Skin tints override the projectile color when set.
