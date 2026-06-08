@@ -214,7 +214,11 @@ body.reduced-motion .hub__pug-bg > i {
    delete this block to restore the original spacing.
    ------------------------------------------------------------------------- */
 @media (min-width: 760px) {
-  .hub__header { margin-bottom: 22px; }
+  /* The 80px container top-padding was the biggest single thing pushing the
+     first game row below the fold; ~57% of attention is above the fold, so the
+     first row must be visible on first paint. Cut to 28px. (P0-2) */
+  .hub { padding-top: 28px; }
+  .hub__header { margin-bottom: 18px; }
   .hub__tagline { margin-top: 8px; }
   .hub__chips { margin-top: 12px; }
   .hub__search { margin-top: 14px; }
