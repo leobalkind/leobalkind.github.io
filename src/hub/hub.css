@@ -443,6 +443,13 @@ body.reduced-motion .hub__pug-bg > i {
   color: var(--neon-cyan);
 }
 
+/* Cross-game Bork Level chip (P2-4) — gold accent so progression stands out. */
+.hub__chip--level {
+  border-color: var(--neon-yellow);
+  color: var(--neon-yellow);
+  cursor: help;
+}
+
 .hub__grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));

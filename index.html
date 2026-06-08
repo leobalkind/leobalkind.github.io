@@ -3862,6 +3862,33 @@
         const n = document.querySelectorAll('.hub__grid .card:not(.card--coming)').length;
         liveChip.textContent = `LIVE · ${n} GAMES`;
       }
+      // BORK LEVEL (P2-4) — one cross-game progression surfaced as a hero chip.
+      // XP is derived entirely from existing localStorage (total plays +
+      // achievements + how many distinct games you've tried), so it needs no new
+      // tracking and works offline. Gives a reason to play the WHOLE arcade.
+      (function borkLevel() {
+        const chips = document.querySelector('.hub__chips');
+        if (!chips) return;
+        const gids = [...document.querySelectorAll('.hub__grid .card[href*="/games/"]')]
+          .map((c) => (c.getAttribute('href') || '').match(/\/games\/([^/]+)/)?.[1])
+          .filter(Boolean);
+        let plays = 0, ach = 0, breadth = 0;
+        for (const gid of gids) {
+          let p = 0; try { p = Number(localStorage.getItem('wg:plays:' + gid)) || 0; } catch {}
+          plays += p; if (p > 0) breadth++;
+          try { const a = JSON.parse(localStorage.getItem('wg:ach:' + gid) || '[]'); if (Array.isArray(a)) ach += a.length; } catch {}
+        }
+        const xp = plays * 8 + ach * 40 + breadth * 20;
+        const level = Math.max(1, Math.floor(Math.sqrt(xp / 120)) + 1);
+        const title = level >= 25 ? 'LEGEND BORK' : level >= 17 ? 'TOP DOG' : level >= 12 ? 'PUG PRO'
+          : level >= 8 ? 'TREAT HUNTER' : level >= 5 ? 'BORK SCOUT' : level >= 3 ? 'GOOD BOY' : 'PUPPY';
+        const next = (level * level) * 120;           // XP needed for the next level
+        const chip = document.createElement('span');
+        chip.className = 'hub__chip hub__chip--level';
+        chip.textContent = `🦴 LV ${level} · ${title}`;
+        chip.title = `Bork XP ${xp} · ${Math.max(0, next - xp)} to level ${level + 1}\nEarn XP by playing, unlocking achievements, and trying new games.`;
+        chips.appendChild(chip);
+      })();
       // Per-card play counter — bump localStorage on click so the
       // "most played" sort + settings stats panel have real data to use.
       document.querySelectorAll('.hub__grid .card[href*="/games/"]').forEach((card) => {
