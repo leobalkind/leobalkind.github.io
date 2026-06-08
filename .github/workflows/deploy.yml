@@ -36,6 +36,15 @@ jobs:
       - name: Build
         run: npm run build
 
+      # --- Smoke gate: boot the hub + all 15 games against the production build.
+      # If any page throws an uncaught error on boot, the deploy fails here
+      # instead of shipping a black screen (the v2.10 Pug Heist failure mode).
+      - name: Install Playwright (chromium)
+        run: npx playwright install --with-deps chromium
+
+      - name: Smoke test (boot every game)
+        run: npm run test:smoke
+
       - name: Setup Pages
         uses: actions/configure-pages@v4
 

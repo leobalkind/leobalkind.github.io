@@ -6,6 +6,8 @@ dist
 
 # Playwright + dev screenshots
 .playwright-mcp/
+test-results/
+playwright-report/
 *.png
 !docs/**/*.png
 
