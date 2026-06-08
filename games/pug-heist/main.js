@@ -487,7 +487,12 @@ function genFloor(level) {
         // spawn corner, so the opening beat silently teaches "sneak behind
         // their back". Only applies on the tutorial floor's lone patrol.
         let _ftuePatrol = null;
-        if (level === 1 && i === 0) {
+        // First-run gate: same condition that drives tutActive (set later in
+        // genFloor) so this teaching beat only fires on floor 1 of a player's
+        // first-ever run — returning players get normal randomized patrols.
+        let _ftueFirstRun = false;
+        try { _ftueFirstRun = !localStorage.getItem(TUT_DONE_KEY); } catch { _ftueFirstRun = true; }
+        if (level === 1 && i === 0 && _ftueFirstRun) {
           const awayAng = Math.atan2(y - pug.y, x - pug.x); // points away from pug
           ang0 = awayAng;
           _ftuePatrol = [

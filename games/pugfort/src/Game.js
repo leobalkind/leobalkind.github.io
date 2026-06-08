@@ -140,6 +140,7 @@ export class Game {
     this._deathFreezeFired = false;
     this._genDeathFreezeFired = false;
     this._hitstopT = 0;
+    this._hurtFlashT = 0;
     this.running = true;
 
     this.hud.show();

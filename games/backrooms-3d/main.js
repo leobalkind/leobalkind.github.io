@@ -1943,6 +1943,13 @@ function beginWinSequence() {
   if (gameState !== 'play') return;
   gameState = 'winning';
   document.body.classList.remove('is-playing');
+  // v2.11 — straighten the camera roll so the win cinematic isn't tilted. The
+  // win sequence only animates FOV (never re-calls lookAt), so it would freeze
+  // the last gameplay frame's tilted up-vector otherwise. Matches the jumpscare
+  // and reset paths.
+  camera.up.set(0, 1, 0);
+  player.walkRoll = 0; player.walkSway = 0;
+  if (vignetteEl) vignetteEl.classList.remove('is-spotted', 'is-breathless');
   document.exitPointerLock?.();
   winSequenceT = 0;
   winSequencePhase = 'opening';
