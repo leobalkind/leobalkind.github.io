@@ -423,22 +423,16 @@ function bindLoginOverlayEvents() {
 // Public: decide whether to show the overlay and do so. Idempotent.
 export function maybeShowLoginOverlay() {
   const active = getActive();
-  // If a profile is already active OR the user previously chose guest, skip.
+  // If a profile is already active, nothing to prompt.
   if (active) return false;
-  let chose_guest = false;
-  try { chose_guest = localStorage.getItem(GUEST_KEY) === '1'; } catch {}
-  if (chose_guest && listProfiles().length === 0) return false;
-  // If they chose guest but profiles exist, we still want to give them the
-  // option to log in — but don't FORCE it. Only force on truly first visit.
-  if (chose_guest) return false;
-
-  // Lock the body so hub interactions don't sneak through.
-  document.body.classList.add('login-locked');
-  buildLoginOverlayDom();
-  renderLoginList();
-  bindLoginOverlayEvents();
-  $(LOGIN_ID).hidden = false;
-  return true;
+  // NEVER gate the front door. Big portals (Poki/CrazyGames) land you straight
+  // on the games and treat accounts as optional — gating play behind a profile
+  // screen is the single biggest first-impression killer. So a visitor with no
+  // active profile is silently treated as a guest and sees the grid immediately.
+  // Login stays fully discoverable on demand via the GUEST profile chip
+  // ("Show login screen" → forceShowLoginOverlay). See COMPETITIVE_RESEARCH_2026.md P0-1.
+  try { if (localStorage.getItem(GUEST_KEY) !== '1') localStorage.setItem(GUEST_KEY, '1'); } catch {}
+  return false;
 }
 
 // Public: from "switch profile" UI, force the login overlay back open.

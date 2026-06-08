@@ -78,11 +78,11 @@
           </svg>
           <span class="hub__logo-word">BORKADE</span>
         </h1>
-        <p class="hub__tagline">Pug arcade · 15 games · no installs · press play.</p>
+        <p class="hub__tagline">15 original pug games · no ads · no tracking · instant play.</p>
         <div class="hub__chips">
           <span id="hub-live-chip" class="hub__chip hub__chip--live">LIVE · — GAMES</span>
-          <span class="hub__chip hub__chip--free">FREE · NO ACCOUNT</span>
-          <span class="hub__chip">PIXEL · NEON</span>
+          <span class="hub__chip hub__chip--free">FREE · NO ADS</span>
+          <span class="hub__chip">NO TRACKING</span>
         </div>
         <input
           id="hub-search"
@@ -3058,34 +3058,9 @@
           <div class="card__body"><h2 class="card__title">PUG TOWER DEFENSE</h2><p class="card__desc">Build towers. 15 waves. Defend the biscuit vault.</p><span class="card__cta">Defend →</span></div>
         </a>
 
-        <div class="card card--coming">
-          <div class="card__art card__art--soon">
-            <svg class="card__svg" viewBox="0 0 280 160" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg" shape-rendering="crispEdges">
-              <defs>
-                <pattern id="soonStripes" patternUnits="userSpaceOnUse" width="20" height="20" patternTransform="rotate(45)">
-                  <rect width="10" height="20" fill="#1a1230"/>
-                  <rect x="10" width="10" height="20" fill="#161020"/>
-                </pattern>
-              </defs>
-              <rect width="280" height="160" fill="url(#soonStripes)"/>
-              <g transform="translate(140,80)" text-anchor="middle">
-                <rect x="-46" y="-12" width="92" height="24" rx="3" fill="#0a0716" opacity="0.85" stroke="#8a90b1"/>
-                <text y="6" font-family="'Press Start 2P', monospace" font-size="9" fill="#8a90b1">SOON</text>
-              </g>
-              <g fill="#8a90b1" opacity="0.55">
-                <rect x="40" y="38" width="3" height="3"/>
-                <rect x="220" y="48" width="3" height="3"/>
-                <rect x="60" y="120" width="3" height="3"/>
-                <rect x="230" y="118" width="3" height="3"/>
-              </g>
-            </svg>
-          </div>
-          <div class="card__body">
-            <h2 class="card__title">More games coming</h2>
-            <p class="card__desc">Snake.io, brick breaker, and more on the way.</p>
-            <span class="card__cta card__cta--muted">Soon</span>
-          </div>
-        </div>
+        <!-- "More games coming" placeholder card removed: dev-diary artifacts on
+             the player surface read as a build log, not a product. The roadmap
+             lives in docs/COMPETITIVE_RESEARCH_2026.md, not the grid. (P0-4) -->
       </section>
 
       <footer class="hub__footer">
@@ -3858,13 +3833,15 @@
       // First visit → show onboarding, but only AFTER the login overlay is
       // resolved AND the player isn't actively in a profile (logged-in players
       // have already seen the welcome via the login screen).
+      // Front door must never be covered by a modal on load — the first 50ms and
+      // the above-the-fold game row carry most of the attention. We no longer
+      // auto-open the onboarding/tip modal; it stays reachable on demand via the
+      // "?" key and the help button. See COMPETITIVE_RESEARCH_2026.md P0-1.
       const _hasActive = !!getActive();
       const _onboarded = !!localStorage.getItem('wg:onboarded');
-      if (!_onboarded && !_hasActive && localStorage.getItem('wg:login:guest') === '1') {
-        // Guest player who has not seen onboarding yet — show classic tip modal.
-        setTimeout(() => openModal('onboard-modal'), 400);
-      } else if (_hasActive && !_onboarded) {
-        // Logged-in: implicitly mark onboarded so guests later don't see it twice.
+      if (!_onboarded) {
+        // Mark onboarded so legacy auto-open paths stay suppressed; players who
+        // want the tips can still open them with "?" or the help button.
         localStorage.setItem('wg:onboarded', '1');
       }
       // Click backdrop closes
@@ -5095,6 +5072,10 @@
       // new-game wishlist item without shipping a stub bundle.
       // ======================================================================
       (function pinballSoonTile() {
+        // DISABLED (P0-4): "coming soon" placeholder tiles read as a dev build
+        // log on the player surface. The grid should show only real, playable
+        // games. Roadmap lives in COMPETITIVE_RESEARCH_2026.md, not the grid.
+        return;
         const grid = document.querySelector('.hub__grid, .hub__cards, [data-cards]');
         if (!grid) return;
         if (document.getElementById('r7-pinball-soon')) return;

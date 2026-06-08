@@ -24,7 +24,7 @@
   --crimson: #ff3a3a;
   --text: #f8f5ff;
   --text-soft: #c8c0e8;
-  --muted: #8a90b1;
+  --muted: #a8aed0; /* lightened from #8a90b1 to clear WCAG AA 4.5:1 on the dark bg — COMPETITIVE_RESEARCH_2026.md P0-7 */
   --gold: #ffd700;
   --border: #2a2540;
 
@@ -747,8 +747,13 @@ body.reduced-motion .card:focus-visible {
 .card__title {
   margin: 0;
   font-family: var(--font-display);
-  font-size: 0.95rem;
-  letter-spacing: 0.04em;
+  font-size: 0.9rem;
+  /* Press Start 2P has no built-in leading; without an explicit line-height a
+     two-line title (e.g. "PUG DUNGEON DIGGERS") collides with itself and the
+     description below. 1.5 gives wrapped titles clean separation.
+     See COMPETITIVE_RESEARCH_2026.md P0-3 / P0-5. */
+  line-height: 1.5;
+  letter-spacing: 0.03em;
   color: var(--neon-yellow);
   text-shadow: 0 1px 0 #000;
 }
