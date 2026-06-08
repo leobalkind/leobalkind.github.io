@@ -62,6 +62,18 @@ no-backend site, in priority order of **felt impact ÷ effort**):
 - **P0-7** — lightened `--muted` to clear WCAG AA.
 - **P6-7** — hero now leads with the differentiator ("no ads · no tracking ·
   instant"; chips "FREE · NO ADS" / "NO TRACKING").
+- **P2-1 / P2-2** — the featured-game-of-the-day is now a framed **"★ DAILY
+  CHALLENGE"** (flips to "✅ DONE TODAY" once launched, date-seeded), and the
+  default Share builds a **Wordle-style daily brag** (streak + games-played +
+  today's challenge + "no ads" pitch + link). The daily-return + virality loop.
+- **Polish** — refreshed stale footer/About version (v2.4 → v2.10) and stale
+  "Web Games" branding in the share text/labels → BORKADE.
+
+**Juice audit finding:** the games are already well-juiced — 11/15 import the
+shared canvas-juice modules (`screenShake`/`particleBurst`/…), and the DOM-based
+ones (e.g. mutation-lab) use CSS-animation juice + sfx + reveal celebrations
+appropriately. So P5 is largely *done already*; adding more would be gold-plating.
+Per-game work should be targeted (a specific weak game), not a blanket pass.
 
 **🟡 Already existed in code (the research agents couldn't see the repo, so they
 over-estimated the gaps — DON'T rebuild these):**
