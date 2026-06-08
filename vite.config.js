@@ -1,8 +1,17 @@
 import { defineConfig } from 'vite';
 import { resolve } from 'path';
+import { GAMES } from './src/shared/games.js';
 
 // Now a user-page repo (leobalkind.github.io) — serves from root '/'.
 // Override with VITE_BASE env var for other hosts if needed.
+//
+// The per-game build inputs are derived from the games registry
+// (src/shared/games.js) so adding a game means editing ONE list, not this file
+// too. `viteKey` is the rollup chunk name; `path` is '/games/<id>/index.html'.
+const gameInputs = Object.fromEntries(
+  GAMES.map((g) => [g.viteKey, resolve(__dirname, g.path.replace(/^\//, ''))])
+);
+
 export default defineConfig(({ command }) => ({
   root: '.',
   base: process.env.VITE_BASE ?? '/',
@@ -16,21 +25,7 @@ export default defineConfig(({ command }) => ({
     rollupOptions: {
       input: {
         hub: resolve(__dirname, 'index.html'),
-        borkBattle: resolve(__dirname, 'games/bork-battle/index.html'),
-        pugfort: resolve(__dirname, 'games/pugfort/index.html'),
-        pugHeist: resolve(__dirname, 'games/pug-heist/index.html'),
-        pugCafe: resolve(__dirname, 'games/pug-cafe/index.html'),
-        rocketPug: resolve(__dirname, 'games/rocket-pug/index.html'),
-        dungeonDiggers: resolve(__dirname, 'games/dungeon-diggers/index.html'),
-        mutationLab: resolve(__dirname, 'games/mutation-lab/index.html'),
-        deliveryPugs: resolve(__dirname, 'games/delivery-pugs/index.html'),
-        pugzilla: resolve(__dirname, 'games/pugzilla/index.html'),
-        backroomsPug: resolve(__dirname, 'games/backrooms-pug/index.html'),
-        backrooms3d: resolve(__dirname, 'games/backrooms-3d/index.html'),
-        clownForest: resolve(__dirname, 'games/clown-forest/index.html'),
-        floorLava: resolve(__dirname, 'games/floor-lava/index.html'),
-        supermarketPug: resolve(__dirname, 'games/supermarket-pug/index.html'),
-        pugTd: resolve(__dirname, 'games/pug-td/index.html'),
+        ...gameInputs,
       },
     },
   },
