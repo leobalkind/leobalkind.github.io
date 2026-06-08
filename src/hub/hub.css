@@ -2625,6 +2625,14 @@ body.reduced-motion .profile-chip__dot { animation: none; }
   box-shadow: 0 0 10px rgba(255, 210, 63, 0.4);
   animation: newTagPulse 2.2s ease-in-out infinite;
 }
+/* HOT — your most-played game (idea-bank A40). Orange flame accent. */
+.card__tag--hot {
+  background: linear-gradient(180deg, var(--neon-orange), #b34a12);
+  color: #1a0d05;
+  border-color: #ffb27a;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.3);
+  box-shadow: 0 0 10px rgba(255, 142, 60, 0.45);
+}
 @keyframes newTagPulse {
   0%, 100% { box-shadow: 0 0 10px rgba(255, 210, 63, 0.4); }
   50%      { box-shadow: 0 0 18px rgba(255, 210, 63, 0.75); }

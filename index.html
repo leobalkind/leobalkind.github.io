@@ -3484,7 +3484,7 @@
                  <button type="button" class="pwa-install-hint__close" aria-label="Dismiss">✕</button>`
               : `<span class="pwa-install-hint__icon" aria-hidden="true">📲</span>
                  <div class="pwa-install-hint__body">
-                   <span class="pwa-install-hint__title">INSTALL WEB GAMES</span>
+                   <span class="pwa-install-hint__title">INSTALL BORKADE</span>
                    <span class="pwa-install-hint__sub">PLAY OFFLINE FROM YOUR HOMESCREEN</span>
                  </div>
                  <button type="button" class="pwa-install-hint__install">INSTALL</button>
@@ -4066,6 +4066,34 @@
             tag.textContent = 'NEW';
             tagsBox.appendChild(tag);
           }
+        })();
+
+        // HOT badge (idea-bank A40) — a flame on YOUR single most-played game,
+        // driven by the local wg:plays counters. Personal "trending" signal;
+        // shows nothing for a brand-new profile (no plays yet).
+        (function addHotBadge() {
+          let topGid = null, topN = 0;
+          for (const c of cards) {
+            const gid = c.dataset.gid;
+            if (!gid) continue;
+            let n = 0; try { n = Number(localStorage.getItem('wg:plays:' + gid)) || 0; } catch {}
+            if (n > topN) { topN = n; topGid = gid; }
+          }
+          if (!topGid || topN < 1) return;
+          const c = cards.find((x) => x.dataset.gid === topGid);
+          const body = c && c.querySelector('.card__body');
+          if (!body) return;
+          let tagsBox = body.querySelector('.card__tags');
+          if (!tagsBox) {
+            tagsBox = document.createElement('div');
+            tagsBox.className = 'card__tags';
+            body.insertBefore(tagsBox, body.firstChild);
+          }
+          if (tagsBox.querySelector('.card__tag--hot')) return;
+          const tag = document.createElement('span');
+          tag.className = 'card__tag card__tag--hot';
+          tag.textContent = '🔥 HOT';
+          tagsBox.appendChild(tag);
         })();
 
         // Fuzzy match: returns true when EVERY character of `q` appears in
