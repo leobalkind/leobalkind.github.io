@@ -1067,6 +1067,30 @@ export class Game {
     // heartbeat vignette keeps animating even during hitstop (dt == 0).
     this._updateFxOverlay(rawDt);
 
+    // Adaptive music intensity: combat pressure 0→1 from how many pugs have
+    // died (endgame), nearest-enemy proximity, and the player's low HP. Drives
+    // the Sfx music to build from a calm intro to a frantic finale. Cheap +
+    // fully guarded so it can never affect gameplay.
+    try {
+      let aliveCount = 0;
+      for (const p of this.pugs) if (p.alive) aliveCount++;
+      const total = this.pugs.length || 1;
+      const alivePressure = total > 1 ? (total - aliveCount) / (total - 1) : 0;
+      let prox = 0, lowHp = 0;
+      if (this.player && this.player.alive) {
+        lowHp = 1 - Math.max(0, Math.min(1, this.player.hp / (this.player.maxHp || 1)));
+        let nd = Infinity;
+        for (const p of this.pugs) {
+          if (p === this.player || !p.alive) continue;
+          const d = Math.hypot(p.x - this.player.x, p.y - this.player.y);
+          if (d < nd) nd = d;
+        }
+        if (nd < 420) prox = 1 - nd / 420;
+      }
+      const intensity = Math.max(0, Math.min(1, alivePressure * 0.5 + prox * 0.3 + lowHp * 0.2));
+      Sfx.setMusicIntensity(intensity);
+    } catch (e) { /* never let music math touch gameplay */ }
+
     // (Bot respawn removed — kill all bots = WIN)
 
     // Random match events
@@ -2904,6 +2928,8 @@ export class Game {
   _handleKill(killer, victim, byZone) {
     victim.alive = false;
     this._spawnRandomDeathEffect(victim.x, victim.y);
+    // Adaptive audio: sidechain-dip the music on the player's kills for punch.
+    if (killer === this.player) { try { Sfx.duckMusic(200, 0.5); } catch (e) { /* */ } }
     // Combo system: if player chained kill within 3s, grow combo
     if (killer === this.player) {
       const now = this.matchTime;

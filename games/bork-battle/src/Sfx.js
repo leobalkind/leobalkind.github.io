@@ -302,9 +302,16 @@ export const Sfx = {
   startMusic() {
     const c = ensureCtx(); if (!c) return;
     if (this._music) return; // already playing
+    const self = this;
     const musicGain = c.createGain();
     musicGain.gain.value = 0.12;
-    musicGain.connect(masterGain);
+    // Duck node sits between music and master so combat hits can briefly dip the
+    // music without fighting the settings-driven musicGain volume.
+    const duckGain = c.createGain();
+    duckGain.gain.value = 1;
+    musicGain.connect(duckGain);
+    duckGain.connect(masterGain);
+    this._musicDuck = duckGain;
     // Drive beat — a 4-bar loop at ~140 BPM
     // C minor pentatonic-ish bassline
     const bpm = 140;
@@ -328,29 +335,48 @@ export const Sfx = {
       osc.start(when);
       osc.stop(when + dur + 0.02);
     };
+    // Percussion helpers for the adaptive layers.
+    const kick = (when) => {
+      const o = c.createOscillator(); o.type = 'sine';
+      o.frequency.setValueAtTime(150, when);
+      o.frequency.exponentialRampToValueAtTime(45, when + 0.12);
+      const g = c.createGain();
+      g.gain.setValueAtTime(0.0001, when);
+      g.gain.linearRampToValueAtTime(0.22, when + 0.005);
+      g.gain.exponentialRampToValueAtTime(0.0001, when + 0.16);
+      o.connect(g).connect(musicGain); o.start(when); o.stop(when + 0.18);
+    };
+    const noise = (when, peak, hp, dur) => {
+      const src = c.createBufferSource(); src.buffer = noiseBuffer(dur + 0.01);
+      const ng = c.createGain();
+      ng.gain.setValueAtTime(0, when);
+      ng.gain.linearRampToValueAtTime(peak, when + 0.001);
+      ng.gain.exponentialRampToValueAtTime(0.0001, when + dur);
+      const f = c.createBiquadFilter(); f.type = 'highpass'; f.frequency.value = hp;
+      src.connect(f).connect(ng).connect(musicGain);
+      src.start(when); src.stop(when + dur + 0.02);
+    };
+    // ADAPTIVE music: the base bass/lead always play; kick, snare, denser hats,
+    // an octave arp, and louder hits layer in as `_musicIntensity` (combat
+    // pressure, set from Game) climbs 0→1. Calm intro, frantic endgame.
     const tick = () => {
       while (nextNoteTime < c.currentTime + lookAhead) {
         const half = beat / 2;
         const i = step % 8;
-        // Bass
-        scheduleNote(bass[i], 'square', nextNoteTime, half * 0.95, 0.18);
+        const I = Math.max(0, Math.min(1, self._musicIntensity || 0));
+        const vmul = 1 + I * 0.35;
+        // Bass (always)
+        scheduleNote(bass[i], 'square', nextNoteTime, half * 0.95, 0.18 * vmul);
         // Lead — slightly delayed
-        scheduleNote(lead[i], 'triangle', nextNoteTime + 0.02, half * 0.4, 0.12);
-        // Hi-hat (noise) every quarter
-        if (i % 2 === 0) {
-          const nb = noiseBuffer(0.04);
-          const src = c.createBufferSource();
-          src.buffer = nb;
-          const ng = c.createGain();
-          ng.gain.setValueAtTime(0, nextNoteTime);
-          ng.gain.linearRampToValueAtTime(0.08, nextNoteTime + 0.001);
-          ng.gain.exponentialRampToValueAtTime(0.0001, nextNoteTime + 0.04);
-          const f = c.createBiquadFilter();
-          f.type = 'highpass'; f.frequency.value = 5000;
-          src.connect(f).connect(ng).connect(musicGain);
-          src.start(nextNoteTime);
-          src.stop(nextNoteTime + 0.05);
-        }
+        scheduleNote(lead[i], 'triangle', nextNoteTime + 0.02, half * 0.4, 0.12 * vmul);
+        // Octave arp doubling once things heat up
+        if (I > 0.5 && lead[i]) scheduleNote(lead[i] * 2, 'square', nextNoteTime + 0.02, half * 0.22, 0.05);
+        // Hi-hat every quarter (base) → every eighth when intense
+        if (i % 2 === 0 || I > 0.4) noise(nextNoteTime, 0.08, 5000, 0.04);
+        // Kick on the beat once intensity climbs
+        if (I > 0.25 && i % 2 === 0) kick(nextNoteTime);
+        // Snare backbeat at high intensity
+        if (I > 0.55 && (i === 2 || i === 6)) noise(nextNoteTime, 0.12, 2000, 0.09);
         nextNoteTime += half;
         step++;
       }
@@ -363,10 +389,26 @@ export const Sfx = {
     if (!this._music) return;
     clearInterval(this._music.timer);
     try { this._music.gain.disconnect(); } catch {}
-    this._music = null; musicGainHandle = null;
+    try { if (this._musicDuck) this._musicDuck.disconnect(); } catch {}
+    this._music = null; musicGainHandle = null; this._musicDuck = null;
   },
   setMusicVolume(v) {
     if (this._music) this._music.gain.gain.value = Math.max(0, Math.min(1, v));
+  },
+  // Combat pressure 0→1, set each frame from Game; drives the adaptive layers.
+  setMusicIntensity(v) {
+    this._musicIntensity = Math.max(0, Math.min(1, v || 0));
+  },
+  // Briefly dip the music (sidechain-style) on a big combat moment.
+  duckMusic(ms = 200, amt = 0.5) {
+    const d = this._musicDuck; if (!d || !ctx) return;
+    const now = ctx.currentTime;
+    try {
+      d.gain.cancelScheduledValues(now);
+      d.gain.setValueAtTime(d.gain.value, now);
+      d.gain.linearRampToValueAtTime(Math.max(0.1, amt), now + 0.03);
+      d.gain.linearRampToValueAtTime(1, now + Math.max(0.06, ms / 1000));
+    } catch {}
   },
 
   // === Master controls ===
